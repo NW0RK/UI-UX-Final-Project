@@ -1,58 +1,59 @@
-# UI-UX-Final-Project
+Here is your final project documentation formatted in clean, scannable Markdown.
 
-Please review the requirements for the final project:
+---
 
-You may complete the project individually or in a team (however, a maximum of 3 people can work on a single project).
+# UI/UX Final Project Guidelines
 
-Project authors will be evaluated individually, based on the quality of their individual contribution.
+## 📌 Project Overview & Team Structure
 
-You must agree on the project title and team composition with me (during a seminar or lecture, via email, or through private messages on Teams) by June 5th at 18:00. In addition, during the course period (at least once before the end of the very last teaching week), you must attend a lecture or seminar to present the current stage of your project so I can assess your progress.
-
-After you complete your project, you will upload your projects to the LMS in the designated assignment section before the specified deadline. You may upload either the working files directly or a GitHub link. Also you must upload kind of documentation file (what is your project about and who did what in this project).
-
-Regarding timing: completed projects must be submitted before the start of the final exams. During the final exam period, project presentations will be scheduled on specific day (or two) (times will be arranged individually according to your preference). Each project presentation will last 15–20 minutes, during which I will also ask questions about your work. A few days before the presentations, all projects must already be submitted so I have sufficient time to review them in advance.
-
-The main focus of the evaluation will be on UI/UX. You may develop either a desktop or a web application. You can use any programming language and any libraries. The key is to build a high-quality product with proper design principles, usability, learnability, and meaningful feedback.
-
-Since you are not restricted in your choice of technology or approach, it is naturally difficult to define very strict criteria in advance. However, during seminars or lectures, when you present your progress, I will try to give you guidance that can help you achieve a better grade.
-
-If you have any additional questions, you may comment under this post, and I will add answers here if needed.
+* **Team Size:** You may complete the project **individually** or in a team of **up to 3 people**.
+* **Evaluation:** Project authors will be evaluated individually based on the quality of their individual contributions.
+* **Deadlines & Milestones:**
+* **June 5th at 18:00:** Deadline to agree on the project title and team composition with the instructor (via seminar/lecture, email, or private MS Teams message).
+* **Progress Check:** You must attend at least one lecture or seminar *before the end of the last teaching week* to present your current progress for assessment.
 
 
 
+---
+
+## 🛠️ Technical Requirements & Scope
+
+* **Platform:** You can develop either a **desktop** or a **web application**.
+* **Technology Stack:** You are free to use **any** programming language and libraries.
+* **Core Focus:** The main focus of the evaluation is on **UI/UX**. The goal is to build a high-quality product using proper design principles, usability, learnability, and meaningful user feedback.
+* **Guidance:** Because technologies vary, strict criteria are difficult to define in advance. Lean on the mandatory progress presentations to receive tailored guidance to improve your final grade.
+
+---
+
+## 📥 Submission Process
+
+* **When to Submit:** All completed projects must be submitted a few days **before the final exam period starts** to allow sufficient time for review.
+* **Where to Submit:** Upload your materials to the designated assignment section in the **LMS**.
+* **What to Submit:**
+1. The working project files directly **OR** a GitHub repository link.
+2. A **documentation file** detailing what the project is about and a clear breakdown of who did what (*who did what*).
 
 
-consider it:
 
-Final Project Grading Criteria (Total: 40 points)
+---
 
-1) UI/UX and Design – 14 points
+## 🗣️ Final Presentation
 
-Visual quality (layout, colors, typography)
-Intuitive navigation
-Consistent design across the application
-2) Functionality and Requirement Fulfillment – 10 points
+* **Timing:** Presentations will be scheduled on one or two specific days during the final exam period. Times will be arranged individually based on your preference.
+* **Duration:** Each presentation will last **15–20 minutes**.
+* **Format:** A demonstration of your work followed by a Q&A session where the instructor will ask questions about your project.
 
-Correct implementation of core features
-Full coverage of required specifications
-Proper working application flow (no critical bugs)
-3) Code Quality and Architecture – 6 points
+---
 
-Clean and well-structured code
-Logical separation (modules/components/classes)
-Maintainability and readability
-4) Innovation / Complexity – 4 points
+## 📊 Final Project Grading Criteria (Total: 40 Points)
 
-Additional features beyond the minimum requirements
-Creativity or originality of the idea
-Technical or conceptual complexity
-5) Usability / User Experience – 4 points
+| Category | Max Points | Evaluation Focus |
+| --- | --- | --- |
+| **1) UI/UX and Design** | **14 pts** | Visual quality (layout, colors, typography), intuitive navigation, and consistent design across the application. |
+| **2) Functionality & Requirements** | **10 pts** | Correct implementation of core features, full coverage of specifications, and proper workflow without critical bugs. |
+| **3) Code Quality & Architecture** | **6 pts** | Clean, well-structured, readable, and maintainable code with logical separation (modules/components/classes). |
+| **4) Innovation / Complexity** | **4 pts** | Creative/original ideas, technical complexity, and additional features beyond the minimum requirements. |
+| **5) Usability / User Experience** | **4 pts** | Ease of learning/use, smooth user flow, and proper feedback (errors, hints, confirmations). |
+| **6) Presentation** | **2 pts** | Clarity of explanation, quality of the live demonstration, and ability to answer questions. |
 
-Ease of learning and use
-Proper user feedback (errors, hints, confirmations)
-Smooth and comfortable user flow
-6) Presentation – 2 points
-
-Clarity of explanation
-Quality of demonstration
-Ability to answer questions
+> 💬 **Questions?** If you have any additional questions, please comment under the official post, and answers will be updated here as needed.

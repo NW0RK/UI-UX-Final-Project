@@ -86,7 +86,11 @@ export default function PiPSidebar({
 
       {/* Active Game Stats */}
       <div className="pip-game-hero">
-        <img src={game.coverUrl} alt={game.title} className="pip-game-cover" />
+        {game.coverUrl ? (
+          <img src={game.coverUrl} alt={game.title} className="pip-game-cover" />
+        ) : (
+          <div className="pip-game-cover pip-game-cover-placeholder">{game.title?.slice(0, 2)}</div>
+        )}
         <div className="pip-game-info">
           <div className="pip-game-title">{game.title}</div>
           <div className="pip-game-dev">{game.developer}</div>
@@ -243,6 +247,18 @@ export default function PiPSidebar({
           border-radius: 6px;
           border: 1px solid rgba(255, 255, 255, 0.08);
           box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .pip-game-cover-placeholder {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.2), rgba(7, 7, 10, 0.95));
+          color: rgba(255, 255, 255, 0.72);
+          font-family: var(--font-display);
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: uppercase;
         }
 
         .pip-game-info {

@@ -159,7 +159,13 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
       <div className="card-face">
         {/* Cover Artwork */}
         <div className="card-image-container">
-          <img src={game.coverUrl} alt={game.title} className="card-image" loading="lazy" />
+          {game.coverUrl ? (
+            <img src={game.coverUrl} alt={game.title} className="card-image" loading="lazy" />
+          ) : (
+            <div className="card-image card-image-placeholder">
+              <span>{game.title}</span>
+            </div>
+          )}
           
           {/* Running State Pulse Overlay */}
           {isRunning && (
@@ -261,6 +267,21 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
           height: 100%;
           object-fit: cover;
           transition: transform 0.8s ease;
+        }
+
+        .card-image-placeholder {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.18), rgba(7, 7, 10, 0.94));
+          color: rgba(255, 255, 255, 0.72);
+          font-family: var(--font-display);
+          font-size: 15px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          text-align: center;
+          text-transform: uppercase;
         }
 
         .game-card-wrapper:hover .card-image {

@@ -67,7 +67,13 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
               onClick={() => handleItemClick(item)}
             >
               <div className="store-card-image-wrapper">
-                <img src={item.coverUrl} alt={item.title} className="store-card-image" loading="lazy" />
+                {item.coverUrl ? (
+                  <img src={item.coverUrl} alt={item.title} className="store-card-image" loading="lazy" />
+                ) : (
+                  <div className="store-card-image store-card-image-placeholder">
+                    <span>{item.title}</span>
+                  </div>
+                )}
                 {isOwned && (
                   <div className="store-owned-badge">
                     <Check size={12} />
@@ -195,6 +201,21 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           height: 100%;
           object-fit: cover;
           transition: transform 0.6s ease;
+        }
+
+        .store-card-image-placeholder {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.14), rgba(7, 7, 10, 0.94));
+          color: rgba(255, 255, 255, 0.7);
+          font-family: var(--font-display);
+          font-size: 14px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          text-align: center;
+          text-transform: uppercase;
         }
 
         .store-card:hover .store-card-image {

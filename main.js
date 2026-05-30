@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
 import { spawn, execFile } from 'child_process';
 import https from 'https';
+import { pipeline } from 'stream/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,19 +111,24 @@ function getExtensionFromArtwork(artwork) {
     'image/png': 'png',
     'image/jpeg': 'jpg',
     'image/jpg': 'jpg',
-    'image/webp': 'webp'
+    'image/webp': 'webp',
+    'image/vnd.microsoft.icon': 'ico',
+    'image/x-icon': 'ico'
   };
   if (mimeExt[artwork?.mime]) return mimeExt[artwork.mime];
 
   try {
     const ext = path.extname(new URL(artwork.url).pathname).replace('.', '').toLowerCase();
-    if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
+    if (['png', 'jpg', 'jpeg', 'webp', 'ico'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
   } catch (e) { /* ignore */ }
 
   return 'png';
 }
 
 async function downloadImage(url, destPath) {
+  const tmpPath = `${destPath}.download`;
+  if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+
   const res = await httpsGet(url, {
     headers: { 'User-Agent': 'NexusLauncher/1.0' }
   });
@@ -132,24 +138,15 @@ async function downloadImage(url, destPath) {
     throw new Error(`Image download failed with HTTP ${res.statusCode}`);
   }
 
-  const tmpPath = `${destPath}.download`;
-  await new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(tmpPath);
-    res.pipe(file);
-    file.on('finish', () => {
-      file.close(resolve);
-    });
-    const handleError = (err) => {
-      file.close(() => {
-        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-        reject(err);
-      });
-    };
-    file.on('error', handleError);
-    res.on('error', handleError);
-  });
-  fs.renameSync(tmpPath, destPath);
-  return destPath;
+  try {
+    await pipeline(res, fs.createWriteStream(tmpPath));
+    if (!fs.existsSync(tmpPath)) throw new Error('Downloaded image temp file was not created');
+    fs.renameSync(tmpPath, destPath);
+    return destPath;
+  } catch (err) {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    throw err;
+  }
 }
 
 function getGameCacheDir(gameId) {
@@ -162,7 +159,7 @@ function getCachedArtworkPaths(gameId) {
   const cacheDir = getGameCacheDir(gameId);
   const result = {};
   const types = ['grid', 'hero', 'logo', 'icon'];
-  const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+  const extensions = ['png', 'jpg', 'jpeg', 'webp', 'ico'];
   for (const type of types) {
     for (const ext of extensions) {
       const filePath = path.join(cacheDir, `${type}.${ext}`);
@@ -223,6 +220,14 @@ async function searchSteamGridDBGames(term) {
       matchScore: scoreSteamGridDBMatch(searchTerm, result)
     }))
     .sort((a, b) => b.matchScore - a.matchScore);
+}
+
+async function getSteamGridDBGameBySteamAppId(steamAppId) {
+  const appId = String(steamAppId || '').trim();
+  if (!/^\d+$/.test(appId)) return null;
+
+  const data = await steamgriddbFetch(`/games/steam/${encodeURIComponent(appId)}`);
+  return data.data || null;
 }
 
 function pickArtwork(items, key) {
@@ -292,6 +297,23 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
 async function findSteamGridDBGame(term) {
   const results = await searchSteamGridDBGames(term);
   return results.find(result => result.matchScore >= 45) || results[0] || null;
+}
+
+async function resolveSteamGridDBGame(game) {
+  if (game?.steamGridDbId && !game.forceTitleLookup) {
+    return { id: game.steamGridDbId, name: game.steamGridDbName || game.title };
+  }
+
+  if (game?.steamAppId) {
+    try {
+      const match = await getSteamGridDBGameBySteamAppId(game.steamAppId);
+      if (match?.id) return { ...match, matchSource: 'steamAppId' };
+    } catch (err) {
+      console.log(`SteamGridDB Steam AppID lookup failed for ${game.title || game.steamAppId}: ${err.message}`);
+    }
+  }
+
+  return await findSteamGridDBGame(game?.title);
 }
 
 // --- Window Creation ---
@@ -417,10 +439,63 @@ function scanDirDepth(dirPath, currentDepth, maxDepth, filesList) {
   } catch (err) { /* ignore */ }
 }
 
+function parseSteamAppManifest(filePath, steamappsDir) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const appid = content.match(/"appid"\s+"(\d+)"/)?.[1];
+    const name = content.match(/"name"\s+"([^"]+)"/)?.[1];
+    const installdir = content.match(/"installdir"\s+"([^"]+)"/)?.[1];
+    if (!appid || !installdir) return null;
+
+    return {
+      appid,
+      name,
+      installPath: path.join(steamappsDir, 'common', installdir).toLowerCase()
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function findSteamAppManifests(scanRoot) {
+  const candidates = new Set();
+  const root = path.resolve(scanRoot);
+  const rootBase = path.basename(root).toLowerCase();
+
+  if (rootBase === 'common') candidates.add(path.dirname(root));
+  if (rootBase === 'steamapps') candidates.add(root);
+  candidates.add(path.join(root, 'steamapps'));
+  candidates.add(path.join(path.dirname(root), 'steamapps'));
+
+  const manifests = [];
+  for (const steamappsDir of candidates) {
+    try {
+      if (!fs.existsSync(steamappsDir)) continue;
+      const files = fs.readdirSync(steamappsDir).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
+      for (const file of files) {
+        const manifest = parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
+        if (manifest) manifests.push(manifest);
+      }
+    } catch (err) { /* ignore */ }
+  }
+
+  return manifests;
+}
+
+function attachSteamAppIds(filesList, manifests) {
+  if (!manifests.length) return filesList;
+
+  return filesList.map(file => {
+    const normalizedPath = file.path.toLowerCase();
+    const match = manifests.find(manifest => normalizedPath.startsWith(manifest.installPath));
+    return match ? { ...file, steamAppId: match.appid, steamName: match.name } : file;
+  });
+}
+
 ipcMain.handle('scan-executables', async (event, dirPath) => {
   const filesList = [];
   scanDirDepth(dirPath, 1, 3, filesList);
-  return filesList;
+  return attachSteamAppIds(filesList, findSteamAppManifests(dirPath));
 });
 
 // --- IPC: Game Launcher ---
@@ -468,9 +543,7 @@ ipcMain.handle('steamgriddb-auto-fetch-artwork', async (event, game) => {
       return { error: 'Missing game id or title' };
     }
 
-    const match = game.steamGridDbId && !game.forceTitleLookup
-      ? { id: game.steamGridDbId, name: game.title }
-      : await findSteamGridDBGame(game.title);
+    const match = await resolveSteamGridDBGame(game);
 
     if (!match?.id) {
       return { error: `No SteamGridDB match found for ${game.title}` };
@@ -485,6 +558,7 @@ ipcMain.handle('steamgriddb-auto-fetch-artwork', async (event, game) => {
       ...artwork,
       steamGridDbId: match.id,
       steamGridDbName: match.name,
+      steamAppId: game.steamAppId || null,
       matchScore: match.matchScore
     };
   } catch (err) {

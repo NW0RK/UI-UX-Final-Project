@@ -45,12 +45,18 @@ export default function GameMainBanner({
     <div className="game-main-banner-container">
       {/* Background Dissolve Backdrop Canvas */}
       <div className="backdrop-image-mask">
-        <img 
-          src={game.bannerUrl} 
-          alt={game.title} 
-          className="banner-backdrop-img backdrop-parallax" 
-          key={game.id} // Forces re-mounting and triggers CSS fade transition
-        />
+        {game.bannerUrl ? (
+          <img 
+            src={game.bannerUrl} 
+            alt={game.title} 
+            className="banner-backdrop-img backdrop-parallax" 
+            key={game.id} // Forces re-mounting and triggers CSS fade transition
+          />
+        ) : (
+          <div className="banner-backdrop-img banner-art-placeholder backdrop-parallax" key={game.id}>
+            <span>SteamGridDB artwork pending</span>
+          </div>
+        )}
         <div className="backdrop-overlay-vignette" />
       </div>
 
@@ -161,7 +167,7 @@ export default function GameMainBanner({
           top: 0;
           left: 0;
           width: 100%;
-          height: calc(100% - 310px);
+          height: calc(100% - 390px);
           display: flex;
           align-items: flex-end;
           padding: 0 60px 48px;
@@ -188,6 +194,19 @@ export default function GameMainBanner({
           filter: brightness(0.6) contrast(1.05);
           transition: opacity 1.2s ease-in-out;
           animation: fade-in-backdrop 1.2s forwards ease-in-out, slow-pan 45s infinite ease-in-out;
+        }
+
+        .banner-art-placeholder {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: radial-gradient(circle at 50% 35%, rgba(var(--accent-color-rgb), 0.22), rgba(7, 7, 10, 0.95) 62%);
+          color: rgba(255, 255, 255, 0.42);
+          font-family: var(--font-display);
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 2px;
+          text-transform: uppercase;
         }
 
         @keyframes fade-in-backdrop {

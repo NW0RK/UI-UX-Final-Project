@@ -13,10 +13,11 @@ export default function MetadataEditor({ game, onSave, onClose }) {
   const [progress, setProgress] = useState(game.progress);
   const [playtimeHours, setPlaytimeHours] = useState(Math.round((game.playtime / 3600) * 10) / 10);
   const [description, setDescription] = useState(game.description);
-  const [coverUrl, setCoverUrl] = useState(game.coverUrl);
-  const [bannerUrl, setBannerUrl] = useState(game.bannerUrl);
+  const [coverUrl, setCoverUrl] = useState(game.coverUrl || '');
+  const [bannerUrl, setBannerUrl] = useState(game.bannerUrl || '');
   const [logoUrl, setLogoUrl] = useState(game.logoUrl || '');
   const [iconUrl, setIconUrl] = useState(game.iconUrl || '');
+  const [steamAppId, setSteamAppId] = useState(game.steamAppId || '');
   const [steamGridDbId, setSteamGridDbId] = useState(game.steamGridDbId || null);
   const [steamGridDbName, setSteamGridDbName] = useState(game.steamGridDbName || '');
   const [tagsInput, setTagsInput] = useState(game.tags?.join(', ') || '');
@@ -48,13 +49,15 @@ export default function MetadataEditor({ game, onSave, onClose }) {
       progress: parseInt(progress) || 0,
       playtime: Math.round(parseFloat(playtimeHours) * 3600) || 0,
       description,
-      coverUrl,
-      bannerUrl,
+      coverUrl: coverUrl || null,
+      bannerUrl: bannerUrl || null,
       logoUrl: logoUrl || null,
       iconUrl: iconUrl || null,
+      steamAppId: steamAppId || null,
       steamGridDbId,
       steamGridDbName: steamGridDbName || null,
-      artworkFetched: !!(coverUrl || bannerUrl || logoUrl || iconUrl),
+      artworkSource: steamGridDbId ? 'steamgriddb' : null,
+      artworkFetched: !!steamGridDbId && !!(coverUrl || bannerUrl || logoUrl || iconUrl),
       exePath,
       tags: tagsInput.split(',').map(tag => tag.trim()).filter(Boolean)
     };
@@ -119,6 +122,7 @@ export default function MetadataEditor({ game, onSave, onClose }) {
       const artwork = await window.electronAPI.autoFetchArtwork({
         ...game,
         title: lookupTitle,
+        steamAppId: steamAppId || null,
         forceTitleLookup: true
       });
 
@@ -129,6 +133,7 @@ export default function MetadataEditor({ game, onSave, onClose }) {
         if (artwork.hero) setBannerUrl(artwork.hero);
         if (artwork.logo) setLogoUrl(artwork.logo);
         if (artwork.icon) setIconUrl(artwork.icon);
+        if (artwork.steamAppId) setSteamAppId(artwork.steamAppId);
         setSteamGridDbId(artwork.steamGridDbId || null);
         setSteamGridDbName(artwork.steamGridDbName || '');
         setSearchResults([{
@@ -171,6 +176,19 @@ export default function MetadataEditor({ game, onSave, onClose }) {
                   value={title} 
                   onChange={(e) => setTitle(e.target.value)} 
                   required
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Steam AppID</label>
+                <input 
+                  type="text" 
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="glass-input editor-input" 
+                  value={steamAppId} 
+                  onChange={(e) => setSteamAppId(e.target.value.replace(/\D/g, ''))} 
+                  placeholder="e.g. 292030"
                 />
               </div>
 

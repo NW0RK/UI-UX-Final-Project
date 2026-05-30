@@ -256,6 +256,7 @@ export default function ControlCenter({
                         {isSelected ? <CheckSquare size={14} className="checkbox-icon" /> : <Square size={14} className="checkbox-icon" />}
                         <div className="result-info">
                           <span className="result-name">{file.name}</span>
+                          {file.steamAppId && <span className="result-path">Steam AppID: {file.steamAppId}</span>}
                           <span className="result-path">{file.path}</span>
                         </div>
                       </div>

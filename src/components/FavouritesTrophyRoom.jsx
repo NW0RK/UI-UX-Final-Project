@@ -86,7 +86,11 @@ export default function FavouritesTrophyRoom({
           <div className="pedestal-light-cone" />
           <div className="cylindrical-base" />
           <div className="spotlight-cover-shell">
-            <img src={spotlightGame.coverUrl} alt={spotlightGame.title} className="spotlight-cover" />
+            {spotlightGame.coverUrl ? (
+              <img src={spotlightGame.coverUrl} alt={spotlightGame.title} className="spotlight-cover" />
+            ) : (
+              <div className="spotlight-cover trophy-art-placeholder">{spotlightGame.title}</div>
+            )}
           </div>
           <div className="spotlight-plaque">
             <span className="plaque-label">Featured Favourite</span>
@@ -117,7 +121,11 @@ export default function FavouritesTrophyRoom({
               <div className="case-glass-dome">
                 <div className="case-metal-rim top-rim" />
                 <div className="case-art-frame">
-                  <img src={game.coverUrl} alt={game.title} className="case-cover-art" loading="lazy" />
+                  {game.coverUrl ? (
+                    <img src={game.coverUrl} alt={game.title} className="case-cover-art" loading="lazy" />
+                  ) : (
+                    <div className="case-cover-art trophy-art-placeholder">{game.title}</div>
+                  )}
                   {isRunning && (
                     <div className="case-running-badge">
                       <span className="running-dot" />
@@ -344,6 +352,22 @@ const roomStyles = `
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.16);
   }
 
+  .trophy-art-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    background: linear-gradient(145deg, rgba(232, 184, 91, 0.2), rgba(7, 7, 10, 0.95));
+    color: rgba(255,255,255,0.72);
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    line-height: 1.2;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
   .spotlight-plaque {
     position: relative;
     padding: 26px 28px;
@@ -488,6 +512,10 @@ const roomStyles = `
     object-fit: cover;
     border-radius: 7px;
     display: block;
+  }
+
+  .case-cover-art.trophy-art-placeholder {
+    display: flex;
   }
 
   .case-glass-shine {

@@ -72,7 +72,13 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
       {/* Banner Section */}
       <div className="store-item-banner">
-        <img src={item.bannerUrl} alt={item.title} className="store-item-banner-img" />
+        {item.bannerUrl ? (
+          <img src={item.bannerUrl} alt={item.title} className="store-item-banner-img" />
+        ) : (
+          <div className="store-item-banner-img store-item-banner-placeholder">
+            <span>SteamGridDB artwork pending</span>
+          </div>
+        )}
         <div className="store-item-banner-overlay" />
         <div className="store-item-banner-content">
           <div className="store-item-banner-tags">
@@ -241,6 +247,19 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           width: 100%;
           height: 100%;
           object-fit: cover;
+        }
+
+        .store-item-banner-placeholder {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: radial-gradient(circle at 50% 35%, rgba(var(--accent-color-rgb), 0.2), rgba(7, 7, 10, 0.96) 68%);
+          color: rgba(255, 255, 255, 0.42);
+          font-family: var(--font-display);
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 2px;
+          text-transform: uppercase;
         }
 
         .store-item-banner-overlay {

@@ -11,7 +11,7 @@ import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
-import { applyArtworkToGame } from './utils/steamgriddb';
+import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { audioEngine } from './utils/audioEngine';
 export default function App() {
   // --- Mode and Core States ---
@@ -32,6 +32,9 @@ export default function App() {
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
+  const [storeArtwork, setStoreArtwork] = useState({});
+  const libraryArtworkHydratedRef = useRef(false);
+  const storeArtworkHydratedRef = useRef(false);
 
   // --- System Diagnostic Metrics (CPU/RAM Mock telemetry) ---
   const [cpuUsage, setCpuUsage] = useState(12);
@@ -82,6 +85,60 @@ export default function App() {
       }
     }
     initDb();
+  }, []);
+
+  // --- 1b. Hydrate library and store art from SteamGridDB when desktop APIs exist ---
+  useEffect(() => {
+    if (!window.electronAPI?.autoFetchArtwork || libraryArtworkHydratedRef.current || games.length === 0) return;
+
+    libraryArtworkHydratedRef.current = true;
+
+    async function hydrateLibraryArtwork() {
+      let updatedList = [...games];
+      let changed = false;
+      const candidates = updatedList.filter(needsSteamGridDBArtwork);
+
+      for (const game of candidates) {
+        const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
+        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+          updatedList = updatedList.map(existing =>
+            existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
+          );
+          changed = true;
+        }
+      }
+
+      if (!changed) return;
+
+      setGames(updatedList);
+      setSelectedGame(prev => updatedList.find(g => g.id === prev?.id) || updatedList[0] || null);
+      await window.electronAPI.saveDatabase(updatedList);
+    }
+
+    hydrateLibraryArtwork();
+  }, [games]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.autoFetchArtwork || storeArtworkHydratedRef.current) return;
+
+    storeArtworkHydratedRef.current = true;
+
+    async function hydrateStoreArtwork() {
+      const fetchedArtwork = {};
+
+      for (const item of storeCatalog.filter(needsSteamGridDBArtwork)) {
+        const artwork = await window.electronAPI.autoFetchArtwork({ ...item, forceTitleLookup: true });
+        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+          fetchedArtwork[item.id] = applyArtworkToGame(item, artwork);
+        }
+      }
+
+      if (Object.keys(fetchedArtwork).length > 0) {
+        setStoreArtwork(fetchedArtwork);
+      }
+    }
+
+    hydrateStoreArtwork();
   }, []);
 
   // --- 2. Synchronize Custom Settings & CSS Styles ---
@@ -287,6 +344,7 @@ export default function App() {
   // --- Action Trigger: Folder Scanning Batch Imports ---
   const handleImportScannedGames = async (matchedImports) => {
     const addedList = [...games];
+    const newGameIds = [];
     matchedImports.forEach(scannedFile => {
       // Exclude if path already matches
       const exists = addedList.find(g => g.exePath === scannedFile.path);
@@ -296,10 +354,23 @@ export default function App() {
         const cleanId = scannedFile.name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
         addedList.push({
           ...metadata,
+          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
           id: cleanId
         });
+        newGameIds.push(cleanId);
       }
     });
+
+    if (window.electronAPI?.autoFetchArtwork) {
+      for (const gameId of newGameIds) {
+        const game = addedList.find(item => item.id === gameId);
+        const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
+        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+          const index = addedList.findIndex(item => item.id === gameId);
+          addedList[index] = applyArtworkToGame(addedList[index], artwork);
+        }
+      }
+    }
 
     setGames(addedList);
     setSelectedGame(addedList[addedList.length - 1]); // Highlight newly added game
@@ -312,7 +383,7 @@ export default function App() {
   };
 
   // --- Action Trigger: Manual EXE Import ---
-  const handleManualImport = () => {
+  const handleManualImport = async () => {
     audioEngine.playClickPulse();
     const mockExe = prompt("Input complete Windows Executable file path (.exe):", "C:\\Windows\\notepad.exe");
     if (!mockExe) return;
@@ -321,7 +392,15 @@ export default function App() {
     const cleanId = name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
     const metadata = matchGameMetadata(name, mockExe);
 
-    const updated = [...games, { ...metadata, id: cleanId }];
+    let newGame = { ...metadata, id: cleanId };
+    if (window.electronAPI?.autoFetchArtwork) {
+      const artwork = await window.electronAPI.autoFetchArtwork({ ...newGame, forceTitleLookup: true });
+      if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+        newGame = applyArtworkToGame(newGame, artwork);
+      }
+    }
+
+    const updated = [...games, newGame];
     setGames(updated);
     setSelectedGame(updated[updated.length - 1]);
     setIsCcOpen(false);
@@ -442,7 +521,7 @@ export default function App() {
     setIsBatchFetchingArtwork(true);
     let updatedList = [...games];
     let updatedCount = 0;
-    const candidates = updatedList.filter(game => game?.title && !game.artworkFetched);
+    const candidates = updatedList.filter(needsSteamGridDBArtwork);
 
     for (const game of candidates) {
       const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
@@ -472,6 +551,7 @@ export default function App() {
   // Sync store catalog ownership with games library
   const syncedCatalog = storeCatalog.map(item => ({
     ...item,
+    ...storeArtwork[item.id],
     owned: games.some(g => g.id === item.id && g.owned)
   }));
 

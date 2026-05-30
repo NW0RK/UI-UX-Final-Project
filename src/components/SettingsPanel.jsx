@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock } from 'lucide-react';
+import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -37,6 +37,11 @@ export default function SettingsPanel({
     audioEngine.playClickPulse();
     audioEngine.setMuted(nextMute);
     onUpdateSettings({ ...settings, isMuted: nextMute });
+  };
+
+  const handleSystemStatusToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, trackSystemStatus: !settings.trackSystemStatus });
   };
 
   const handleSliderChange = (key, value) => {
@@ -164,6 +169,30 @@ export default function SettingsPanel({
               </div>
               <div className="audio-card-right">
                 <div className={`checkbox-toggle-switch ${settings.isMuted ? 'sw-muted' : 'sw-active'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: System Status Tracking */}
+          <div className="settings-section">
+            <h3 className="section-label-heading flex-center-start">
+              <Activity size={14} className="heading-icon" />
+              <span>System Status Tracking</span>
+            </h3>
+            <p className="section-description">Disable this to stop CPU/RAM status polling and hide System Status readouts across the launcher.</p>
+            
+            <div className="audio-toggle-card" onClick={handleSystemStatusToggle}>
+              <div className="audio-card-left">
+                <Activity size={20} className={settings.trackSystemStatus ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">System Status Telemetry</span>
+                  <span className="audio-card-desc">{settings.trackSystemStatus ? 'CPU and RAM status indicators are currently active.' : 'CPU and RAM status tracking is fully disabled.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.trackSystemStatus ? 'sw-active' : 'sw-muted'}`}>
                   <div className="switch-knob" />
                 </div>
               </div>

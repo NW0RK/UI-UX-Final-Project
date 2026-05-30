@@ -9,7 +9,8 @@ export default function NavigationHeader({
   cpuUsage,
   ramUsage,
   activeView,
-  onViewChange
+  onViewChange,
+  systemStatusTracking = true
 }) {
   const [time, setTime] = useState('');
 
@@ -92,17 +93,19 @@ export default function NavigationHeader({
       {/* Right Profiles, Telemetry, and Native Controls */}
       <div className="nav-right">
         {/* System Monitor Telemetry */}
-        <div className="system-telemetry-pill">
-          <div className="telemetry-item">
-            <span className="telemetry-label">CPU</span>
-            <span className="telemetry-value">{cpuUsage}%</span>
+        {systemStatusTracking && (
+          <div className="system-telemetry-pill">
+            <div className="telemetry-item">
+              <span className="telemetry-label">CPU</span>
+              <span className="telemetry-value">{cpuUsage}%</span>
+            </div>
+            <div className="telemetry-divider" />
+            <div className="telemetry-item">
+              <span className="telemetry-label">RAM</span>
+              <span className="telemetry-value">{ramUsage}%</span>
+            </div>
           </div>
-          <div className="telemetry-divider" />
-          <div className="telemetry-item">
-            <span className="telemetry-label">RAM</span>
-            <span className="telemetry-value">{ramUsage}%</span>
-          </div>
-        </div>
+        )}
 
         {/* Action Widgets */}
         <button 

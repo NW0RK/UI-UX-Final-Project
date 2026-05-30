@@ -163,8 +163,8 @@ export default function GameMainBanner({
           width: 100%;
           height: calc(100% - 310px);
           display: flex;
-          align-items: center;
-          padding: 0 60px;
+          align-items: flex-end;
+          padding: 0 60px 48px;
           pointer-events: none;
         }
 
@@ -229,11 +229,13 @@ export default function GameMainBanner({
           position: relative;
           z-index: 10;
           max-width: 650px;
+          max-height: calc(100% - 24px);
           display: flex;
           flex-direction: column;
           align-items: flex-start;
+          justify-content: flex-end;
           pointer-events: auto;
-          margin-top: 40px;
+          overflow: hidden;
         }
 
         .genre-badges-row {
@@ -300,6 +302,9 @@ export default function GameMainBanner({
           color: rgba(255, 255, 255, 0.7);
           margin-bottom: 25px;
           text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+          max-height: 92px;
+          overflow-y: auto;
+          padding-right: 8px;
         }
 
         .telemetry-stats-glass-row {
@@ -307,6 +312,7 @@ export default function GameMainBanner({
           gap: 15px;
           margin-bottom: 30px;
           width: 100%;
+          flex-shrink: 0;
         }
 
         .stat-glass-card {
@@ -351,6 +357,7 @@ export default function GameMainBanner({
           display: flex;
           gap: 12px;
           width: 100%;
+          flex-shrink: 0;
         }
 
         .play-game-btn {

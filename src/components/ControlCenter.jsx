@@ -12,7 +12,8 @@ export default function ControlCenter({
   isBatchFetchingArtwork = false,
   cpuUsage,
   ramUsage,
-  games
+  games,
+  systemStatusTracking = true
 }) {
   const [scanPath, setScanPath] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -128,28 +129,32 @@ export default function ControlCenter({
       <div className="drawer-panel-grid glass-panel-heavy">
         {/* Left Side: System Telemetry and Quick Actions */}
         <div className="cc-section cc-telemetry-panel">
-          <h3 className="cc-section-title">System Status</h3>
+          <h3 className="cc-section-title">{systemStatusTracking ? 'System Status' : 'Quick Actions'}</h3>
           
           {/* Progress Indicators */}
-          <div className="telemetry-bar-item">
-            <div className="bar-labels">
-              <span>CPU Core Load</span>
-              <span>{cpuUsage}%</span>
-            </div>
-            <div className="bar-container">
-              <div className="bar-fill" style={{ width: `${cpuUsage}%` }} />
-            </div>
-          </div>
+          {systemStatusTracking && (
+            <>
+              <div className="telemetry-bar-item">
+                <div className="bar-labels">
+                  <span>CPU Core Load</span>
+                  <span>{cpuUsage}%</span>
+                </div>
+                <div className="bar-container">
+                  <div className="bar-fill" style={{ width: `${cpuUsage}%` }} />
+                </div>
+              </div>
 
-          <div className="telemetry-bar-item">
-            <div className="bar-labels">
-              <span>RAM Allocation</span>
-              <span>{ramUsage}%</span>
-            </div>
-            <div className="bar-container">
-              <div className="bar-fill" style={{ width: `${ramUsage}%` }} />
-            </div>
-          </div>
+              <div className="telemetry-bar-item">
+                <div className="bar-labels">
+                  <span>RAM Allocation</span>
+                  <span>{ramUsage}%</span>
+                </div>
+                <div className="bar-container">
+                  <div className="bar-fill" style={{ width: `${ramUsage}%` }} />
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Quick utility controls */}
           <div className="quick-action-buttons-grid">

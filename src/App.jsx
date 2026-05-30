@@ -44,7 +44,8 @@ export default function App() {
     glassBlur: 20,
     glassOpacity: 0.4,
     particleDensity: 1.0,
-    particleSpeed: 1.0
+    particleSpeed: 1.0,
+    trackSystemStatus: true
   });
 
   // --- 1. Load Local Database or Fallback to Defaults ---
@@ -94,6 +95,8 @@ export default function App() {
     document.documentElement.style.setProperty('--panel-bg-solid', `rgba(10, 10, 16, ${Math.min(0.98, settings.glassOpacity * 1.5)})`);
     document.documentElement.style.setProperty('--glass-border', `rgba(255, 255, 255, ${settings.glassOpacity * 0.18})`);
     
+    if (!settings.trackSystemStatus) return;
+
     // Quick hardware pulse
     const sysTimer = setInterval(() => {
       setCpuUsage(prev => {
@@ -490,6 +493,7 @@ export default function App() {
         ramUsage={ramUsage}
         activeView={activeView}
         onViewChange={handleViewChange}
+        systemStatusTracking={settings.trackSystemStatus}
       />
 
       {/* 3. Main Dashboard Interactive Workspace */}
@@ -561,6 +565,7 @@ export default function App() {
         cpuUsage={cpuUsage}
         ramUsage={ramUsage}
         games={games}
+        systemStatusTracking={settings.trackSystemStatus}
       />
 
       {/* 5. Snapped Multitasking Activity Sidebar */}
@@ -572,6 +577,7 @@ export default function App() {
           sessionTime={sessionTime}
           cpuUsage={cpuUsage}
           ramUsage={ramUsage}
+          systemStatusTracking={settings.trackSystemStatus}
         />
       )}
 

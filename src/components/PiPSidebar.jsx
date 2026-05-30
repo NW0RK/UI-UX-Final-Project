@@ -8,7 +8,8 @@ export default function PiPSidebar({
   isRunning, 
   sessionTime,
   cpuUsage,
-  ramUsage
+  ramUsage,
+  systemStatusTracking = true
 }) {
   if (!game) return null;
 
@@ -102,16 +103,18 @@ export default function PiPSidebar({
           <div className="session-timer-display">
             {formatSessionTime(sessionTime)}
           </div>
-          <div className="session-telemetry-metrics">
-            <div className="session-metric">
-              <span className="met-lbl">CPU Usage</span>
-              <span className="met-val">{Math.round(cpuUsage * 1.2)}%</span>
+          {systemStatusTracking && (
+            <div className="session-telemetry-metrics">
+              <div className="session-metric">
+                <span className="met-lbl">CPU Usage</span>
+                <span className="met-val">{Math.round(cpuUsage * 1.2)}%</span>
+              </div>
+              <div className="session-metric">
+                <span className="met-lbl">Mem Load</span>
+                <span className="met-val">{Math.round(ramUsage * 1.05)}%</span>
+              </div>
             </div>
-            <div className="session-metric">
-              <span className="met-lbl">Mem Load</span>
-              <span className="met-val">{Math.round(ramUsage * 1.05)}%</span>
-            </div>
-          </div>
+          )}
         </div>
       ) : (
         <div className="pip-widget session-idle-widget">

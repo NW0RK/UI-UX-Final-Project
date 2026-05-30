@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
@@ -8,9 +8,33 @@ import { pipeline } from 'stream/promises';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const ARTWORK_PROTOCOL = 'nexus-artwork';
 
 let mainWindow = null;
 const activeGames = new Map();
+
+function emitDiagnostic(area, level, message, details = null) {
+  const payload = {
+    area,
+    level,
+    message,
+    details,
+    timestamp: new Date().toISOString()
+  };
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('diagnostic-event', payload);
+  }
+
+  const prefix = `[${payload.timestamp}] [${area}] [${level}]`;
+  if (level === 'error') {
+    console.error(prefix, message, details || '');
+  } else if (level === 'warn') {
+    console.warn(prefix, message, details || '');
+  } else {
+    console.log(prefix, message, details || '');
+  }
+}
 
 // --- SteamGridDB Configuration ---
 const BUILTIN_API_KEY = '2c62a4e1707f21a61e1bd30f4eafd6dc';
@@ -42,6 +66,68 @@ function toFileUrl(filePath) {
   return pathToFileURL(filePath).href;
 }
 
+function toArtworkUrl(filePath) {
+  const artworkDir = getArtworkCacheDir();
+  const relativePath = path.relative(artworkDir, filePath).replace(/\\/g, '/');
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return toFileUrl(filePath);
+  return `${ARTWORK_PROTOCOL}:///${relativePath.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function normalizeArtworkUrl(value) {
+  if (typeof value !== 'string' || !value.startsWith('file://')) return value;
+
+  try {
+    const filePath = fileURLToPath(value);
+    const artworkDir = getArtworkCacheDir();
+    const relativePath = path.relative(artworkDir, filePath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) return value;
+    return toArtworkUrl(filePath);
+  } catch (e) {
+    return value;
+  }
+}
+
+function normalizeArtworkUrlsInGame(game) {
+  if (!game || typeof game !== 'object') return game;
+  return {
+    ...game,
+    coverUrl: normalizeArtworkUrl(game.coverUrl),
+    bannerUrl: normalizeArtworkUrl(game.bannerUrl),
+    logoUrl: normalizeArtworkUrl(game.logoUrl),
+    iconUrl: normalizeArtworkUrl(game.iconUrl)
+  };
+}
+
+function normalizeArtworkUrlsInDatabase(data) {
+  if (!Array.isArray(data)) return data;
+  return data.map(normalizeArtworkUrlsInGame);
+}
+
+function registerArtworkProtocol() {
+  protocol.handle(ARTWORK_PROTOCOL, async (request) => {
+    try {
+      const url = new URL(request.url);
+      const requestPath = decodeURIComponent(`${url.hostname}${url.pathname}`.replace(/^\/+/, ''));
+      const artworkDir = getArtworkCacheDir();
+      const filePath = path.resolve(artworkDir, requestPath);
+      const relativePath = path.relative(artworkDir, filePath);
+
+      if (relativePath.startsWith('..') || path.isAbsolute(relativePath) || !fs.existsSync(filePath)) {
+        return new Response('Artwork not found', { status: 404 });
+      }
+
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch (err) {
+      emitDiagnostic('Artwork', 'error', `Artwork protocol failed: ${err.message}`);
+      return new Response('Artwork protocol error', { status: 500 });
+    }
+  });
+}
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: ARTWORK_PROTOCOL, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
+]);
+
 function httpsGet(url, options = {}, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, options, (res) => {
@@ -70,6 +156,7 @@ async function steamgriddbFetch(endpoint) {
   if (!apiKey) throw new Error('SteamGridDB API key is not configured');
 
   const url = `${STEAMGRIDDB_BASE_URL}${endpoint}`;
+  emitDiagnostic('SteamGridDB', 'info', `Requesting ${endpoint}`);
   const res = await httpsGet(url, {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -164,7 +251,7 @@ function getCachedArtworkPaths(gameId) {
     for (const ext of extensions) {
       const filePath = path.join(cacheDir, `${type}.${ext}`);
       if (fs.existsSync(filePath)) {
-        result[type] = toFileUrl(filePath);
+        result[type] = toArtworkUrl(filePath);
         break;
       }
     }
@@ -261,7 +348,13 @@ function pickArtwork(items, key) {
 
 async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   const cacheDir = getGameCacheDir(gameId);
-  const result = {};
+  const result = { diagnostics: [] };
+  const addDiagnostic = (level, message, details = null) => {
+    result.diagnostics.push({ area: 'SteamGridDB', level, message, details, timestamp: new Date().toISOString() });
+    emitDiagnostic('SteamGridDB', level, message, details);
+  };
+
+  addDiagnostic('info', `Fetching artwork for ${gameTitle}`, { sgdbId, gameId });
 
   const types = [
     { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static` },
@@ -275,19 +368,29 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
       const cached = getCachedArtworkPaths(gameId);
       if (cached?.[key]) {
         result[key] = cached[key];
+        addDiagnostic('info', `Using cached ${key} artwork for ${gameTitle}`);
         continue;
       }
 
       const apiData = await steamgriddbFetch(endpoint);
       const artwork = pickArtwork(apiData.data, key);
-      if (!artwork) continue;
+      if (!artwork) {
+        addDiagnostic('warn', `No ${key} artwork candidates found for ${gameTitle}`, { endpoint });
+        continue;
+      }
 
       const ext = getExtensionFromArtwork(artwork);
       const destPath = path.join(cacheDir, `${key}.${ext}`);
       await downloadImage(artwork.url, destPath);
-      result[key] = toFileUrl(destPath);
+      result[key] = toArtworkUrl(destPath);
+      addDiagnostic('info', `Downloaded ${key} artwork for ${gameTitle}`, {
+        width: artwork.width,
+        height: artwork.height,
+        style: artwork.style,
+        verified: artwork.verified
+      });
     } catch (e) {
-      console.log(`SteamGridDB ${key} unavailable for ${gameTitle}: ${e.message}`);
+      addDiagnostic('warn', `SteamGridDB ${key} unavailable for ${gameTitle}: ${e.message}`, { endpoint });
     }
   }
 
@@ -301,18 +404,21 @@ async function findSteamGridDBGame(term) {
 
 async function resolveSteamGridDBGame(game) {
   if (game?.steamGridDbId && !game.forceTitleLookup) {
+    emitDiagnostic('SteamGridDB', 'info', `Using saved SteamGridDB match for ${game.title}`, { sgdbId: game.steamGridDbId });
     return { id: game.steamGridDbId, name: game.steamGridDbName || game.title };
   }
 
   if (game?.steamAppId) {
     try {
+      emitDiagnostic('SteamGridDB', 'info', `Trying Steam AppID lookup for ${game.title}`, { steamAppId: game.steamAppId });
       const match = await getSteamGridDBGameBySteamAppId(game.steamAppId);
       if (match?.id) return { ...match, matchSource: 'steamAppId' };
     } catch (err) {
-      console.log(`SteamGridDB Steam AppID lookup failed for ${game.title || game.steamAppId}: ${err.message}`);
+      emitDiagnostic('SteamGridDB', 'warn', `Steam AppID lookup failed for ${game.title || game.steamAppId}: ${err.message}`, { steamAppId: game.steamAppId });
     }
   }
 
+  emitDiagnostic('SteamGridDB', 'info', `Trying title lookup for ${game?.title || 'unknown game'}`);
   return await findSteamGridDBGame(game?.title);
 }
 
@@ -342,6 +448,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  registerArtworkProtocol();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -387,7 +494,8 @@ ipcMain.handle('load-database', () => {
   const dbPath = getDbPath();
   try {
     if (fs.existsSync(dbPath)) {
-      return JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+      const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+      return normalizeArtworkUrlsInDatabase(data);
     }
   } catch (err) { console.error('Error loading database:', err); }
   return null;
@@ -396,7 +504,7 @@ ipcMain.handle('load-database', () => {
 ipcMain.handle('save-database', (event, data) => {
   const dbPath = getDbPath();
   try {
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.writeFileSync(dbPath, JSON.stringify(normalizeArtworkUrlsInDatabase(data), null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     console.error('Error saving database:', err);
@@ -421,22 +529,31 @@ ipcMain.handle('select-executable', async () => {
 });
 
 // --- IPC: Executable Scanner ---
-function scanDirDepth(dirPath, currentDepth, maxDepth, filesList) {
+function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
   if (currentDepth > maxDepth) return;
   try {
     const files = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const file of files) {
       const fullPath = path.join(dirPath, file.name);
-      if (file.name.startsWith('.') || ['node_modules', '$RECYCLE.BIN', 'System Volume Information', 'Windows', 'Common Files'].some(ex => file.name.includes(ex))) continue;
+      if (file.name.startsWith('.') || ['node_modules', '$RECYCLE.BIN', 'System Volume Information', 'Windows', 'Common Files'].some(ex => file.name.includes(ex))) {
+        diagnostics.push({ level: 'info', message: `Skipped ignored path ${fullPath}` });
+        continue;
+      }
       if (file.isDirectory()) {
-        scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList);
+        scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
       } else if (file.isFile() && file.name.toLowerCase().endsWith('.exe')) {
         const nameLower = file.name.toLowerCase();
-        if (['unins', 'setup', 'install', 'crash', 'unity', 'helper', 'config', 'tool', 'update', 'patcher', 'dxwebsetup', 'vcredist'].some(ex => nameLower.includes(ex))) continue;
+        if (['unins', 'setup', 'install', 'crash', 'unity', 'helper', 'config', 'tool', 'update', 'patcher', 'dxwebsetup', 'vcredist'].some(ex => nameLower.includes(ex))) {
+          diagnostics.push({ level: 'info', message: `Filtered helper/setup executable ${fullPath}` });
+          continue;
+        }
         filesList.push({ name: path.basename(file.name, '.exe'), path: fullPath });
+        diagnostics.push({ level: 'info', message: `Found executable ${fullPath}` });
       }
     }
-  } catch (err) { /* ignore */ }
+  } catch (err) {
+    diagnostics.push({ level: 'warn', message: `Could not read directory ${dirPath}: ${err.message}` });
+  }
 }
 
 function parseSteamAppManifest(filePath, steamappsDir) {
@@ -494,8 +611,27 @@ function attachSteamAppIds(filesList, manifests) {
 
 ipcMain.handle('scan-executables', async (event, dirPath) => {
   const filesList = [];
-  scanDirDepth(dirPath, 1, 3, filesList);
-  return attachSteamAppIds(filesList, findSteamAppManifests(dirPath));
+  const diagnostics = [];
+  emitDiagnostic('Scanner', 'info', `Starting executable scan`, { dirPath, maxDepth: 3 });
+
+  if (!dirPath || !fs.existsSync(dirPath)) {
+    const message = `Scan path does not exist: ${dirPath || '(empty)'}`;
+    emitDiagnostic('Scanner', 'error', message);
+    return { files: [], diagnostics: [{ level: 'error', message }] };
+  }
+
+  scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
+  const manifests = findSteamAppManifests(dirPath);
+  const files = attachSteamAppIds(filesList, manifests);
+
+  emitDiagnostic('Scanner', files.length ? 'info' : 'warn', `Executable scan completed with ${files.length} result${files.length === 1 ? '' : 's'}`, {
+    dirPath,
+    manifestCount: manifests.length,
+    resultCount: files.length
+  });
+  diagnostics.slice(-25).forEach(item => emitDiagnostic('Scanner', item.level, item.message));
+
+  return { files, diagnostics, manifestCount: manifests.length };
 });
 
 // --- IPC: Game Launcher ---
@@ -523,8 +659,13 @@ ipcMain.handle('launch-game', (event, gameId, exePath) => {
 // --- IPC: SteamGridDB Artwork ---
 ipcMain.handle('steamgriddb-search', async (event, term) => {
   try {
-    return await searchSteamGridDBGames(term);
+    const results = await searchSteamGridDBGames(term);
+    emitDiagnostic('SteamGridDB', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
+      topMatch: results[0] ? { id: results[0].id, name: results[0].name, matchScore: results[0].matchScore } : null
+    });
+    return results;
   } catch (err) {
+    emitDiagnostic('SteamGridDB', 'error', `Search failed for "${term}": ${err.message}`);
     return { error: err.message };
   }
 });
@@ -533,6 +674,7 @@ ipcMain.handle('steamgriddb-fetch-artwork', async (event, sgdbId, gameId, gameTi
   try {
     return await fetchArtworkForGame(sgdbId, gameId, gameTitle);
   } catch (err) {
+    emitDiagnostic('SteamGridDB', 'error', `Artwork fetch failed for ${gameTitle}: ${err.message}`, { sgdbId, gameId });
     return { error: err.message };
   }
 });
@@ -546,11 +688,20 @@ ipcMain.handle('steamgriddb-auto-fetch-artwork', async (event, game) => {
     const match = await resolveSteamGridDBGame(game);
 
     if (!match?.id) {
+      emitDiagnostic('SteamGridDB', 'warn', `No SteamGridDB match found for ${game.title}`);
       return { error: `No SteamGridDB match found for ${game.title}` };
     }
 
+    emitDiagnostic('SteamGridDB', 'info', `Selected SteamGridDB match for ${game.title}`, {
+      sgdbId: match.id,
+      name: match.name,
+      matchScore: match.matchScore,
+      matchSource: match.matchSource || 'title'
+    });
+
     const artwork = await fetchArtworkForGame(match.id, game.id, game.title);
-    if (Object.keys(artwork).length === 0) {
+    if (!(artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+      emitDiagnostic('SteamGridDB', 'warn', `No downloadable artwork found for ${game.title}`, { sgdbId: match.id });
       return { error: `No downloadable artwork found for ${game.title}` };
     }
 
@@ -562,6 +713,7 @@ ipcMain.handle('steamgriddb-auto-fetch-artwork', async (event, game) => {
       matchScore: match.matchScore
     };
   } catch (err) {
+    emitDiagnostic('SteamGridDB', 'error', `Auto artwork fetch failed for ${game?.title || 'unknown game'}: ${err.message}`);
     return { error: err.message };
   }
 });

@@ -33,8 +33,19 @@ export default function App() {
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
+  const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
+
+  const addDiagnostic = (area, level, message, details = null) => {
+    setDiagnostics(prev => [{
+      area,
+      level,
+      message,
+      details,
+      timestamp: new Date().toISOString()
+    }, ...prev].slice(0, 80));
+  };
 
   // --- System Diagnostic Metrics (CPU/RAM Mock telemetry) ---
   const [cpuUsage, setCpuUsage] = useState(12);
@@ -87,6 +98,14 @@ export default function App() {
     initDb();
   }, []);
 
+  useEffect(() => {
+    if (!window.electronAPI?.onDiagnosticEvent) return;
+
+    return window.electronAPI.onDiagnosticEvent((event) => {
+      setDiagnostics(prev => [event, ...prev].slice(0, 80));
+    });
+  }, []);
+
   // --- 1b. Hydrate library and store art from SteamGridDB when desktop APIs exist ---
   useEffect(() => {
     if (!window.electronAPI?.autoFetchArtwork || libraryArtworkHydratedRef.current || games.length === 0) return;
@@ -105,6 +124,8 @@ export default function App() {
             existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
           );
           changed = true;
+        } else if (artwork?.error) {
+          addDiagnostic('SteamGridDB', 'warn', `Library hydration skipped ${game.title}: ${artwork.error}`);
         }
       }
 
@@ -130,6 +151,8 @@ export default function App() {
         const artwork = await window.electronAPI.autoFetchArtwork({ ...item, forceTitleLookup: true });
         if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
           fetchedArtwork[item.id] = applyArtworkToGame(item, artwork);
+        } else if (artwork?.error) {
+          addDiagnostic('SteamGridDB', 'warn', `Store artwork skipped ${item.title}: ${artwork.error}`);
         }
       }
 
@@ -345,6 +368,7 @@ export default function App() {
   const handleImportScannedGames = async (matchedImports) => {
     const addedList = [...games];
     const newGameIds = [];
+    let duplicateCount = 0;
     matchedImports.forEach(scannedFile => {
       // Exclude if path already matches
       const exists = addedList.find(g => g.exePath === scannedFile.path);
@@ -358,8 +382,17 @@ export default function App() {
           id: cleanId
         });
         newGameIds.push(cleanId);
+        addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
+          exePath: scannedFile.path,
+          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null
+        });
+      } else {
+        duplicateCount += 1;
+        addDiagnostic('Importer', 'warn', `Skipped duplicate executable ${scannedFile.path}`);
       }
     });
+
+    addDiagnostic('Importer', newGameIds.length ? 'info' : 'warn', `Import selection processed: ${newGameIds.length} new, ${duplicateCount} duplicate`);
 
     if (window.electronAPI?.autoFetchArtwork) {
       for (const gameId of newGameIds) {
@@ -368,6 +401,9 @@ export default function App() {
         if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
           const index = addedList.findIndex(item => item.id === gameId);
           addedList[index] = applyArtworkToGame(addedList[index], artwork);
+          addDiagnostic('SteamGridDB', 'info', `Artwork applied to imported game ${game.title}`);
+        } else if (artwork?.error) {
+          addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${game.title}: ${artwork.error}`);
         }
       }
     }
@@ -385,18 +421,27 @@ export default function App() {
   // --- Action Trigger: Manual EXE Import ---
   const handleManualImport = async () => {
     audioEngine.playClickPulse();
-    const mockExe = prompt("Input complete Windows Executable file path (.exe):", "C:\\Windows\\notepad.exe");
-    if (!mockExe) return;
+    const mockExe = window.electronAPI?.selectExecutable
+      ? await window.electronAPI.selectExecutable()
+      : prompt("Input complete Windows Executable file path (.exe):", "C:\\Windows\\notepad.exe");
+    if (!mockExe) {
+      addDiagnostic('Importer', 'info', 'Manual executable import cancelled');
+      return;
+    }
 
     const name = mockExe.split('\\').pop().replace('.exe', '');
     const cleanId = name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
     const metadata = matchGameMetadata(name, mockExe);
+    addDiagnostic('Importer', 'info', `Manual executable selected: ${mockExe}`);
 
     let newGame = { ...metadata, id: cleanId };
     if (window.electronAPI?.autoFetchArtwork) {
       const artwork = await window.electronAPI.autoFetchArtwork({ ...newGame, forceTitleLookup: true });
       if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
         newGame = applyArtworkToGame(newGame, artwork);
+        addDiagnostic('SteamGridDB', 'info', `Artwork applied to manual import ${newGame.title}`);
+      } else if (artwork?.error) {
+        addDiagnostic('SteamGridDB', 'warn', `Artwork failed for manual import ${newGame.title}: ${artwork.error}`);
       }
     }
 
@@ -530,6 +575,9 @@ export default function App() {
           existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
         );
         updatedCount += 1;
+        addDiagnostic('SteamGridDB', 'info', `Batch artwork updated ${game.title}`);
+      } else if (artwork?.error) {
+        addDiagnostic('SteamGridDB', 'warn', `Batch artwork skipped ${game.title}: ${artwork.error}`);
       }
     }
 
@@ -646,6 +694,8 @@ export default function App() {
         ramUsage={ramUsage}
         games={games}
         systemStatusTracking={settings.trackSystemStatus}
+        diagnostics={diagnostics}
+        onClearDiagnostics={() => setDiagnostics([])}
       />
 
       {/* 5. Snapped Multitasking Activity Sidebar */}

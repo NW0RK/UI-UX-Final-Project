@@ -69,12 +69,14 @@ export default function GameMainBanner({
           ))}
         </div>
 
-        {/* Logo (if available, otherwise fallback to text title) */}
-        {game.logoUrl ? (
-          <img src={game.logoUrl} alt={game.title} className="banner-logo-img" />
-        ) : (
-          <h1 className="banner-game-title">{game.title}</h1>
-        )}
+        {/* Logo (if available, otherwise fallback to text title) — fixed 80px container */}
+        <div className="banner-title-container">
+          {game.logoUrl ? (
+            <img src={game.logoUrl} alt={game.title} className="banner-logo-img" />
+          ) : (
+            <h1 className="banner-game-title">{game.title}</h1>
+          )}
+        </div>
         
         {/* Developer & Developer Meta */}
         <div className="developer-meta">
@@ -276,13 +278,20 @@ export default function GameMainBanner({
           text-transform: uppercase;
         }
 
-        .banner-logo-img {
-          max-height: 80px;
-          width: auto;
-          max-width: 100%;
-          object-fit: contain;
+        .banner-title-container {
+          width: 100%;
+          height: 80px;
+          display: flex;
+          align-items: center;
+          overflow: hidden;
           margin-bottom: 16px;
+        }
+
+        .banner-logo-img {
+          height: 80px;
+          width: auto;
           filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.8));
+          flex-shrink: 0;
         }
 
         .banner-game-title {
@@ -292,9 +301,12 @@ export default function GameMainBanner({
           letter-spacing: 2px;
           line-height: 1.1;
           color: #fff;
-          margin-bottom: 12px;
           text-shadow: 0 0 30px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.5);
           text-transform: uppercase;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
         }
 
         .developer-meta {

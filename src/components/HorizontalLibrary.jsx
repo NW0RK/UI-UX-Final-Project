@@ -259,6 +259,9 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
           height: 215px;
           position: relative;
           overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           background: rgba(0, 0, 0, 0.2);
         }
 
@@ -266,6 +269,8 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
           width: 100%;
           height: 100%;
           object-fit: cover;
+          object-position: center center;
+          display: block;
           transition: transform 0.8s ease;
         }
 

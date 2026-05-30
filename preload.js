@@ -34,5 +34,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const subscription = (event, gameId, status, elapsedSeconds) => callback(gameId, status, elapsedSeconds);
     ipcRenderer.on('game-status-changed', subscription);
     return () => ipcRenderer.removeListener('game-status-changed', subscription);
+  },
+
+  onDiagnosticEvent: (callback) => {
+    const subscription = (event, payload) => callback(payload);
+    ipcRenderer.on('diagnostic-event', subscription);
+    return () => ipcRenderer.removeListener('diagnostic-event', subscription);
   }
 });

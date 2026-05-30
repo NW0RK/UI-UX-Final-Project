@@ -13,7 +13,9 @@ export default function ControlCenter({
   cpuUsage,
   ramUsage,
   games,
-  systemStatusTracking = true
+  systemStatusTracking = true,
+  diagnostics = [],
+  onClearDiagnostics
 }) {
   const [scanPath, setScanPath] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -47,7 +49,11 @@ export default function ControlCenter({
     try {
       if (window.electronAPI) {
         // Run real depth-limited scan via Electron main process
-        const results = await window.electronAPI.scanExecutables(scanPath);
+        const scanResult = await window.electronAPI.scanExecutables(scanPath);
+        const results = Array.isArray(scanResult) ? scanResult : (scanResult?.files || []);
+        if (results.length === 0) {
+          alert('Scan completed, but no importable .exe files were found. Check Diagnostics for skipped paths and permissions.');
+        }
         setTimeout(() => {
           setScannedFiles(results);
           setIsScanning(false);
@@ -78,6 +84,7 @@ export default function ControlCenter({
       }
     } catch (e) {
       setIsScanning(false);
+      alert(`Directory scan failed: ${e.message}`);
     }
   };
 
@@ -197,7 +204,12 @@ export default function ControlCenter({
 
         {/* Right Side: Deep Library Scanner Suite */}
         <div className="cc-section cc-scanner-panel">
-          <h3 className="cc-section-title">Batch Library Scanner</h3>
+          <div className="scanner-title-row">
+            <h3 className="cc-section-title">Batch Library Scanner</h3>
+            {onClearDiagnostics && diagnostics.length > 0 && (
+              <button className="diagnostics-clear-btn" onClick={onClearDiagnostics}>Clear Diagnostics</button>
+            )}
+          </div>
           
           <div className="scanner-input-row">
             <button 
@@ -266,13 +278,33 @@ export default function ControlCenter({
               </div>
             )}
           </div>
+
+          <div className="diagnostics-panel">
+            <div className="diagnostics-header">
+              <span>Diagnostics</span>
+              <span>{diagnostics.length} event{diagnostics.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="diagnostics-list">
+              {diagnostics.length === 0 ? (
+                <div className="diagnostics-empty">Scan/import/SteamGridDB events will appear here.</div>
+              ) : diagnostics.slice(0, 12).map((event, idx) => (
+                <div key={`${event.timestamp || idx}-${idx}`} className={`diagnostic-row diagnostic-${event.level || 'info'}`}>
+                  <span className="diagnostic-meta">{event.area || 'App'} - {event.level || 'info'}</span>
+                  <span className="diagnostic-message">{event.message}</span>
+                  {event.details && (
+                    <span className="diagnostic-details" title={JSON.stringify(event.details)}>{JSON.stringify(event.details)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
         .control-center-drawer-container {
           position: fixed;
-          bottom: -300px;
+          bottom: -380px;
           left: 0;
           width: 100%;
           z-index: 1001;
@@ -322,7 +354,7 @@ export default function ControlCenter({
         .drawer-panel-grid {
           width: calc(100% - 80px);
           max-width: 1360px;
-          height: 280px;
+          height: 360px;
           margin-bottom: 20px;
           border-radius: 20px;
           display: grid;
@@ -443,6 +475,30 @@ export default function ControlCenter({
           min-width: 0; /* Prevents overflow */
         }
 
+        .scanner-title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .scanner-title-row .cc-section-title {
+          margin-bottom: 0;
+        }
+
+        .diagnostics-clear-btn {
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: rgba(255, 255, 255, 0.04);
+          color: rgba(255, 255, 255, 0.7);
+          border-radius: 999px;
+          padding: 6px 10px;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          cursor: pointer;
+        }
+
         .scanner-input-row {
           display: flex;
           align-items: center;
@@ -484,6 +540,76 @@ export default function ControlCenter({
           position: relative;
           overflow: hidden;
           min-height: 0; /* Grid containment */
+        }
+
+        .diagnostics-panel {
+          margin-top: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.18);
+          overflow: hidden;
+        }
+
+        .diagnostics-header {
+          display: flex;
+          justify-content: space-between;
+          padding: 8px 10px;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: rgba(255, 255, 255, 0.55);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .diagnostics-list {
+          max-height: 92px;
+          overflow-y: auto;
+        }
+
+        .diagnostics-empty {
+          padding: 10px;
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.35);
+        }
+
+        .diagnostic-row {
+          display: grid;
+          grid-template-columns: 95px minmax(0, 1fr);
+          gap: 6px 10px;
+          padding: 7px 10px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+          font-size: 11px;
+        }
+
+        .diagnostic-meta {
+          color: rgba(255, 255, 255, 0.46);
+          text-transform: uppercase;
+          font-size: 9px;
+          letter-spacing: 0.08em;
+        }
+
+        .diagnostic-message {
+          color: rgba(255, 255, 255, 0.78);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .diagnostic-details {
+          grid-column: 2;
+          color: rgba(255, 255, 255, 0.35);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: 10px;
+        }
+
+        .diagnostic-warn .diagnostic-message {
+          color: #f8d36b;
+        }
+
+        .diagnostic-error .diagnostic-message {
+          color: #ff7b8f;
         }
 
         .scanning-radar-state {

@@ -9,6 +9,7 @@ import MetadataEditor from './components/MetadataEditor';
 import SettingsPanel from './components/SettingsPanel';
 import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
+import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { audioEngine } from './utils/audioEngine';
 export default function App() {
@@ -424,6 +425,10 @@ export default function App() {
     );
   };
 
+  const getFilteredFavoriteGames = () => {
+    return getFilteredGames().filter(g => g.isFavorite);
+  };
+
   // Sync store catalog ownership with games library
   const syncedCatalog = storeCatalog.map(item => ({
     ...item,
@@ -472,6 +477,18 @@ export default function App() {
               runningGameId={runningGameId}
             />
           </>
+        )}
+
+        {activeView === 'favourites' && (
+          <FavouritesTrophyRoom
+            games={getFilteredFavoriteGames()}
+            selectedGame={selectedGame}
+            onSelectGame={setSelectedGame}
+            onLaunchGame={handleLaunchGame}
+            onToggleFavorite={handleToggleFavorite}
+            onReturnToLibrary={() => handleViewChange('library')}
+            runningGameId={runningGameId}
+          />
         )}
 
         {activeView === 'store' && (

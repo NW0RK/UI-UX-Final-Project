@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Settings, Minus, Square, X, User, Library, ShoppingCart } from 'lucide-react';
+import { Search, Settings, Minus, Square, X, User, Library, ShoppingCart, Trophy } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function NavigationHeader({ 
@@ -56,6 +56,13 @@ export default function NavigationHeader({
           >
             <Library size={12} />
             <span>Library</span>
+          </button>
+          <button
+            className={`mode-tab ${activeView === 'favourites' ? 'active' : ''}`}
+            onClick={() => { audioEngine.playClickPulse(); onViewChange('favourites'); }}
+          >
+            <Trophy size={12} />
+            <span>Favourites</span>
           </button>
           <button
             className={`mode-tab ${activeView === 'store' || activeView === 'store-item' ? 'active' : ''}`}

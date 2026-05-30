@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCachedArtwork: (gameId) => ipcRenderer.invoke('get-cached-artwork', gameId),
   saveApiKey: (key) => ipcRenderer.invoke('save-api-key', key),
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
+  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  loadSettings: () => ipcRenderer.invoke('load-settings'),
 
   // Real-time process notifications
   onGameStatusChanged: (callback) => {

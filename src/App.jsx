@@ -13,6 +13,17 @@ import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { audioEngine } from './utils/audioEngine';
+const DEFAULT_SETTINGS = {
+  theme: 'theme-aether',
+  isMuted: false,
+  glassBlur: 20,
+  glassOpacity: 0.4,
+  particleDensity: 1.0,
+  particleSpeed: 1.0,
+  trackSystemStatus: true,
+  bannerAnimation: true
+};
+
 export default function App() {
   // --- Mode and Core States ---
   const [games, setGames] = useState([]);
@@ -52,16 +63,8 @@ export default function App() {
   const [ramUsage, setRamUsage] = useState(34);
 
   // --- Visual & UX Customisation Variables ---
-  const [settings, setSettings] = useState({
-    theme: 'theme-aether',
-    isMuted: false,
-    glassBlur: 20,
-    glassOpacity: 0.4,
-    particleDensity: 1.0,
-    particleSpeed: 1.0,
-    trackSystemStatus: true,
-    bannerAnimation: true
-  });
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const settingsLoadedRef = useRef(false);
 
   // --- 1. Load Local Database or Fallback to Defaults ---
   useEffect(() => {
@@ -98,6 +101,36 @@ export default function App() {
     }
     initDb();
   }, []);
+
+  // --- 1a. Load persisted settings from storage ---
+  useEffect(() => {
+    async function loadSettings() {
+      let saved = null;
+      if (window.electronAPI) {
+        saved = await window.electronAPI.loadSettings();
+      } else {
+        const raw = localStorage.getItem('nexus_settings');
+        if (raw) {
+          try { saved = JSON.parse(raw); } catch (e) { /* ignore */ }
+        }
+      }
+      if (saved && typeof saved === 'object') {
+        setSettings(prev => ({ ...DEFAULT_SETTINGS, ...saved }));
+      }
+      settingsLoadedRef.current = true;
+    }
+    loadSettings();
+  }, []);
+
+  // --- 1b. Persist settings to storage whenever they change ---
+  useEffect(() => {
+    if (!settingsLoadedRef.current) return;
+    if (window.electronAPI) {
+      window.electronAPI.saveSettings(settings);
+    } else {
+      localStorage.setItem('nexus_settings', JSON.stringify(settings));
+    }
+  }, [settings]);
 
   useEffect(() => {
     if (!window.electronAPI?.onDiagnosticEvent) return;

@@ -908,3 +908,27 @@ ipcMain.handle('get-api-key', async () => {
   } catch (e) { /* ignore */ }
   return { key: BUILTIN_API_KEY, isCustom: false };
 });
+
+ipcMain.handle('save-settings', async (event, settings) => {
+  try {
+    const configPath = getConfigPath();
+    let config = {};
+    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    config.settings = settings;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('load-settings', async () => {
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.settings) return config.settings;
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+});

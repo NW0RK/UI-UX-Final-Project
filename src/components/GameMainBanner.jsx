@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Play, Pin, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
@@ -13,6 +13,8 @@ export default function GameMainBanner({
   isSidebarPinned,
   bannerAnimation = true
 }) {
+  const [descExpanded, setDescExpanded] = useState(false);
+
   if (!game) return null;
 
   const handleLaunchClick = () => {
@@ -95,7 +97,12 @@ export default function GameMainBanner({
         </div>
 
         {/* Short Description */}
-        <p className="game-banner-description">{game.description}</p>
+        <p
+          className={`game-banner-description${descExpanded ? ' expanded' : ''}`}
+          onClick={() => setDescExpanded(!descExpanded)}
+        >
+          {game.description}
+        </p>
 
         {/* Telemetry Stats Card */}
         <div className="telemetry-stats-glass-row">
@@ -188,7 +195,7 @@ export default function GameMainBanner({
           top: 0;
           left: 0;
           width: 100%;
-          height: calc(100% - 480px);
+          height: calc(100% - 520px);
           display: flex;
           align-items: flex-end;
           padding: 0 60px 48px;
@@ -269,7 +276,7 @@ export default function GameMainBanner({
           position: relative;
           z-index: 10;
           max-width: 650px;
-          max-height: calc(100% - 24px);
+          height: calc(100% - 24px);
           display: flex;
           flex-direction: column;
           align-items: flex-start;
@@ -354,9 +361,19 @@ export default function GameMainBanner({
           color: rgba(255, 255, 255, 0.7);
           margin-bottom: 25px;
           text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
-          max-height: 92px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: -webkit-box;
+          -webkit-line-clamp: 1;
+          -webkit-box-orient: vertical;
+          cursor: pointer;
+          transition: -webkit-line-clamp 0.2s ease;
+        }
+
+        .game-banner-description.expanded {
+          -webkit-line-clamp: unset;
           overflow-y: auto;
-          padding-right: 8px;
+          max-height: 120px;
         }
 
         .telemetry-stats-glass-row {

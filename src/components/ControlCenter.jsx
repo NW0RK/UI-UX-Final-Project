@@ -99,12 +99,15 @@ export default function ControlCenter({
     onToggle(); // Close Control Center
   };
 
-  const handleExitApp = () => {
+  const handleExitApp = async () => {
     audioEngine.playClickPulse();
     if (window.electronAPI) {
-      window.electronAPI.powerOff();
+      const result = await window.electronAPI.powerOff();
+      if (result && !result.success) {
+        alert(`Windows shutdown failed: ${result.error}`);
+      }
     } else {
-      alert("System Shutdown (Mock)");
+      alert("Windows Shut Down (Mock)");
     }
   };
 

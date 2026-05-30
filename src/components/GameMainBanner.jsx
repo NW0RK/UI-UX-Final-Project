@@ -173,9 +173,10 @@ export default function GameMainBanner({
           top: 0;
           left: 0;
           width: 100%;
-          height: 100%;
+          height: calc(100% + 180px);
           overflow: hidden;
           z-index: 1;
+          pointer-events: none;
         }
 
         .banner-backdrop-img {
@@ -200,8 +201,14 @@ export default function GameMainBanner({
           bottom: 0;
           left: 0;
           width: 100%;
-          height: 120px;
-          background: linear-gradient(to top, #07070a, transparent);
+          height: 320px;
+          background: linear-gradient(
+            to bottom,
+            rgba(7, 7, 10, 0) 0%,
+            rgba(7, 7, 10, 0.22) 38%,
+            rgba(7, 7, 10, 0.68) 72%,
+            #07070a 100%
+          );
           z-index: 3;
           pointer-events: none;
         }
@@ -212,8 +219,9 @@ export default function GameMainBanner({
           left: 0;
           width: 100%;
           height: 100%;
-          background: radial-gradient(circle at 40% 40%, transparent 20%, rgba(7, 7, 10, 0.7) 65%, #07070a 100%),
-                      linear-gradient(0deg, #07070a 0%, rgba(7, 7, 10, 0.2) 50%, rgba(7, 7, 10, 0.4) 100%);
+          background: radial-gradient(ellipse at 50% 38%, transparent 12%, rgba(7, 7, 10, 0.18) 48%, rgba(7, 7, 10, 0.82) 100%),
+                      linear-gradient(90deg, #07070a 0%, rgba(7, 7, 10, 0.16) 15%, rgba(7, 7, 10, 0.05) 50%, rgba(7, 7, 10, 0.38) 84%, #07070a 100%),
+                      linear-gradient(0deg, rgba(7, 7, 10, 0.64) 0%, rgba(7, 7, 10, 0.16) 50%, rgba(7, 7, 10, 0.4) 100%);
           z-index: 2;
         }
 

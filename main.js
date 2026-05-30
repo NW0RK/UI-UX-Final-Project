@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { spawn, exec } from 'child_process';
+import { spawn, execFile } from 'child_process';
 import https from 'https';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -147,13 +147,23 @@ ipcMain.on('window-maximize', () => {
 });
 ipcMain.on('window-close', () => { if (mainWindow) mainWindow.close(); });
 
-ipcMain.handle('power-off', () => {
-  const cmd = process.platform === 'win32'
-    ? 'shutdown /s /t 0'
+ipcMain.handle('power-off', async () => {
+  const command = process.platform === 'win32'
+    ? { file: 'shutdown.exe', args: ['/s', '/t', '0'] }
     : process.platform === 'darwin'
-      ? 'osascript -e "tell app \\"System Events\\" to shut down"'
-      : 'shutdown -h now';
-  exec(cmd, (err) => { if (err) console.error('Shutdown failed:', err); });
+      ? { file: 'osascript', args: ['-e', 'tell app "System Events" to shut down'] }
+      : { file: 'shutdown', args: ['-h', 'now'] };
+
+  return new Promise((resolve) => {
+    execFile(command.file, command.args, (err) => {
+      if (err) {
+        console.error('Shutdown failed:', err);
+        resolve({ success: false, error: err.message });
+        return;
+      }
+      resolve({ success: true });
+    });
+  });
 });
 
 // --- IPC: Database ---

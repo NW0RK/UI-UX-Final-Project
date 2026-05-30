@@ -146,6 +146,7 @@ body {
   width: 100vw;
   position: relative;
   overflow: hidden;
+  background: linear-gradient(to bottom, transparent 0%, transparent 48%, #07070a 100%);
 }
 
 .main-viewport {
@@ -331,6 +332,6 @@ body {
 
 /* PS5 Splitting transition masks */
 .ecosystem-games-bg {
-  background: radial-gradient(circle at top right, rgba(var(--accent-color-rgb), 0.05), #07070a 60%);
+  background: radial-gradient(circle at top right, rgba(var(--accent-color-rgb), 0.05), rgba(7, 7, 10, 0.92) 44%, #07070a 78%);
 }
 

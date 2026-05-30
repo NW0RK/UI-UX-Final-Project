@@ -76,7 +76,7 @@ export default function HorizontalLibrary({
 
         .library-grid-horizontal {
           display: flex;
-          gap: 22px;
+          gap: 26px;
           overflow-x: auto;
           padding: 15px 10px 30px 10px;
           scroll-behavior: smooth;
@@ -208,8 +208,8 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
 
       <style dangerouslySetInnerHTML={{__html: `
         .game-card-wrapper {
-          flex: 0 0 165px;
-          height: 285px;
+          flex: 0 0 205px;
+          height: 300px;
           position: relative;
           cursor: pointer;
           transform-style: preserve-3d;
@@ -250,7 +250,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
 
         .card-image-container {
           width: 100%;
-          height: 200px;
+          height: 215px;
           position: relative;
           overflow: hidden;
           background: rgba(0, 0, 0, 0.2);
@@ -384,7 +384,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
         .card-title {
           font-family: var(--font-sans);
           font-weight: 600;
-          font-size: 13px;
+          font-size: 14px;
           color: #fff;
           white-space: nowrap;
           overflow: hidden;

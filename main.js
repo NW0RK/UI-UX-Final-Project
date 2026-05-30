@@ -5,6 +5,7 @@ import fs from 'fs';
 import { spawn, execFile } from 'child_process';
 import https from 'https';
 import { pipeline } from 'stream/promises';
+import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,7 @@ const ARTWORK_PROTOCOL = 'nexus-artwork';
 
 let mainWindow = null;
 const activeGames = new Map();
+const artworkTrimJobs = new Map();
 
 function emitDiagnostic(area, level, message, details = null) {
   const payload = {
@@ -236,6 +238,84 @@ async function downloadImage(url, destPath) {
   }
 }
 
+async function trimTransparentPadding(filePath) {
+  const normalizedPath = path.resolve(filePath);
+  if (artworkTrimJobs.has(normalizedPath)) return artworkTrimJobs.get(normalizedPath);
+
+  const job = trimTransparentPaddingUnsafe(normalizedPath).finally(() => {
+    artworkTrimJobs.delete(normalizedPath);
+  });
+
+  artworkTrimJobs.set(normalizedPath, job);
+  return job;
+}
+
+async function trimTransparentPaddingUnsafe(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return null;
+
+  const parsed = path.parse(filePath);
+  if (parsed.name.endsWith('.trimmed')) {
+    return { filePath, alreadyTrimmed: true };
+  }
+
+  const outputPath = path.join(parsed.dir, `${parsed.name}.trimmed${ext}`);
+  if (fs.existsSync(outputPath)) {
+    return { filePath: outputPath, alreadyTrimmed: true };
+  }
+
+  const image = sharp(filePath).ensureAlpha();
+  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const alphaIndex = channels - 1;
+  const alphaThreshold = 4;
+
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  let left = width;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = data[(y * width + x) * channels + alphaIndex];
+      if (alpha > alphaThreshold) {
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+      }
+    }
+  }
+
+  if (right < left || bottom < top) return null;
+
+  const cropWidth = right - left + 1;
+  const cropHeight = bottom - top + 1;
+  if (left === 0 && top === 0 && cropWidth === width && cropHeight === height) {
+    return { filePath, alreadyTrimmed: true };
+  }
+
+  const tmpPath = path.join(parsed.dir, `${parsed.name}.trimmed.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}${ext}`);
+
+  await sharp(filePath)
+    .extract({ left, top, width: cropWidth, height: cropHeight })
+    .toFile(tmpPath);
+
+  if (fs.existsSync(outputPath)) {
+    try { fs.unlinkSync(tmpPath); } catch (e) { /* ignore locked temp cleanup */ }
+    return { filePath: outputPath, alreadyTrimmed: true };
+  }
+
+  fs.renameSync(tmpPath, outputPath);
+
+  return {
+    filePath: outputPath,
+    original: { width, height },
+    trimmed: { width: cropWidth, height: cropHeight },
+    crop: { left, top, right: width - right - 1, bottom: height - bottom - 1 }
+  };
+}
+
 function getGameCacheDir(gameId) {
   const dir = path.join(getArtworkCacheDir(), gameId.replace(/[^a-zA-Z0-9_-]/g, '_'));
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -246,17 +326,58 @@ function getCachedArtworkPaths(gameId) {
   const cacheDir = getGameCacheDir(gameId);
   const result = {};
   const types = ['grid', 'hero', 'logo', 'icon'];
-  const extensions = ['png', 'jpg', 'jpeg', 'webp', 'ico'];
   for (const type of types) {
-    for (const ext of extensions) {
-      const filePath = path.join(cacheDir, `${type}.${ext}`);
-      if (fs.existsSync(filePath)) {
-        result[type] = toArtworkUrl(filePath);
-        break;
-      }
+    const filePath = getCachedArtworkFilePath(gameId, type);
+    if (filePath) {
+      result[type] = toArtworkUrl(filePath);
     }
   }
   return Object.keys(result).length > 0 ? result : null;
+}
+
+function getCachedArtworkFilePath(gameId, type) {
+  const cacheDir = getGameCacheDir(gameId);
+  const extensions = ['png', 'jpg', 'jpeg', 'webp', 'ico'];
+  if (type === 'logo' || type === 'icon') {
+    for (const ext of extensions) {
+      const filePath = path.join(cacheDir, `${type}.trimmed.${ext}`);
+      if (fs.existsSync(filePath)) return filePath;
+    }
+  }
+  for (const ext of extensions) {
+    const filePath = path.join(cacheDir, `${type}.${ext}`);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+
+async function trimCachedLogoArtworkForGame(game) {
+  if (!game?.id) return;
+
+  for (const key of ['logo', 'icon']) {
+    const filePath = getCachedArtworkFilePath(game.id, key);
+    if (!filePath) continue;
+
+    try {
+      const trimDetails = await trimTransparentPadding(filePath);
+      if (trimDetails?.filePath) {
+        if (key === 'logo') game.logoUrl = toArtworkUrl(trimDetails.filePath);
+        if (key === 'icon') game.iconUrl = toArtworkUrl(trimDetails.filePath);
+      }
+      if (trimDetails && !trimDetails.alreadyTrimmed) {
+        emitDiagnostic('Artwork', 'info', `Trimmed transparent padding from cached ${key} artwork for ${game.title || game.id}`, trimDetails);
+      }
+    } catch (err) {
+      emitDiagnostic('Artwork', 'warn', `Could not trim cached ${key} artwork for ${game.title || game.id}: ${err.message}`);
+    }
+  }
+}
+
+async function trimCachedLogoArtworkForDatabase(data) {
+  if (!Array.isArray(data)) return;
+  for (const game of data) {
+    await trimCachedLogoArtworkForGame(game);
+  }
 }
 
 function sanitizeForPath(str) {
@@ -367,7 +488,19 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
     try {
       const cached = getCachedArtworkPaths(gameId);
       if (cached?.[key]) {
-        result[key] = cached[key];
+        let cachedFilePath = getCachedArtworkFilePath(gameId, key);
+        if ((key === 'logo' || key === 'icon') && cachedFilePath) {
+          try {
+            const trimDetails = await trimTransparentPadding(cachedFilePath);
+            if (trimDetails?.filePath) cachedFilePath = trimDetails.filePath;
+            if (trimDetails && !trimDetails.alreadyTrimmed) {
+              addDiagnostic('info', `Trimmed transparent padding from cached ${key} artwork for ${gameTitle}`, trimDetails);
+            }
+          } catch (trimError) {
+            addDiagnostic('warn', `Could not trim cached ${key} artwork for ${gameTitle}: ${trimError.message}`);
+          }
+        }
+        result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${gameTitle}`);
         continue;
       }
@@ -380,8 +513,19 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
       }
 
       const ext = getExtensionFromArtwork(artwork);
-      const destPath = path.join(cacheDir, `${key}.${ext}`);
+      let destPath = path.join(cacheDir, `${key}.${ext}`);
       await downloadImage(artwork.url, destPath);
+      if (key === 'logo' || key === 'icon') {
+        try {
+          const trimDetails = await trimTransparentPadding(destPath);
+          if (trimDetails?.filePath) destPath = trimDetails.filePath;
+          if (trimDetails && !trimDetails.alreadyTrimmed) {
+            addDiagnostic('info', `Trimmed transparent padding from ${key} artwork for ${gameTitle}`, trimDetails);
+          }
+        } catch (trimError) {
+          addDiagnostic('warn', `Could not trim ${key} artwork for ${gameTitle}: ${trimError.message}`);
+        }
+      }
       result[key] = toArtworkUrl(destPath);
       addDiagnostic('info', `Downloaded ${key} artwork for ${gameTitle}`, {
         width: artwork.width,
@@ -490,12 +634,14 @@ ipcMain.handle('power-off', async () => {
 // --- IPC: Database ---
 const getDbPath = () => path.join(app.getPath('userData'), 'nexus-ps5-db.json');
 
-ipcMain.handle('load-database', () => {
+ipcMain.handle('load-database', async () => {
   const dbPath = getDbPath();
   try {
     if (fs.existsSync(dbPath)) {
       const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
-      return normalizeArtworkUrlsInDatabase(data);
+      const normalized = normalizeArtworkUrlsInDatabase(data);
+      await trimCachedLogoArtworkForDatabase(normalized);
+      return normalized;
     }
   } catch (err) { console.error('Error loading database:', err); }
   return null;
@@ -524,6 +670,15 @@ ipcMain.handle('select-executable', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [{ name: 'Executables', extensions: ['exe', 'bat', 'cmd'] }]
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('select-image', async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico'] }]
   });
   return result.canceled ? null : result.filePaths[0];
 });

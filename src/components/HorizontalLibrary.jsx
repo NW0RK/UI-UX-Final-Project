@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { Play, Flame, Star, Award } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Play, Flame, Star, Award, Trash2, Monitor, Gamepad2, Smartphone } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function HorizontalLibrary({ 
@@ -7,6 +7,7 @@ export default function HorizontalLibrary({
   selectedGame, 
   onSelectGame, 
   onLaunchGame, 
+  onRemoveGame, 
   runningGameId 
 }) {
   const shelfRef = useRef(null);
@@ -36,6 +37,7 @@ export default function HorizontalLibrary({
               isRunning={isRunning}
               onClick={() => handleCardClick(game)}
               onLaunch={() => onLaunchGame(game)}
+              onRemove={() => onRemoveGame(game.id)}
             />
           );
         })}
@@ -44,7 +46,8 @@ export default function HorizontalLibrary({
       <style dangerouslySetInnerHTML={{__html: `
         .horizontal-library-shelf {
           margin-top: auto;
-          padding-bottom: 20px;
+          padding-top: 24px;
+          padding-bottom: 0px;
           z-index: 10;
           position: relative;
         }
@@ -53,7 +56,7 @@ export default function HorizontalLibrary({
           display: flex;
           align-items: baseline;
           gap: 15px;
-          margin-bottom: 20px;
+          margin-bottom: 5px;
           padding-left: 10px;
         }
 
@@ -78,7 +81,7 @@ export default function HorizontalLibrary({
           display: flex;
           gap: 26px;
           overflow-x: auto;
-          padding: 15px 10px 30px 10px;
+          padding: 15px 10px 20px 10px;
           scroll-behavior: smooth;
         }
 
@@ -101,196 +104,260 @@ export default function HorizontalLibrary({
   );
 }
 
-// 3D Perspective-Tilting GameCard Component
-function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
-  const cardRef = useRef(null);
-  const [tilt, setTilt] = useState({ x: 0, y: 0, scale: 1 });
+const platformIcons = {
+  'PC': Monitor,
+  'PS5': Gamepad2,
+  'PS4': Gamepad2,
+  'Xbox Series X|S': Gamepad2,
+  'Xbox One': Gamepad2,
+  'Switch': Gamepad2,
+  'Mobile': Smartphone
+};
 
-  const handleMouseMove = (e) => {
-    const card = cardRef.current;
-    if (!card) return;
+function PlatformIcon({ platform }) {
+  const Icon = platformIcons[platform] || Gamepad2;
+  const label = platform === 'PS5' || platform === 'PS4' ? 'PS' :
+                platform.startsWith('Xbox') ? 'XB' :
+                platform === 'Switch' ? 'NS' :
+                platform === 'Mobile' ? 'Mob' :
+                platform === 'PC' ? 'PC' : platform.slice(0, 2);
+  return (
+    <div className="platform-icon-badge" title={platform}>
+      <Icon size={10} />
+      <span>{label}</span>
+    </div>
+  );
+}
 
-    const rect = card.getBoundingClientRect();
-    const x = e.clientX - rect.left; // x coordinate inside element
-    const y = e.clientY - rect.top;  // y coordinate inside element
-    
-    const width = rect.width;
-    const height = rect.height;
-    
-    const maxTilt = 15; // Max tilt rotation in degrees
-    
-    // Calculate rotation coordinates (range -1 to 1)
-    const tiltX = ((y - height / 2) / (height / 2)) * maxTilt;
-    const tiltY = -((x - width / 2) / (width / 2)) * maxTilt;
-
-    setTilt({
-      x: tiltX,
-      y: tiltY,
-      scale: 1.06
-    });
-  };
-
-  const handleMouseLeave = () => {
-    setTilt({ x: 0, y: 0, scale: 1 });
-  };
-
+function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) {
   const handleLaunchClick = (e) => {
-    e.stopPropagation(); // Avoid selecting card
+    e.stopPropagation();
     onLaunch();
   };
 
-  // Convert playtime seconds to neat hours
+  const handleRemoveClick = (e) => {
+    e.stopPropagation();
+    onRemove();
+  };
+
   const playtimeHours = Math.round((game.playtime / 3600) * 10) / 10;
 
   return (
     <div 
-      ref={cardRef}
-      className={`game-card-wrapper ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
+      className={`store-card ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
       onClick={onClick}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
       onMouseEnter={audioEngine.playHoverTick}
-      style={{
-        transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${tilt.scale})`,
-        transition: tilt.scale === 1 ? 'transform 0.5s ease' : 'transform 0.08s ease'
-      }}
     >
-      {/* 3D Depth Card Body */}
-      <div className="card-face">
-        {/* Cover Artwork */}
-        <div className="card-image-container">
-          {game.coverUrl ? (
-            <img src={game.coverUrl} alt={game.title} className="card-image" loading="lazy" />
-          ) : (
-            <div className="card-image card-image-placeholder">
-              <span>{game.title}</span>
-            </div>
-          )}
-          
-          {/* Running State Pulse Overlay */}
-          {isRunning && (
-            <div className="running-overlay-indicator">
-              <span className="running-dot-pulse" />
-              <span className="running-text">Running</span>
-            </div>
-          )}
-
-          {/* Quick Action Play Overlay */}
-          <div className="card-hover-actions">
-            <button 
-              className={`quick-play-button ${isRunning ? 'running-btn' : ''}`}
-              onClick={handleLaunchClick}
-              title={isRunning ? "Game Running" : "Launch Game"}
-            >
-              <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
-            </button>
+      <div className="store-card-image-wrapper">
+        {game.coverUrl ? (
+          <img src={game.coverUrl} alt={game.title} className="store-card-image" loading="lazy" />
+        ) : (
+          <div className="store-card-image store-card-image-placeholder">
+            <span>{game.title}</span>
           </div>
+        )}
 
-          {/* Favorite Indicator */}
-          {game.isFavorite && (
-            <div className="favorite-indicator-badge">
-              <Star size={10} fill="currentColor" />
-            </div>
-          )}
+        {isRunning && (
+          <div className="running-overlay-indicator">
+            <span className="running-dot-pulse" />
+            <span className="running-text">Running</span>
+          </div>
+        )}
+
+        {game.isFavorite && (
+          <div className="favorite-indicator-badge">
+            <Star size={10} fill="currentColor" />
+          </div>
+        )}
+
+        <div className="store-card-hover">
+          <button
+            className={`quick-play-button ${isRunning ? 'running-btn' : ''}`}
+            onClick={handleLaunchClick}
+            title={isRunning ? "Game Running" : "Launch Game"}
+          >
+            <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
+          </button>
+          <button
+            className="quick-remove-button"
+            onClick={handleRemoveClick}
+            title="Remove from Library"
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
+      </div>
 
-        {/* Card Footer Metrics (Telemetry) */}
-        <div className="card-details-panel">
-          <div className="card-title">{game.title}</div>
-          <div className="card-meta-metrics">
-            <div className="metric-item" title="Total Playtime">
-              <Flame size={12} className="metric-icon" />
-              <span>{playtimeHours}h</span>
-            </div>
-            {game.progress > 0 && (
-              <div className="metric-item" title="Completion Progress">
-                <Award size={12} className="metric-icon" />
-                <span>{game.progress}%</span>
-              </div>
-            )}
-          </div>
+      <div className="store-card-info">
+        <div className="store-card-title">{game.title}</div>
+        <div className="store-card-developer">{game.developer}</div>
+        <div className="store-card-platforms">
+          {game.platforms?.map(p => (
+            <PlatformIcon key={p} platform={p} />
+          ))}
+        </div>
+        <div className="store-card-rating">
+          <Flame size={10} className="metric-icon" />
+          <span>{playtimeHours}h</span>
+          {game.progress > 0 && (
+            <>
+              <span className="rating-divider">·</span>
+              <Award size={10} className="metric-icon" />
+              <span>{game.progress}%</span>
+            </>
+          )}
         </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
-        .game-card-wrapper {
-          flex: 0 0 205px;
-          height: 300px;
-          position: relative;
+        .store-card {
+          flex: 0 0 210px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.04);
+          border-radius: 14px;
+          overflow: hidden;
           cursor: pointer;
-          transform-style: preserve-3d;
-          perspective: 600px;
-          z-index: 5;
-        }
-
-        .card-face {
-          width: 100%;
-          height: 100%;
-          background: rgba(20, 20, 30, 0.45);
-          backdrop-filter: blur(15px);
-          -webkit-backdrop-filter: blur(15px);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 12px;
+          transition: all var(--transition-fast);
           display: flex;
           flex-direction: column;
-          overflow: hidden;
-          transition: all var(--transition-normal);
-          box-shadow: 0 5px 15px rgba(0,0,0,0.4);
         }
 
-        .game-card-wrapper:hover .card-face {
-          border-color: rgba(255, 255, 255, 0.15);
-          box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        .store-card:hover {
+          transform: translateY(-6px);
+          border-color: rgba(var(--accent-color-rgb), 0.25);
+          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(var(--accent-color-rgb), 0.08);
+          background: rgba(var(--accent-color-rgb), 0.03);
         }
 
-        .game-card-wrapper.selected .card-face {
+        .store-card.selected {
           border-color: var(--accent-color);
           box-shadow: var(--accent-glow), 0 10px 30px rgba(var(--accent-color-rgb), 0.2);
           background: rgba(var(--accent-color-rgb), 0.04);
         }
 
-        .game-card-wrapper.running .card-face {
+        .store-card.running {
           border-color: rgba(239, 68, 68, 0.6);
           box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
         }
 
-        .card-image-container {
-          width: 100%;
-          height: 215px;
+        .store-card-image-wrapper {
           position: relative;
+          width: 100%;
+          aspect-ratio: 2 / 3;
           overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: center;
           background: rgba(0, 0, 0, 0.2);
         }
 
-        .card-image {
+        .store-card-image {
           width: 100%;
           height: 100%;
           object-fit: cover;
-          object-position: center center;
+          transition: transform 0.6s ease;
           display: block;
-          transition: transform 0.8s ease;
         }
 
-        .card-image-placeholder {
+        .store-card-image-placeholder {
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 18px;
-          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.18), rgba(7, 7, 10, 0.94));
-          color: rgba(255, 255, 255, 0.72);
+          padding: 20px;
+          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.14), rgba(7, 7, 10, 0.94));
+          color: rgba(255, 255, 255, 0.7);
           font-family: var(--font-display);
-          font-size: 15px;
+          font-size: 14px;
           font-weight: 900;
           letter-spacing: 1px;
           text-align: center;
           text-transform: uppercase;
         }
 
-        .game-card-wrapper:hover .card-image {
-          transform: scale(1.05);
+        .store-card:hover .store-card-image {
+          transform: scale(1.08);
+        }
+
+        .store-card-hover {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.55);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transition: opacity var(--transition-fast);
+          z-index: 4;
+        }
+
+        .store-card:hover .store-card-hover {
+          opacity: 1;
+        }
+
+        .store-card-info {
+          padding: 14px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .store-card-title {
+          font-family: var(--font-sans);
+          font-weight: 700;
+          font-size: 13px;
+          color: #fff;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+        }
+
+        .store-card-developer {
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.4);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          min-width: 0;
+        }
+
+        .store-card-platforms {
+          display: flex;
+          gap: 4px;
+          flex-wrap: wrap;
+          margin-top: 2px;
+        }
+
+        .platform-icon-badge {
+          display: flex;
+          align-items: center;
+          gap: 3px;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 4px;
+          padding: 2px 5px;
+          font-size: 8px;
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.5);
+          letter-spacing: 0.3px;
+        }
+
+        .store-card-rating {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          font-weight: 600;
+          color: #e6af2e;
+          margin-top: auto;
+          min-width: 0;
+        }
+
+        .rating-divider {
+          color: rgba(255, 255, 255, 0.2);
         }
 
         .running-overlay-indicator {
@@ -342,26 +409,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
           box-shadow: 0 0 10px rgba(230, 175, 46, 0.4);
         }
 
-        .card-hover-actions {
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: rgba(0, 0, 0, 0.5);
-          backdrop-filter: blur(3px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          opacity: 0;
-          transition: opacity var(--transition-fast);
-          z-index: 9;
-        }
-
-        .game-card-wrapper:hover .card-hover-actions {
-          opacity: 1;
-        }
-
         .quick-play-button {
           width: 44px;
           height: 44px;
@@ -378,7 +425,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
           transform: translateY(10px);
         }
 
-        .game-card-wrapper:hover .quick-play-button {
+        .store-card:hover .quick-play-button {
           transform: translateY(0);
         }
 
@@ -394,43 +441,39 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch }) {
           color: #fff;
           box-shadow: 0 0 15px #ef4444;
         }
+
         .quick-play-button.running-btn:hover {
           background: #f87171;
         }
 
-        .card-details-panel {
-          padding: 12px;
+        .quick-remove-button {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: rgba(239, 68, 68, 0.15);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          color: #ef4444;
           display: flex;
-          flex-direction: column;
+          align-items: center;
           justify-content: center;
-          flex: 1;
-          background: rgba(10, 10, 15, 0.4);
+          cursor: pointer;
+          transition: all var(--transition-fast);
+          transform: translateY(10px);
+          position: absolute;
+          bottom: 12px;
+          right: 12px;
+          opacity: 0;
         }
 
-        .card-title {
-          font-family: var(--font-sans);
-          font-weight: 600;
-          font-size: 14px;
+        .store-card:hover .quick-remove-button {
+          transform: translateY(0);
+          opacity: 1;
+        }
+
+        .quick-remove-button:hover {
+          background: #ef4444;
           color: #fff;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          margin-bottom: 6px;
-        }
-
-        .card-meta-metrics {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .metric-item {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 10px;
-          font-weight: 500;
-          color: rgba(255, 255, 255, 0.45);
+          box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
         }
 
         .metric-icon {

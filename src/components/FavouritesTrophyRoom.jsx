@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Award, Clock, Flame, Play, Star, Trophy } from 'lucide-react';
+import { ArrowLeft, Award, Clock, Flame, Play, Star, Trash2, Trophy } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function FavouritesTrophyRoom({
@@ -8,6 +8,7 @@ export default function FavouritesTrophyRoom({
   onSelectGame,
   onLaunchGame,
   onToggleFavorite,
+  onRemoveGame,
   onReturnToLibrary,
   runningGameId
 }) {
@@ -36,6 +37,12 @@ export default function FavouritesTrophyRoom({
     event.stopPropagation();
     audioEngine.playClickPulse();
     onToggleFavorite(game.id);
+  };
+
+  const handleRemoveGame = (event, game) => {
+    event.stopPropagation();
+    audioEngine.playClickPulse();
+    onRemoveGame(game.id);
   };
 
   if (games.length === 0) {
@@ -149,6 +156,13 @@ export default function FavouritesTrophyRoom({
                     title="Remove from Favourites"
                   >
                     <Star size={15} fill="currentColor" />
+                  </button>
+                  <button
+                    className="plaque-remove-btn"
+                    onClick={(event) => handleRemoveGame(event, game)}
+                    title="Remove from Library"
+                  >
+                    <Trash2 size={13} />
                   </button>
                 </div>
 
@@ -613,6 +627,28 @@ const roomStyles = `
     background: #e6af2e;
     color: #07070a;
     box-shadow: 0 0 16px rgba(230, 175, 46, 0.48);
+  }
+
+  .plaque-remove-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all var(--transition-fast);
+  }
+
+  .plaque-remove-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
   }
 
   .artifact-stats {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pin, Edit, Star, Flame, Clock, Award, ShieldAlert } from 'lucide-react';
+import { Play, Pin, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function GameMainBanner({ 
@@ -8,8 +8,10 @@ export default function GameMainBanner({
   onToggleFavorite, 
   onEditMetadata, 
   onPinSidebar,
+  onRemoveGame,
   isRunning,
-  isSidebarPinned
+  isSidebarPinned,
+  bannerAnimation = true
 }) {
   if (!game) return null;
 
@@ -33,6 +35,13 @@ export default function GameMainBanner({
     onPinSidebar();
   };
 
+  const handleRemoveClick = () => {
+    audioEngine.playClickPulse();
+    onRemoveGame(game.id);
+  };
+
+  const parallaxClass = bannerAnimation ? ' backdrop-parallax' : '';
+
   // Playtime formatting (convert seconds to hours and minutes)
   const formatPlaytime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -45,18 +54,18 @@ export default function GameMainBanner({
     <div className="game-main-banner-container">
       {/* Background Dissolve Backdrop Canvas */}
       <div className="backdrop-image-mask">
-        {game.bannerUrl ? (
-          <img 
-            src={game.bannerUrl} 
-            alt={game.title} 
-            className="banner-backdrop-img backdrop-parallax" 
-            key={game.id} // Forces re-mounting and triggers CSS fade transition
-          />
-        ) : (
-          <div className="banner-backdrop-img banner-art-placeholder backdrop-parallax" key={game.id}>
-            <span>SteamGridDB artwork pending</span>
-          </div>
-        )}
+          {game.bannerUrl ? (
+            <img 
+              src={game.bannerUrl} 
+              alt={game.title} 
+              className={`banner-backdrop-img${parallaxClass}`} 
+              key={game.id}
+            />
+          ) : (
+            <div className={`banner-backdrop-img banner-art-placeholder${parallaxClass}`} key={game.id}>
+              <span>SteamGridDB artwork pending</span>
+            </div>
+          )}
         <div className="backdrop-overlay-vignette" />
       </div>
 
@@ -160,6 +169,16 @@ export default function GameMainBanner({
           >
             <Star size={16} fill={game.isFavorite ? 'currentColor' : 'transparent'} />
           </button>
+
+          {/* Remove from Library */}
+          <button 
+            className="glow-btn action-pill-btn remove-pill-btn"
+            onClick={handleRemoveClick}
+            onMouseEnter={audioEngine.playHoverTick}
+            title="Remove from Library"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
       </div>
 
@@ -169,7 +188,7 @@ export default function GameMainBanner({
           top: 0;
           left: 0;
           width: 100%;
-          height: calc(100% - 390px);
+          height: calc(100% - 480px);
           display: flex;
           align-items: flex-end;
           padding: 0 60px 48px;
@@ -195,7 +214,7 @@ export default function GameMainBanner({
           transform: scale(1.05);
           filter: brightness(0.6) contrast(1.05);
           transition: opacity 1.2s ease-in-out;
-          animation: fade-in-backdrop 1.2s forwards ease-in-out, slow-pan 45s infinite ease-in-out;
+          animation: fade-in-backdrop 1.2s forwards ease-in-out;
         }
 
         .banner-art-placeholder {
@@ -281,6 +300,7 @@ export default function GameMainBanner({
         .banner-title-container {
           width: 100%;
           height: 80px;
+          flex-shrink: 0;
           display: flex;
           align-items: center;
           overflow: hidden;
@@ -307,6 +327,7 @@ export default function GameMainBanner({
           overflow: hidden;
           text-overflow: ellipsis;
           max-width: 100%;
+          min-width: 0;
         }
 
         .developer-meta {
@@ -434,6 +455,17 @@ export default function GameMainBanner({
           border-color: rgba(230, 175, 46, 0.3) !important;
           background: rgba(230, 175, 46, 0.08) !important;
           box-shadow: 0 0 10px rgba(230, 175, 46, 0.2);
+        }
+
+        .remove-pill-btn {
+          color: rgba(255, 255, 255, 0.35) !important;
+        }
+
+        .remove-pill-btn:hover {
+          color: #ef4444 !important;
+          border-color: rgba(239, 68, 68, 0.3) !important;
+          background: rgba(239, 68, 68, 0.08) !important;
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
         }
       `}} />
     </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star } from 'lucide-react';
+import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Trash2 } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 const platformIcons = {
@@ -12,7 +12,7 @@ const platformIcons = {
   'Mobile': Smartphone
 };
 
-export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch }) {
+export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch, onRemoveGame }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
 
@@ -180,6 +180,16 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                     </div>
                   </div>
                 )}
+
+                <div className="store-item-divider" />
+
+                <button
+                  className="glow-btn remove-owned-btn"
+                  onClick={() => onRemoveGame(item.id)}
+                >
+                  <Trash2 size={14} />
+                  <span>Remove from Library</span>
+                </button>
               </>
             ) : (
               <>
@@ -466,6 +476,27 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           flex: 1;
           font-size: 11px;
           padding: 8px 12px;
+        }
+
+        .store-item-divider {
+          height: 1px;
+          background: rgba(255, 255, 255, 0.06);
+          margin: 4px 0;
+        }
+
+        .remove-owned-btn {
+          width: 100%;
+          padding: 10px;
+          font-size: 11px;
+          color: rgba(255, 255, 255, 0.4) !important;
+          border-color: rgba(255, 255, 255, 0.06) !important;
+        }
+
+        .remove-owned-btn:hover {
+          color: #ef4444 !important;
+          border-color: rgba(239, 68, 68, 0.3) !important;
+          background: rgba(239, 68, 68, 0.08) !important;
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.15) !important;
         }
 
         .not-owned-label {

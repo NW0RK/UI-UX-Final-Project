@@ -59,7 +59,8 @@ export default function App() {
     glassOpacity: 0.4,
     particleDensity: 1.0,
     particleSpeed: 1.0,
-    trackSystemStatus: true
+    trackSystemStatus: true,
+    bannerAnimation: true
   });
 
   // --- 1. Load Local Database or Fallback to Defaults ---
@@ -364,6 +365,25 @@ export default function App() {
     }
   };
 
+  // --- Action Trigger: Remove Game from Library ---
+  const handleRemoveGame = async (gameId) => {
+    const gameToRemove = games.find(g => g.id === gameId);
+    if (!gameToRemove) return;
+
+    const updatedList = games.filter(g => g.id !== gameId);
+    setGames(updatedList);
+
+    if (selectedGame?.id === gameId) {
+      setSelectedGame(updatedList[0] || null);
+    }
+
+    if (window.electronAPI) {
+      await window.electronAPI.saveDatabase(updatedList);
+    } else {
+      localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+    }
+  };
+
   // --- Action Trigger: Folder Scanning Batch Imports ---
   const handleImportScannedGames = async (matchedImports) => {
     const addedList = [...games];
@@ -634,8 +654,10 @@ export default function App() {
               onToggleFavorite={handleToggleFavorite}
               onEditMetadata={() => setIsMetadataOpen(true)}
               onPinSidebar={() => setIsSidebarPinned(!isSidebarPinned)}
+              onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
               isSidebarPinned={isSidebarPinned}
+              bannerAnimation={settings.bannerAnimation}
             />
 
             <HorizontalLibrary 
@@ -643,6 +665,7 @@ export default function App() {
               selectedGame={selectedGame}
               onSelectGame={setSelectedGame}
               onLaunchGame={handleLaunchGame}
+              onRemoveGame={handleRemoveGame}
               runningGameId={runningGameId}
             />
           </>
@@ -655,6 +678,7 @@ export default function App() {
             onSelectGame={setSelectedGame}
             onLaunchGame={handleLaunchGame}
             onToggleFavorite={handleToggleFavorite}
+            onRemoveGame={handleRemoveGame}
             onReturnToLibrary={() => handleViewChange('library')}
             runningGameId={runningGameId}
           />
@@ -677,6 +701,7 @@ export default function App() {
             onMarkOwned={handleMarkOwned}
             onLinkExe={handleLinkExe}
             onLaunch={handleLaunchGame}
+            onRemoveGame={handleRemoveGame}
           />
         )}
       </main>

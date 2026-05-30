@@ -30,6 +30,21 @@ export default function MetadataEditor({ game, onSave, onClose }) {
   const [isAutoFetching, setIsAutoFetching] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
+  const handleImagePick = async (setter) => {
+    audioEngine.playClickPulse();
+    try {
+      const filePath = window.electronAPI
+        ? await window.electronAPI.selectImage()
+        : prompt("Enter image file path:", "");
+      if (filePath) {
+        const fileUrl = filePath.startsWith('file://') ? filePath : `file:///${filePath.replace(/\\/g, '/')}`;
+        setter(fileUrl);
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
   const handleClose = () => {
     audioEngine.playClickPulse();
     onClose();
@@ -422,14 +437,17 @@ export default function MetadataEditor({ game, onSave, onClose }) {
 
               {/* Artwork Previews */}
               <div className="preview-aspects-row">
-                <div className="aspect-ratio-preview vert-aspect" title="Cover">
+                <div className="aspect-ratio-preview vert-aspect clickable-preview" title="Cover" onClick={() => handleImagePick(setCoverUrl)}>
                   {coverUrl ? <img src={coverUrl} alt="Cover Preview" /> : <span>Cover</span>}
                 </div>
-                <div className="aspect-ratio-preview horiz-aspect" title="Banner">
+                <div className="aspect-ratio-preview horiz-aspect clickable-preview" title="Banner" onClick={() => handleImagePick(setBannerUrl)}>
                   {bannerUrl ? <img src={bannerUrl} alt="Banner Preview" /> : <span>Banner</span>}
                 </div>
-                <div className="aspect-ratio-preview vert-aspect" title="Logo">
+                <div className="aspect-ratio-preview vert-aspect clickable-preview" title="Logo" onClick={() => handleImagePick(setLogoUrl)}>
                   {logoUrl ? <img src={logoUrl} alt="Logo Preview" style={{ objectFit: 'contain' }} /> : <span>Logo</span>}
+                </div>
+                <div className="aspect-ratio-preview sq-aspect clickable-preview" title="Icon" onClick={() => handleImagePick(setIconUrl)}>
+                  {iconUrl ? <img src={iconUrl} alt="Icon Preview" /> : <span>Icon</span>}
                 </div>
               </div>
             </div>
@@ -719,6 +737,21 @@ export default function MetadataEditor({ game, onSave, onClose }) {
         .horiz-aspect {
           flex: 1;
           height: 90px;
+        }
+
+        .sq-aspect {
+          width: 70px;
+          height: 70px;
+        }
+
+        .clickable-preview {
+          cursor: pointer;
+          transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+
+        .clickable-preview:hover {
+          border-color: var(--accent-color);
+          box-shadow: 0 0 15px rgba(var(--accent-color-rgb), 0.25);
         }
 
         .aspect-ratio-preview img {

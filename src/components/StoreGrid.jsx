@@ -295,6 +295,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          min-width: 0;
         }
 
         .store-card-developer {

@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Native explorer APIs
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   selectExecutable: () => ipcRenderer.invoke('select-executable'),
+  selectImage: () => ipcRenderer.invoke('select-image'),
   scanExecutables: (dirPath) => ipcRenderer.invoke('scan-executables', dirPath),
 
   // Launch processes

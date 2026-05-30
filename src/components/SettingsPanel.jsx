@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity } from 'lucide-react';
+import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity, Image } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -42,6 +42,11 @@ export default function SettingsPanel({
   const handleSystemStatusToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, trackSystemStatus: !settings.trackSystemStatus });
+  };
+
+  const handleBannerAnimationToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, bannerAnimation: !settings.bannerAnimation });
   };
 
   const handleSliderChange = (key, value) => {
@@ -199,7 +204,31 @@ export default function SettingsPanel({
             </div>
           </div>
 
-          {/* Section 3: SteamGridDB API Key */}
+          {/* Section 3: Banner Animation */}
+          <div className="settings-section">
+            <h3 className="section-label-heading flex-center-start">
+              <Image size={14} className="heading-icon" />
+              <span>Banner Cinematic Zoom</span>
+            </h3>
+            <p className="section-description">Disable this to stop the hero banner background from slowly zooming and panning.</p>
+            
+            <div className="audio-toggle-card" onClick={handleBannerAnimationToggle}>
+              <div className="audio-card-left">
+                <Image size={20} className={settings.bannerAnimation ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Banner Cinematic Pan Animation</span>
+                  <span className="audio-card-desc">{settings.bannerAnimation ? 'Hero banner background slowly zooms and pans for a cinematic effect.' : 'Hero banner background is static with no zoom animation.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.bannerAnimation ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: SteamGridDB API Key */}
           <div className="settings-section">
             <h3 className="section-label-heading flex-center-start">
               <Key size={14} className="heading-icon" />
@@ -248,7 +277,7 @@ export default function SettingsPanel({
             </div>
           </div>
 
-          {/* Section 4: Fine Sliders Tuning */}
+          {/* Section 6: Fine Sliders Tuning */}
           <div className="settings-section">
             <h3 className="section-label-heading flex-center-start">
               <Sliders size={14} className="heading-icon" />
@@ -320,7 +349,7 @@ export default function SettingsPanel({
             </div>
           </div>
 
-          {/* Section 5: System Reset */}
+          {/* Section 7: System Reset */}
           <div className="settings-section reset-system-sec">
             <h3 className="section-label-heading red-heading">Maintenance & Cache</h3>
             <div className="maintenance-card">

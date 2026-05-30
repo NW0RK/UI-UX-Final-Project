@@ -5,7 +5,9 @@ export function applyArtworkToGame(game, artworkResult) {
   if (artworkResult.hero) updated.bannerUrl = artworkResult.hero;
   if (artworkResult.logo) updated.logoUrl = artworkResult.logo;
   if (artworkResult.icon) updated.iconUrl = artworkResult.icon;
-  updated.artworkFetched = true;
+  if (artworkResult.steamGridDbId) updated.steamGridDbId = artworkResult.steamGridDbId;
+  if (artworkResult.steamGridDbName) updated.steamGridDbName = artworkResult.steamGridDbName;
+  updated.artworkFetched = hasAnyArtwork(updated);
   return updated;
 }
 

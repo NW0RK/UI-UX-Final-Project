@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
 import { spawn, execFile } from 'child_process';
 import https from 'https';
@@ -13,6 +13,8 @@ const activeGames = new Map();
 
 // --- SteamGridDB Configuration ---
 const BUILTIN_API_KEY = '2c62a4e1707f21a61e1bd30f4eafd6dc';
+const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
+const REQUEST_TIMEOUT_MS = 15000;
 const getConfigPath = () => path.join(app.getPath('userData'), 'nexus-config.json');
 const getArtworkCacheDir = () => {
   const dir = path.join(app.getPath('userData'), 'artwork');
@@ -21,58 +23,133 @@ const getArtworkCacheDir = () => {
 };
 
 function getApiKeyFromConfig() {
+  if (process.env.STEAMGRIDDB_API_KEY?.trim()) {
+    return process.env.STEAMGRIDDB_API_KEY.trim();
+  }
+
   try {
     const configPath = getConfigPath();
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.steamgriddbApiKey) return config.steamgriddbApiKey;
+      if (config.steamgriddbApiKey?.trim()) return config.steamgriddbApiKey.trim();
     }
   } catch (e) { /* ignore */ }
   return BUILTIN_API_KEY;
 }
 
-function steamgriddbFetch(endpoint) {
+function toFileUrl(filePath) {
+  return pathToFileURL(filePath).href;
+}
+
+function httpsGet(url, options = {}, redirectCount = 0) {
   return new Promise((resolve, reject) => {
-    const apiKey = getApiKeyFromConfig();
-    const url = `https://www.steamgriddb.com/api/v2${endpoint}`;
-    const req = https.get(url, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.success) resolve(parsed);
-          else reject(new Error(parsed.errors?.[0] || 'API error'));
-        } catch (e) {
-          reject(new Error('Invalid API response'));
+    const req = https.get(url, options, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        if (redirectCount >= 4) {
+          reject(new Error('Too many redirects'));
+          return;
         }
-      });
+        const nextUrl = new URL(res.headers.location, url).href;
+        resolve(httpsGet(nextUrl, options, redirectCount + 1));
+        return;
+      }
+
+      resolve(res);
     });
     req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Request timeout')); });
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error('Request timeout'));
+    });
   });
 }
 
-function downloadImage(url, destPath) {
+async function steamgriddbFetch(endpoint) {
+  const apiKey = getApiKeyFromConfig();
+  if (!apiKey) throw new Error('SteamGridDB API key is not configured');
+
+  const url = `${STEAMGRIDDB_BASE_URL}${endpoint}`;
+  const res = await httpsGet(url, {
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  });
+
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    https.get(url, (res) => {
-      if (res.statusCode !== 200) {
-        file.close();
-        fs.unlinkSync(destPath);
-        reject(new Error(`HTTP ${res.statusCode}`));
+    let data = '';
+    res.setEncoding('utf8');
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      let parsed = null;
+      try {
+        parsed = data ? JSON.parse(data) : null;
+      } catch (e) {
+        reject(new Error(`Invalid SteamGridDB response (${res.statusCode})`));
         return;
       }
-      res.pipe(file);
-      file.on('finish', () => { file.close(); resolve(destPath); });
-    }).on('error', (err) => {
-      file.close();
-      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-      reject(err);
+
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        reject(new Error(parsed?.errors?.[0] || `SteamGridDB HTTP ${res.statusCode}`));
+        return;
+      }
+
+      if (parsed?.success) {
+        resolve(parsed);
+      } else {
+        reject(new Error(parsed?.errors?.[0] || 'SteamGridDB API error'));
+      }
     });
+    res.on('error', reject);
   });
+}
+
+function getExtensionFromArtwork(artwork) {
+  const mimeExt = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp'
+  };
+  if (mimeExt[artwork?.mime]) return mimeExt[artwork.mime];
+
+  try {
+    const ext = path.extname(new URL(artwork.url).pathname).replace('.', '').toLowerCase();
+    if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
+  } catch (e) { /* ignore */ }
+
+  return 'png';
+}
+
+async function downloadImage(url, destPath) {
+  const res = await httpsGet(url, {
+    headers: { 'User-Agent': 'NexusLauncher/1.0' }
+  });
+
+  if (res.statusCode !== 200) {
+    res.resume();
+    throw new Error(`Image download failed with HTTP ${res.statusCode}`);
+  }
+
+  const tmpPath = `${destPath}.download`;
+  await new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(tmpPath);
+    res.pipe(file);
+    file.on('finish', () => {
+      file.close(resolve);
+    });
+    const handleError = (err) => {
+      file.close(() => {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        reject(err);
+      });
+    };
+    file.on('error', handleError);
+    res.on('error', handleError);
+  });
+  fs.renameSync(tmpPath, destPath);
+  return destPath;
 }
 
 function getGameCacheDir(gameId) {
@@ -90,7 +167,7 @@ function getCachedArtworkPaths(gameId) {
     for (const ext of extensions) {
       const filePath = path.join(cacheDir, `${type}.${ext}`);
       if (fs.existsSync(filePath)) {
-        result[type] = `file://${filePath}`;
+        result[type] = toFileUrl(filePath);
         break;
       }
     }
@@ -100,6 +177,121 @@ function getCachedArtworkPaths(gameId) {
 
 function sanitizeForPath(str) {
   return str.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+}
+
+function normalizeGameTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/\b(goty|game of the year|complete|definitive|deluxe|ultimate|standard|edition|remastered|remake|directors cut|director's cut)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function scoreSteamGridDBMatch(query, result) {
+  const normalizedQuery = normalizeGameTitle(query);
+  const normalizedName = normalizeGameTitle(result?.name);
+  if (!normalizedQuery || !normalizedName) return 0;
+  if (normalizedQuery === normalizedName) return 100;
+
+  const queryWords = normalizedQuery.split(' ');
+  const nameWords = normalizedName.split(' ');
+  const querySet = new Set(queryWords);
+  const nameSet = new Set(nameWords);
+  const sharedWords = queryWords.filter(word => nameSet.has(word)).length;
+  const coverage = sharedWords / querySet.size;
+  const extraWordsPenalty = Math.max(0, nameSet.size - querySet.size) * 3;
+
+  let score = Math.round(coverage * 70) - extraWordsPenalty;
+  if (normalizedName.includes(normalizedQuery)) score += 20;
+  if (normalizedQuery.includes(normalizedName)) score += 12;
+  if (result?.verified) score += 6;
+  if (result?.types?.includes('game')) score += 4;
+
+  return Math.max(0, Math.min(99, score));
+}
+
+async function searchSteamGridDBGames(term) {
+  const searchTerm = String(term || '').trim();
+  if (!searchTerm) return [];
+
+  const data = await steamgriddbFetch(`/search/autocomplete/${encodeURIComponent(searchTerm)}`);
+  return (data.data || [])
+    .map(result => ({
+      ...result,
+      matchScore: scoreSteamGridDBMatch(searchTerm, result)
+    }))
+    .sort((a, b) => b.matchScore - a.matchScore);
+}
+
+function pickArtwork(items, key) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const activeItems = items.filter(item => item && item.url);
+  if (activeItems.length === 0) return null;
+
+  const dimensionsByType = {
+    grid: ['600x900', '342x482', '660x930'],
+    hero: ['1920x620', '3840x1240'],
+    logo: [],
+    icon: ['512x512', '256x256', '128x128']
+  };
+  const preferredDimensions = dimensionsByType[key] || [];
+
+  return [...activeItems].sort((a, b) => {
+    const score = (item) => {
+      let value = 0;
+      if (item.style === 'alternate') value += 4;
+      if (item.style === 'official') value += 3;
+      if (item.verified) value += 2;
+      if (item.nsfw) value -= 10;
+      const dimensions = `${item.width || ''}x${item.height || ''}`;
+      const dimensionIndex = preferredDimensions.indexOf(dimensions);
+      if (dimensionIndex !== -1) value += 10 - dimensionIndex;
+      return value;
+    };
+    return score(b) - score(a);
+  })[0];
+}
+
+async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
+  const cacheDir = getGameCacheDir(gameId);
+  const result = {};
+
+  const types = [
+    { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static` },
+    { key: 'hero', endpoint: `/heroes/game/${sgdbId}?types=static` },
+    { key: 'logo', endpoint: `/logos/game/${sgdbId}?types=static` },
+    { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
+  ];
+
+  for (const { key, endpoint } of types) {
+    try {
+      const cached = getCachedArtworkPaths(gameId);
+      if (cached?.[key]) {
+        result[key] = cached[key];
+        continue;
+      }
+
+      const apiData = await steamgriddbFetch(endpoint);
+      const artwork = pickArtwork(apiData.data, key);
+      if (!artwork) continue;
+
+      const ext = getExtensionFromArtwork(artwork);
+      const destPath = path.join(cacheDir, `${key}.${ext}`);
+      await downloadImage(artwork.url, destPath);
+      result[key] = toFileUrl(destPath);
+    } catch (e) {
+      console.log(`SteamGridDB ${key} unavailable for ${gameTitle}: ${e.message}`);
+    }
+  }
+
+  return result;
+}
+
+async function findSteamGridDBGame(term) {
+  const results = await searchSteamGridDBGames(term);
+  return results.find(result => result.matchScore >= 45) || results[0] || null;
 }
 
 // --- Window Creation ---
@@ -256,8 +448,7 @@ ipcMain.handle('launch-game', (event, gameId, exePath) => {
 // --- IPC: SteamGridDB Artwork ---
 ipcMain.handle('steamgriddb-search', async (event, term) => {
   try {
-    const data = await steamgriddbFetch(`/search/autocomplete/${encodeURIComponent(term)}`);
-    return data.data || [];
+    return await searchSteamGridDBGames(term);
   } catch (err) {
     return { error: err.message };
   }
@@ -265,41 +456,37 @@ ipcMain.handle('steamgriddb-search', async (event, term) => {
 
 ipcMain.handle('steamgriddb-fetch-artwork', async (event, sgdbId, gameId, gameTitle) => {
   try {
-    const cacheDir = getGameCacheDir(gameId);
-    const result = {};
+    return await fetchArtworkForGame(sgdbId, gameId, gameTitle);
+  } catch (err) {
+    return { error: err.message };
+  }
+});
 
-    const types = [
-      { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900` },
-      { key: 'hero', endpoint: `/heroes/game/${sgdbId}` },
-      { key: 'logo', endpoint: `/logos/game/${sgdbId}` },
-      { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
-    ];
-
-    for (const { key, endpoint } of types) {
-      const ext = 'png';
-      const destPath = path.join(cacheDir, `${key}.${ext}`);
-
-      // Skip if already cached
-      if (fs.existsSync(destPath)) {
-        result[key] = `file://${destPath}`;
-        continue;
-      }
-
-      try {
-        const apiData = await steamgriddbFetch(endpoint);
-        const items = apiData.data || [];
-        if (items.length > 0) {
-          const url = items[0].url;
-          await downloadImage(url, destPath);
-          result[key] = `file://${destPath}`;
-        }
-      } catch (e) {
-        // Silently skip artwork types that aren't available
-        console.log(`No ${key} found for ${gameTitle}`);
-      }
+ipcMain.handle('steamgriddb-auto-fetch-artwork', async (event, game) => {
+  try {
+    if (!game?.id || !game?.title) {
+      return { error: 'Missing game id or title' };
     }
 
-    return result;
+    const match = game.steamGridDbId && !game.forceTitleLookup
+      ? { id: game.steamGridDbId, name: game.title }
+      : await findSteamGridDBGame(game.title);
+
+    if (!match?.id) {
+      return { error: `No SteamGridDB match found for ${game.title}` };
+    }
+
+    const artwork = await fetchArtworkForGame(match.id, game.id, game.title);
+    if (Object.keys(artwork).length === 0) {
+      return { error: `No downloadable artwork found for ${game.title}` };
+    }
+
+    return {
+      ...artwork,
+      steamGridDbId: match.id,
+      steamGridDbName: match.name,
+      matchScore: match.matchScore
+    };
   } catch (err) {
     return { error: err.message };
   }
@@ -314,7 +501,11 @@ ipcMain.handle('save-api-key', async (event, key) => {
     const configPath = getConfigPath();
     let config = {};
     if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    config.steamgriddbApiKey = key;
+    if (key?.trim()) {
+      config.steamgriddbApiKey = key.trim();
+    } else {
+      delete config.steamgriddbApiKey;
+    }
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
@@ -323,11 +514,15 @@ ipcMain.handle('save-api-key', async (event, key) => {
 });
 
 ipcMain.handle('get-api-key', async () => {
+  if (process.env.STEAMGRIDDB_API_KEY?.trim()) {
+    return { key: process.env.STEAMGRIDDB_API_KEY.trim(), isCustom: true };
+  }
+
   try {
     const configPath = getConfigPath();
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.steamgriddbApiKey) return { key: config.steamgriddbApiKey, isCustom: true };
+      if (config.steamgriddbApiKey?.trim()) return { key: config.steamgriddbApiKey.trim(), isCustom: true };
     }
   } catch (e) { /* ignore */ }
   return { key: BUILTIN_API_KEY, isCustom: false };

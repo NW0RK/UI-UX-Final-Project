@@ -65,10 +65,10 @@ export default function SettingsPanel({
   const handleResetApiKey = async () => {
     audioEngine.playClickPulse();
     if (window.electronAPI) {
+      await window.electronAPI.saveApiKey('');
       const result = await window.electronAPI.getApiKey();
       setApiKey(result.key);
-      setApiKeyStatus('builtin');
-      await window.electronAPI.saveApiKey('');
+      setApiKeyStatus(result.isCustom ? 'custom' : 'builtin');
     }
   };
 

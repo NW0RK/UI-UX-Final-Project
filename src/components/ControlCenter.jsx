@@ -9,6 +9,7 @@ export default function ControlCenter({
   onManualImport, 
   onImportScannedGames,
   onBatchFetchArtwork,
+  isBatchFetchingArtwork = false,
   cpuUsage,
   ramUsage,
   games
@@ -163,11 +164,12 @@ export default function ControlCenter({
             <button 
               className="quick-btn-icon-label artwork-btn" 
               onClick={onBatchFetchArtwork}
+              disabled={!onBatchFetchArtwork || isBatchFetchingArtwork}
               onMouseEnter={audioEngine.playHoverTick}
               title="Fetch artwork for all games via SteamGridDB"
             >
-              <Cloud size={18} />
-              <span>Fetch Art</span>
+              {isBatchFetchingArtwork ? <Download size={18} /> : <Cloud size={18} />}
+              <span>{isBatchFetchingArtwork ? 'Fetching' : 'Fetch Art'}</span>
             </button>
             <button 
               className="quick-btn-icon-label" 
@@ -377,7 +379,7 @@ export default function ControlCenter({
 
         .quick-action-buttons-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 10px;
           margin-top: auto;
         }
@@ -402,6 +404,12 @@ export default function ControlCenter({
           border-color: rgba(var(--accent-color-rgb), 0.25);
           color: var(--accent-color);
           transform: translateY(-2px);
+        }
+
+        .quick-btn-icon-label:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+          transform: none;
         }
 
         .quick-btn-icon-label span {

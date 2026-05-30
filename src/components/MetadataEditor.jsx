@@ -17,6 +17,8 @@ export default function MetadataEditor({ game, onSave, onClose }) {
   const [bannerUrl, setBannerUrl] = useState(game.bannerUrl);
   const [logoUrl, setLogoUrl] = useState(game.logoUrl || '');
   const [iconUrl, setIconUrl] = useState(game.iconUrl || '');
+  const [steamGridDbId, setSteamGridDbId] = useState(game.steamGridDbId || null);
+  const [steamGridDbName, setSteamGridDbName] = useState(game.steamGridDbName || '');
   const [tagsInput, setTagsInput] = useState(game.tags?.join(', ') || '');
   const [exePath, setExePath] = useState(game.exePath);
 
@@ -24,6 +26,7 @@ export default function MetadataEditor({ game, onSave, onClose }) {
   const [searchResults, setSearchResults] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isFetching, setIsFetching] = useState(null); // sgdbId of currently fetching
+  const [isAutoFetching, setIsAutoFetching] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
   const handleClose = () => {
@@ -49,6 +52,9 @@ export default function MetadataEditor({ game, onSave, onClose }) {
       bannerUrl,
       logoUrl: logoUrl || null,
       iconUrl: iconUrl || null,
+      steamGridDbId,
+      steamGridDbName: steamGridDbName || null,
+      artworkFetched: !!(coverUrl || bannerUrl || logoUrl || iconUrl),
       exePath,
       tags: tagsInput.split(',').map(tag => tag.trim()).filter(Boolean)
     };
@@ -92,6 +98,8 @@ export default function MetadataEditor({ game, onSave, onClose }) {
           if (artwork.hero) setBannerUrl(artwork.hero);
           if (artwork.logo) setLogoUrl(artwork.logo);
           if (artwork.icon) setIconUrl(artwork.icon);
+          setSteamGridDbId(artwork.steamGridDbId || sgdbResult.id);
+          setSteamGridDbName(artwork.steamGridDbName || sgdbResult.name || '');
         }
       }
     } catch (e) {
@@ -100,7 +108,40 @@ export default function MetadataEditor({ game, onSave, onClose }) {
     setIsFetching(null);
   };
 
-  const getResultName = (r) => r.name || game.title;
+  const handleAutoFetchArtwork = async () => {
+    const lookupTitle = searchTerm.trim() || title.trim();
+    if (!lookupTitle || !window.electronAPI?.autoFetchArtwork) return;
+
+    audioEngine.playClickPulse();
+    setIsAutoFetching(true);
+    setSearchError(null);
+    try {
+      const artwork = await window.electronAPI.autoFetchArtwork({
+        ...game,
+        title: lookupTitle,
+        forceTitleLookup: true
+      });
+
+      if (artwork.error) {
+        setSearchError(artwork.error);
+      } else {
+        if (artwork.grid) setCoverUrl(artwork.grid);
+        if (artwork.hero) setBannerUrl(artwork.hero);
+        if (artwork.logo) setLogoUrl(artwork.logo);
+        if (artwork.icon) setIconUrl(artwork.icon);
+        setSteamGridDbId(artwork.steamGridDbId || null);
+        setSteamGridDbName(artwork.steamGridDbName || '');
+        setSearchResults([{
+          id: artwork.steamGridDbId,
+          name: artwork.steamGridDbName || lookupTitle,
+          matchScore: artwork.matchScore
+        }]);
+      }
+    } catch (e) {
+      setSearchError(e.message);
+    }
+    setIsAutoFetching(false);
+  };
 
   return (
     <div className="meta-editor-overlay flex-center">
@@ -310,6 +351,16 @@ export default function MetadataEditor({ game, onSave, onClose }) {
                   >
                     {isSearching ? '...' : <Search size={13} />}
                   </button>
+                  <button
+                    type="button"
+                    className="glow-btn sgdb-auto-btn"
+                    onClick={handleAutoFetchArtwork}
+                    disabled={isAutoFetching || isSearching}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    {isAutoFetching ? <Download size={13} /> : <Cloud size={13} />}
+                    <span>{isAutoFetching ? 'Fetching' : 'Auto Match'}</span>
+                  </button>
                 </div>
 
                 {searchError && (
@@ -323,6 +374,7 @@ export default function MetadataEditor({ game, onSave, onClose }) {
                         <div className="sgdb-result-info">
                           <span className="sgdb-result-name">{r.name}</span>
                           {r.release_date && <span className="sgdb-result-year">({r.release_date?.slice(0, 4)})</span>}
+                          {typeof r.matchScore === 'number' && <span className="sgdb-result-year">{r.matchScore}%</span>}
                         </div>
                         <button
                           type="button"
@@ -550,6 +602,13 @@ export default function MetadataEditor({ game, onSave, onClose }) {
         .sgdb-search-btn {
           padding: 6px 10px;
           flex-shrink: 0;
+        }
+
+        .sgdb-auto-btn {
+          padding: 6px 10px;
+          flex-shrink: 0;
+          font-size: 10px;
+          gap: 5px;
         }
 
         .sgdb-error {

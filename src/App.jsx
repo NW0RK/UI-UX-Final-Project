@@ -11,6 +11,7 @@ import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
+import { applyArtworkToGame } from './utils/steamgriddb';
 import { audioEngine } from './utils/audioEngine';
 export default function App() {
   // --- Mode and Core States ---
@@ -30,6 +31,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
+  const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
 
   // --- System Diagnostic Metrics (CPU/RAM Mock telemetry) ---
   const [cpuUsage, setCpuUsage] = useState(12);
@@ -425,6 +427,41 @@ export default function App() {
     );
   };
 
+  // --- Action Trigger: Batch SteamGridDB Artwork Fetch ---
+  const handleBatchFetchArtwork = async () => {
+    audioEngine.playClickPulse();
+
+    if (!window.electronAPI?.autoFetchArtwork || isBatchFetchingArtwork) {
+      if (!window.electronAPI) alert("SteamGridDB artwork fetch is available in the desktop app.");
+      return;
+    }
+
+    setIsBatchFetchingArtwork(true);
+    let updatedList = [...games];
+    let updatedCount = 0;
+    const candidates = updatedList.filter(game => game?.title && !game.artworkFetched);
+
+    for (const game of candidates) {
+      const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
+      if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+        updatedList = updatedList.map(existing =>
+          existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
+        );
+        updatedCount += 1;
+      }
+    }
+
+    setGames(updatedList);
+    setSelectedGame(prev => updatedList.find(g => g.id === prev?.id) || updatedList[0] || null);
+    await window.electronAPI.saveDatabase(updatedList);
+    setIsBatchFetchingArtwork(false);
+
+    alert(updatedCount > 0
+      ? `SteamGridDB artwork updated for ${updatedCount} game${updatedCount === 1 ? '' : 's'}.`
+      : 'No new SteamGridDB artwork was found.'
+    );
+  };
+
   const getFilteredFavoriteGames = () => {
     return getFilteredGames().filter(g => g.isFavorite);
   };
@@ -519,8 +556,11 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onManualImport={handleManualImport}
         onImportScannedGames={handleImportScannedGames}
+        onBatchFetchArtwork={handleBatchFetchArtwork}
+        isBatchFetchingArtwork={isBatchFetchingArtwork}
         cpuUsage={cpuUsage}
         ramUsage={ramUsage}
+        games={games}
       />
 
       {/* 5. Snapped Multitasking Activity Sidebar */}

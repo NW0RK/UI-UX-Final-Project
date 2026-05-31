@@ -1,13 +1,35 @@
 /**
  * Nexus Synth Audio Engine
- * Uses HTML5 Web Audio API to synthesize sleek, futuristic PS5-like haptic sound effects
- * and ambient soundscapes on the fly, requiring ZERO external audio assets.
+ * Uses pre-rendered high-quality MP3 console sound assets located in the audio/ folder
+ * for premium UI interactions, and procedural ambient drones using Web Audio API.
  */
+
+import hoverTickSoundUrl from '../../audio/Switch Between.mp3';
+import clickPulseSoundUrl from '../../audio/Select.mp3';
+import launchSwellSoundUrl from '../../audio/Game Launch.mp3';
 
 let audioCtx = null;
 let ambientOscillators = [];
 let ambientGainNode = null;
 let isMuted = false;
+
+// Create preloaded Audio elements for polyphonic UI sound effects
+const hoverAudio = new Audio(hoverTickSoundUrl);
+const clickAudio = new Audio(clickPulseSoundUrl);
+const launchAudio = new Audio(launchSwellSoundUrl);
+
+hoverAudio.preload = 'auto';
+clickAudio.preload = 'auto';
+launchAudio.preload = 'auto';
+
+const playSound = (audioElement, volume = 1.0) => {
+  if (isMuted) return;
+  try {
+    const playClone = audioElement.cloneNode();
+    playClone.volume = volume;
+    playClone.play().catch(() => {});
+  } catch (e) {}
+};
 
 function getAudioContext() {
   if (!audioCtx) {
@@ -30,142 +52,24 @@ export const audioEngine = {
   getMuted: () => isMuted,
 
   /**
-   * Quick metallic high-frequency UI tick on item hover
+   * Quick premium UI tick on item hover
    */
   playHoverTick: () => {
-    if (isMuted) return;
-    try {
-      const ctx = getAudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(1800, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.04);
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(2000, ctx.currentTime);
-
-      gain.gain.setValueAtTime(0.015, ctx.currentTime); // Soft volume
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
-
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.05);
-    } catch (e) {
-      // Audio block bypass
-    }
+    playSound(hoverAudio, 0.25);
   },
 
   /**
-   * Crisp premium electronic pulse on selection click
+   * Crisp electronic pulse on selection click
    */
   playClickPulse: () => {
-    if (isMuted) return;
-    try {
-      const ctx = getAudioContext();
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(380, ctx.currentTime); // Nice pitch
-      osc1.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 0.12);
-
-      osc2.type = 'triangle';
-      osc2.frequency.setValueAtTime(760, ctx.currentTime); // Octave overtone
-      osc2.frequency.exponentialRampToValueAtTime(240, ctx.currentTime + 0.08);
-
-      gain.gain.setValueAtTime(0.06, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-
-      osc1.start(ctx.currentTime);
-      osc2.start(ctx.currentTime);
-      osc1.stop(ctx.currentTime + 0.15);
-      osc2.stop(ctx.currentTime + 0.15);
-    } catch (e) {}
+    playSound(clickAudio, 0.4);
   },
 
   /**
-   * Orchestral synth swell played on launch
-   * Creates a deep bass impact followed by a major chord swell.
+   * Orchestral sound swell played on launch
    */
   playLaunchSwell: () => {
-    if (isMuted) return;
-    try {
-      const ctx = getAudioContext();
-      const now = ctx.currentTime;
-      const mainGain = ctx.createGain();
-      mainGain.connect(ctx.destination);
-      mainGain.gain.setValueAtTime(0.18, now);
-      mainGain.gain.exponentialRampToValueAtTime(0.001, now + 3.0);
-
-      // 1. Deep Sub Bass Impact
-      const sub = ctx.createOscillator();
-      sub.type = 'sine';
-      sub.frequency.setValueAtTime(55, now); // A1
-      sub.frequency.linearRampToValueAtTime(30, now + 1.2);
-      
-      const subGain = ctx.createGain();
-      subGain.gain.setValueAtTime(0.4, now);
-      subGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
-      
-      sub.connect(subGain);
-      subGain.connect(mainGain);
-      sub.start(now);
-      sub.stop(now + 1.5);
-
-      // 2. Majestic Chord Pad (A minor -> A Major)
-      // Notes: A2 (110Hz), E3 (164.81Hz), A3 (220Hz), C#4 (277.18Hz)
-      const freqs = [110, 164.81, 220, 277.18];
-      freqs.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
-        const lfo = ctx.createOscillator();
-        const lfoGain = ctx.createGain();
-
-        // Connect LFO for a dynamic chorus/vibrato feel
-        lfoGain.gain.setValueAtTime(1.5, now);
-        lfo.connect(lfoGain);
-        lfoGain.connect(osc.frequency);
-
-        osc.connect(oscGain);
-        oscGain.connect(mainGain);
-
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, now);
-        lfo.frequency.setValueAtTime(6 + idx, now);
-
-        // Ambient filter
-        const bandpass = ctx.createBiquadFilter();
-        bandpass.type = 'lowpass';
-        bandpass.frequency.setValueAtTime(120, now);
-        bandpass.frequency.exponentialRampToValueAtTime(1600, now + 1.5);
-        bandpass.Q.setValueAtTime(4, now);
-
-        osc.disconnect(oscGain);
-        osc.connect(bandpass);
-        bandpass.connect(oscGain);
-
-        // Volume envelope (Slow attack, long release)
-        oscGain.gain.setValueAtTime(0, now);
-        oscGain.gain.linearRampToValueAtTime(0.12, now + 0.6 + idx * 0.1);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
-
-        lfo.start(now);
-        osc.start(now);
-        lfo.stop(now + 3.0);
-        osc.stop(now + 3.0);
-      });
-    } catch (e) {}
+    playSound(launchAudio, 0.5);
   },
 
   /**

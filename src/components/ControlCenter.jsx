@@ -404,7 +404,7 @@ export default function ControlCenter({
 
         .trigger-text {
           font-family: var(--font-display);
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 2px;
@@ -414,11 +414,11 @@ export default function ControlCenter({
         .drawer-panel-grid {
           width: calc(100% - 80px);
           max-width: 1360px;
-          height: 360px;
+          min-height: 360px;
           margin-bottom: 20px;
           border-radius: 20px;
           display: grid;
-          grid-template-columns: 350px 1fr;
+          grid-template-columns: minmax(280px, 350px) 1fr;
           padding: 24px;
           gap: 24px;
           pointer-events: auto;
@@ -432,7 +432,7 @@ export default function ControlCenter({
 
         .cc-section-title {
           font-family: var(--font-display);
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1.5px;
@@ -452,7 +452,7 @@ export default function ControlCenter({
         .bar-labels {
           display: flex;
           justify-content: space-between;
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.8);
           margin-bottom: 6px;
@@ -511,7 +511,7 @@ export default function ControlCenter({
         }
 
         .quick-btn-icon-label span {
-          font-size: 9px;
+          font-size: var(--fs-9);
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.5px;
@@ -553,7 +553,7 @@ export default function ControlCenter({
           color: rgba(255, 255, 255, 0.7);
           border-radius: 999px;
           padding: 6px 10px;
-          font-size: 10px;
+          font-size: var(--fs-10);
           text-transform: uppercase;
           letter-spacing: 0.08em;
           cursor: pointer;
@@ -568,7 +568,7 @@ export default function ControlCenter({
 
         .browser-directory-btn {
           flex-shrink: 0;
-          font-size: 11px;
+          font-size: var(--fs-11);
           padding: 8px 16px;
         }
 
@@ -579,7 +579,7 @@ export default function ControlCenter({
           border-radius: 8px;
           padding: 8px 12px;
           font-family: var(--font-sans);
-          font-size: 12px;
+          font-size: var(--fs-12);
           color: rgba(255, 255, 255, 0.5);
           white-space: nowrap;
           overflow: hidden;
@@ -588,7 +588,7 @@ export default function ControlCenter({
 
         .scan-action-btn {
           flex-shrink: 0;
-          font-size: 11px;
+          font-size: var(--fs-11);
           padding: 8px 20px;
         }
 
@@ -614,7 +614,7 @@ export default function ControlCenter({
           display: flex;
           justify-content: space-between;
           padding: 8px 10px;
-          font-size: 10px;
+          font-size: var(--fs-10);
           text-transform: uppercase;
           letter-spacing: 0.1em;
           color: rgba(255, 255, 255, 0.55);
@@ -622,29 +622,29 @@ export default function ControlCenter({
         }
 
         .diagnostics-list {
-          max-height: 92px;
+          max-height: 8em;
           overflow-y: auto;
         }
 
         .diagnostics-empty {
           padding: 10px;
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.35);
         }
 
         .diagnostic-row {
           display: grid;
-          grid-template-columns: 95px minmax(0, 1fr);
+          grid-template-columns: minmax(80px, auto) minmax(0, 1fr);
           gap: 6px 10px;
           padding: 7px 10px;
           border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-          font-size: 11px;
+          font-size: var(--fs-11);
         }
 
         .diagnostic-meta {
           color: rgba(255, 255, 255, 0.46);
           text-transform: uppercase;
-          font-size: 9px;
+          font-size: var(--fs-9);
           letter-spacing: 0.08em;
         }
 
@@ -661,7 +661,7 @@ export default function ControlCenter({
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          font-size: 10px;
+          font-size: var(--fs-10);
         }
 
         .diagnostic-warn .diagnostic-message {
@@ -685,7 +685,7 @@ export default function ControlCenter({
 
         .radar-text {
           font-family: var(--font-display);
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 700;
           letter-spacing: 1px;
           color: var(--accent-color);
@@ -701,7 +701,7 @@ export default function ControlCenter({
           justify-content: center;
           gap: 10px;
           color: rgba(255, 255, 255, 0.3);
-          font-size: 12px;
+          font-size: var(--fs-12);
           padding: 0 40px;
           text-align: center;
         }
@@ -721,7 +721,7 @@ export default function ControlCenter({
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.5);
           margin-bottom: 10px;
@@ -735,7 +735,7 @@ export default function ControlCenter({
           color: #07070a;
           padding: 4px 12px;
           border-radius: 20px;
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-weight: 700;
           font-family: var(--font-display);
           cursor: pointer;
@@ -795,13 +795,13 @@ export default function ControlCenter({
         }
 
         .result-name {
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 600;
           color: #fff;
         }
 
         .result-path {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.3);
           white-space: nowrap;
           overflow: hidden;

@@ -63,7 +63,7 @@ export default function HorizontalLibrary({
         .shelf-title {
           font-family: var(--font-display);
           font-weight: 700;
-          font-size: 16px;
+          font-size: var(--fs-16);
           text-transform: uppercase;
           letter-spacing: 2px;
           color: rgba(255, 255, 255, 0.9);
@@ -71,7 +71,7 @@ export default function HorizontalLibrary({
         }
 
         .library-count {
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 500;
           color: rgba(255, 255, 255, 0.35);
           letter-spacing: 0.5px;
@@ -291,7 +291,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           padding: 20px;
           text-align: center;
           font-family: var(--font-display);
-          font-size: 14px;
+          font-size: var(--fs-14);
           font-weight: 900;
           letter-spacing: 1px;
           text-transform: uppercase;
@@ -342,7 +342,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
         .store-card-title {
           font-family: var(--font-sans);
           font-weight: 700;
-          font-size: 13px;
+          font-size: var(--fs-13);
           color: #fff;
           white-space: nowrap;
           overflow: hidden;
@@ -351,7 +351,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
         }
 
         .store-card-developer {
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.4);
           white-space: nowrap;
           overflow: hidden;
@@ -374,7 +374,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 4px;
           padding: 2px 5px;
-          font-size: 8px;
+          font-size: var(--fs-8);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.5);
           letter-spacing: 0.3px;
@@ -384,7 +384,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           display: flex;
           align-items: center;
           gap: 4px;
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: #e6af2e;
           margin-top: auto;
@@ -407,7 +407,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           align-items: center;
           gap: 6px;
           font-family: var(--font-display);
-          font-size: 9px;
+          font-size: var(--fs-9);
           font-weight: 700;
           letter-spacing: 0.5px;
           color: #fff;

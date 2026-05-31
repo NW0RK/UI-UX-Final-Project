@@ -133,7 +133,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
         .store-title {
           font-family: var(--font-display);
           font-weight: 900;
-          font-size: 22px;
+          font-size: var(--fs-22);
           letter-spacing: 3px;
           color: #fff;
           text-transform: uppercase;
@@ -141,7 +141,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
         }
 
         .store-count {
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 500;
           color: rgba(255, 255, 255, 0.35);
           letter-spacing: 0.5px;
@@ -151,9 +151,9 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           display: flex;
           align-items: center;
           justify-content: center;
-          height: 200px;
+          min-height: 200px;
           color: rgba(255, 255, 255, 0.3);
-          font-size: 14px;
+          font-size: var(--fs-14);
         }
 
         .store-grid {
@@ -211,7 +211,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.14), rgba(7, 7, 10, 0.94));
           color: rgba(255, 255, 255, 0.7);
           font-family: var(--font-display);
-          font-size: 14px;
+          font-size: var(--fs-14);
           font-weight: 900;
           letter-spacing: 1px;
           text-align: center;
@@ -233,7 +233,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           display: flex;
           align-items: center;
           gap: 4px;
-          font-size: 9px;
+          font-size: var(--fs-9);
           font-weight: 700;
           font-family: var(--font-display);
           letter-spacing: 0.5px;
@@ -267,7 +267,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           padding: 8px 20px;
           border-radius: 20px;
           font-family: var(--font-display);
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 700;
           letter-spacing: 1px;
           box-shadow: var(--accent-glow);
@@ -290,7 +290,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
         .store-card-title {
           font-family: var(--font-sans);
           font-weight: 700;
-          font-size: 13px;
+          font-size: var(--fs-13);
           color: #fff;
           white-space: nowrap;
           overflow: hidden;
@@ -299,7 +299,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
         }
 
         .store-card-developer {
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.4);
           white-space: nowrap;
           overflow: hidden;
@@ -321,7 +321,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 4px;
           padding: 2px 5px;
-          font-size: 8px;
+          font-size: var(--fs-8);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.5);
           letter-spacing: 0.3px;
@@ -331,7 +331,7 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           display: flex;
           align-items: center;
           gap: 4px;
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: #e6af2e;
           margin-top: auto;

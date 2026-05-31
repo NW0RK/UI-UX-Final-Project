@@ -21,7 +21,8 @@ const DEFAULT_SETTINGS = {
   particleDensity: 1.0,
   particleSpeed: 1.0,
   trackSystemStatus: true,
-  bannerAnimation: true
+  bannerAnimation: true,
+  fontScale: 1.0
 };
 
 export default function App() {
@@ -226,6 +227,29 @@ export default function App() {
     document.documentElement.style.setProperty('--panel-bg', `rgba(10, 10, 16, ${settings.glassOpacity})`);
     document.documentElement.style.setProperty('--panel-bg-solid', `rgba(10, 10, 16, ${Math.min(0.98, settings.glassOpacity * 1.5)})`);
     document.documentElement.style.setProperty('--glass-border', `rgba(255, 255, 255, ${settings.glassOpacity * 0.18})`);
+    const fontScale = settings.fontScale || 1.0;
+    document.documentElement.style.setProperty('--fs-8', `${8 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-9', `${9 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-9-5', `${9.5 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-10', `${10 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-11', `${11 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-12', `${12 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-12-5', `${12.5 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-13', `${13 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-13-5', `${13.5 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-14', `${14 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-14-5', `${14.5 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-15', `${15 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-16', `${16 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-17', `${17 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-18', `${18 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-20', `${20 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-22', `${22 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-24', `${24 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-26', `${26 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-30', `${30 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-38', `${38 * fontScale}px`);
+    document.documentElement.style.setProperty('--fs-48', `${48 * fontScale}px`);
     
     if (!settings.trackSystemStatus) return;
 

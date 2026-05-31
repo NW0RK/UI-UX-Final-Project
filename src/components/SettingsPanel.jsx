@@ -346,6 +346,22 @@ export default function SettingsPanel({
                   onChange={(e) => handleSliderChange('particleSpeed', parseFloat(e.target.value))}
                 />
               </div>
+
+              <div className="slider-input-group">
+                <div className="slider-labels">
+                  <span>Global UI Font Scale</span>
+                  <span>{Math.round((settings.fontScale || 1.0) * 100)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="80" 
+                  max="150" 
+                  step="5" 
+                  className="settings-slider-bar" 
+                  value={Math.round((settings.fontScale || 1.0) * 100)}
+                  onChange={(e) => handleSliderChange('fontScale', parseFloat(e.target.value) / 100)}
+                />
+              </div>
             </div>
           </div>
 
@@ -427,7 +443,7 @@ export default function SettingsPanel({
 
         .settings-title {
           font-family: var(--font-display);
-          font-size: 15px;
+          font-size: var(--fs-15);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 2px;
@@ -469,7 +485,7 @@ export default function SettingsPanel({
 
         .section-label-heading {
           font-family: var(--font-display);
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1.5px;
@@ -489,7 +505,7 @@ export default function SettingsPanel({
         }
 
         .section-description {
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.4);
           line-height: 1.4;
           margin-bottom: 16px;
@@ -544,13 +560,13 @@ export default function SettingsPanel({
         }
 
         .theme-pill-name {
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 700;
           color: #fff;
         }
 
         .theme-pill-desc {
-          font-size: 9.5px;
+          font-size: var(--fs-9-5);
           color: rgba(255, 255, 255, 0.35);
           margin-top: 2px;
         }
@@ -596,13 +612,13 @@ export default function SettingsPanel({
         }
 
         .audio-card-title {
-          font-size: 12.5px;
+          font-size: var(--fs-12-5);
           font-weight: 700;
           color: #fff;
         }
 
         .audio-card-desc {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.35);
           margin-top: 2px;
         }
@@ -673,7 +689,7 @@ export default function SettingsPanel({
         .api-key-input {
           flex: 1;
           font-family: monospace;
-          font-size: 12px;
+          font-size: var(--fs-12);
           padding: 10px 14px;
         }
 
@@ -684,7 +700,7 @@ export default function SettingsPanel({
         }
 
         .api-key-status-text {
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.4);
           text-transform: uppercase;
@@ -697,7 +713,7 @@ export default function SettingsPanel({
         }
 
         .api-key-btn {
-          font-size: 10px;
+          font-size: var(--fs-10);
           padding: 6px 14px;
         }
 
@@ -715,7 +731,7 @@ export default function SettingsPanel({
         .slider-labels {
           display: flex;
           justify-content: space-between;
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.8);
           margin-bottom: 8px;
@@ -771,13 +787,13 @@ export default function SettingsPanel({
         }
 
         .m-title {
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 700;
           color: #fff;
         }
 
         .m-desc {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.4);
         }
 
@@ -785,7 +801,7 @@ export default function SettingsPanel({
           border-color: rgba(239, 68, 68, 0.3);
           background: rgba(239, 68, 68, 0.03);
           color: #ef4444;
-          font-size: 11px;
+          font-size: var(--fs-11);
           padding: 8px 16px;
         }
 

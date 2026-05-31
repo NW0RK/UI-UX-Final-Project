@@ -417,7 +417,7 @@ export default function ProfileOverlay({
         .profile-avatar-hover-overlay span {
           font-family: 'Inter', sans-serif;
           font-weight: 700;
-          font-size: 11px;
+          font-size: var(--fs-11);
           letter-spacing: 1px;
           color: var(--accent-color);
           text-transform: uppercase;
@@ -455,7 +455,7 @@ export default function ProfileOverlay({
 
         .picker-title-row h4 {
           font-family: 'Inter', sans-serif;
-          font-size: 13px;
+          font-size: var(--fs-13);
           font-weight: 700;
           color: #FFF;
           letter-spacing: 0.5px;
@@ -506,7 +506,7 @@ export default function ProfileOverlay({
         .custom-avatar-input {
           flex: 1;
           padding: 8px 12px;
-          font-size: 11px;
+          font-size: var(--fs-11);
         }
 
         .avatar-save-btn {
@@ -533,7 +533,7 @@ export default function ProfileOverlay({
           display: flex;
           align-items: center;
           justify-content: center;
-          height: 48px;
+          min-height: 48px;
           position: relative;
         }
 
@@ -544,8 +544,8 @@ export default function ProfileOverlay({
           justify-content: center;
           font-family: 'Inter', sans-serif;
           font-weight: 600;
-          font-size: 18px;
-          line-height: 24px;
+          font-size: var(--fs-18);
+          line-height: 1.3;
           color: #FFFFFF;
           cursor: pointer;
           transition: color var(--transition-fast);
@@ -581,10 +581,11 @@ export default function ProfileOverlay({
 
         .username-edit-input {
           padding: 8px 16px;
-          font-size: 16px;
+          font-size: var(--fs-16);
           font-family: 'Inter', sans-serif;
           font-weight: 600;
-          width: 220px;
+          min-width: 220px;
+          width: auto;
           text-align: center;
           background: rgba(255, 255, 255, 0.05);
           border: 1px solid rgba(255, 255, 255, 0.15);
@@ -622,8 +623,8 @@ export default function ProfileOverlay({
           font-family: 'Inter', sans-serif;
           font-style: normal;
           font-weight: 900;
-          font-size: 24px;
-          line-height: 32px;
+          font-size: var(--fs-24);
+          line-height: 1.3;
           letter-spacing: 12px;
           text-indent: 12px; /* Centers the letter-spaced text perfectly */
           text-align: center;

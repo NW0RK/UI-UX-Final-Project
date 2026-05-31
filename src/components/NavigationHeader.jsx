@@ -181,7 +181,7 @@ export default function NavigationHeader({
           top: 0;
           left: 0;
           width: 100%;
-          height: var(--header-height);
+          min-height: var(--header-height);
           background: linear-gradient(180deg, rgba(5, 11, 20, 0.95) 0%, rgba(5, 11, 20, 0) 100%);
           backdrop-filter: blur(16px);
           -webkit-backdrop-filter: blur(16px);
@@ -205,8 +205,8 @@ export default function NavigationHeader({
         .nexus-logo {
           font-family: 'Inter', sans-serif;
           font-weight: 900;
-          font-size: 30px;
-          line-height: 36px;
+          font-size: var(--fs-30);
+          line-height: 1.2;
           letter-spacing: 12px;
           color: #FFFFFF;
           cursor: pointer;
@@ -235,8 +235,8 @@ export default function NavigationHeader({
           font-family: 'Inter', sans-serif;
           font-style: normal;
           font-weight: 600;
-          font-size: 14px;
-          line-height: 20px;
+          font-size: var(--fs-14);
+          line-height: 1.4;
           letter-spacing: 0.7px;
           text-transform: uppercase;
           cursor: pointer;
@@ -280,7 +280,7 @@ export default function NavigationHeader({
           padding: 8px 16px 8px 40px;
           color: #fff;
           font-family: var(--font-sans);
-          font-size: 13px;
+          font-size: var(--fs-13);
           transition: all var(--transition-fast);
         }
 
@@ -328,7 +328,7 @@ export default function NavigationHeader({
           align-items: center;
           padding: 8px 16px;
           gap: 24px;
-          height: 50px;
+          min-height: 50px;
           background: rgba(255, 255, 255, 0.0305882);
           border: 1px solid rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(6px);
@@ -348,7 +348,7 @@ export default function NavigationHeader({
           align-items: center;
           padding: 0px;
           gap: 8px;
-          height: 16px;
+          min-height: 16px;
         }
 
         .telemetry-icon {
@@ -359,8 +359,8 @@ export default function NavigationHeader({
           font-family: 'Liberation Mono', monospace;
           font-style: normal;
           font-weight: 400;
-          font-size: 12px;
-          line-height: 16px;
+          font-size: var(--fs-12);
+          line-height: 1.3;
           display: flex;
           align-items: center;
           letter-spacing: 0.3px;
@@ -379,15 +379,15 @@ export default function NavigationHeader({
           align-items: center;
           padding: 0px;
           gap: 12px;
-          height: 32px;
+          min-height: 32px;
         }
 
         .profile-username {
           font-family: 'Inter', sans-serif;
           font-style: normal;
           font-weight: 500;
-          font-size: 12px;
-          line-height: 16px;
+          font-size: var(--fs-12);
+          line-height: 1.3;
           display: flex;
           align-items: center;
           letter-spacing: 0.3px;
@@ -406,7 +406,7 @@ export default function NavigationHeader({
 
         .live-clock {
           font-family: var(--font-display);
-          font-size: 13px;
+          font-size: var(--fs-13);
           font-weight: 700;
           letter-spacing: 0.5px;
           color: #fff;

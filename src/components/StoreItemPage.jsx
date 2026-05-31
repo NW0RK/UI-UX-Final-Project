@@ -583,7 +583,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           padding: 8px 16px;
           color: rgba(255, 255, 255, 0.6);
           font-family: var(--font-display);
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 700;
           letter-spacing: 1px;
           cursor: pointer;
@@ -601,7 +601,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-banner {
           position: relative;
           width: 100%;
-          height: 220px;
+          min-height: 220px;
           border-radius: 16px;
           overflow: hidden;
           margin-bottom: 20px;
@@ -620,7 +620,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           background: radial-gradient(circle at 50% 35%, rgba(var(--accent-color-rgb), 0.2), rgba(7, 7, 10, 0.96) 68%);
           color: rgba(255, 255, 255, 0.42);
           font-family: var(--font-display);
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 800;
           letter-spacing: 2px;
           text-transform: uppercase;
@@ -657,7 +657,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           color: var(--accent-color);
           padding: 4px 10px;
           border-radius: 20px;
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-family: var(--font-display);
           font-weight: 800;
           letter-spacing: 1.5px;
@@ -669,7 +669,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-title {
           font-family: var(--font-display);
           font-weight: 950;
-          font-size: 38px;
+          font-size: var(--fs-38);
           letter-spacing: 2px;
           color: #fff;
           text-shadow: 0 2px 20px rgba(0, 0, 0, 0.9), 0 0 40px rgba(var(--accent-color-rgb), 0.25);
@@ -680,7 +680,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-meta {
           display: flex;
           align-items: center;
-          font-size: 13.5px;
+          font-size: var(--fs-13-5);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.85);
           gap: 8px;
@@ -699,7 +699,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          font-size: 14.5px;
+          font-size: var(--fs-14-5);
           font-weight: 800;
           color: #ffc83b;
           margin-top: 8px;
@@ -717,7 +717,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         .store-item-body {
           display: grid;
-          grid-template-columns: 1fr 320px;
+          grid-template-columns: 1fr minmax(280px, 320px);
           gap: 24px;
           flex: 1;
           min-height: 0;
@@ -733,7 +733,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         .store-item-section-title {
           font-family: var(--font-display);
-          font-size: 14.5px;
+          font-size: var(--fs-14-5);
           font-weight: 800;
           letter-spacing: 2px;
           text-transform: uppercase;
@@ -745,7 +745,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         }
 
         .store-item-description {
-          font-size: 17px;
+          font-size: var(--fs-17);
           line-height: 1.8;
           color: #a2b8cc;
           font-weight: 400;
@@ -753,7 +753,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           letter-spacing: 0.3px;
           white-space: pre-line;
           overflow-y: auto;
-          max-height: 120px;
+          max-height: 8em;
           padding-right: 8px;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0);
@@ -786,7 +786,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 8px;
           padding: 6px 12px;
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.7);
           transition: all var(--transition-fast);
@@ -809,13 +809,13 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          height: 220px;
+          min-height: 220px;
           background: rgba(255, 255, 255, 0.02);
           border: 1px dashed rgba(255, 255, 255, 0.06);
           border-radius: 16px;
           gap: 16px;
           color: rgba(255, 255, 255, 0.5);
-          font-size: 13px;
+          font-size: var(--fs-13);
         }
 
         .media-spinner {
@@ -893,7 +893,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           color: #fff;
           font-family: var(--font-display);
           font-weight: 800;
-          font-size: 9px;
+          font-size: var(--fs-9);
           padding: 3px 8px;
           border-radius: 4px;
           display: flex;
@@ -930,7 +930,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .more-card-overlay span {
           font-family: var(--font-display);
           font-weight: 800;
-          font-size: 15px;
+          font-size: var(--fs-15);
           letter-spacing: 2px;
           color: #4d5e75; /* Slate color matching the mockup exactly */
           text-transform: uppercase;
@@ -943,7 +943,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           padding: 40px;
           text-align: center;
           color: rgba(255, 255, 255, 0.3);
-          font-size: 13px;
+          font-size: var(--fs-13);
         }
 
         /* --- Fullscreen Lightbox Modal --- */
@@ -1051,7 +1051,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .lightbox-counter {
           color: rgba(255, 255, 255, 0.4);
           font-family: var(--font-display);
-          font-size: 13px;
+          font-size: var(--fs-13);
           font-weight: 700;
           margin-top: 16px;
           letter-spacing: 1.5px;
@@ -1078,7 +1078,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           gap: 10px;
           color: var(--accent-color);
           font-family: var(--font-display);
-          font-size: 13px;
+          font-size: var(--fs-13);
           font-weight: 700;
           letter-spacing: 1px;
         }
@@ -1087,7 +1087,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           display: flex;
           align-items: center;
           gap: 8px;
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.5);
           font-family: monospace;
           background: rgba(0, 0, 0, 0.2);
@@ -1097,7 +1097,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         }
 
         .exe-not-linked {
-          font-size: 12px;
+          font-size: var(--fs-12);
           color: rgba(255, 175, 46, 0.7);
           font-weight: 500;
           text-align: center;
@@ -1115,7 +1115,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         .store-item-actions .glow-btn {
           flex: 1;
-          font-size: 11px;
+          font-size: var(--fs-11);
           padding: 10px 12px;
         }
 
@@ -1127,7 +1127,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         .exe-input {
           font-family: monospace;
-          font-size: 11px;
+          font-size: var(--fs-11);
           width: 100%;
         }
 
@@ -1138,7 +1138,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         .exe-input-actions .glow-btn {
           flex: 1;
-          font-size: 11px;
+          font-size: var(--fs-11);
           padding: 8px 12px;
         }
 
@@ -1151,7 +1151,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .remove-owned-btn {
           width: 100%;
           padding: 10px;
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.4) !important;
           border-color: rgba(255, 255, 255, 0.06) !important;
         }
@@ -1165,7 +1165,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         .not-owned-label {
           text-align: center;
-          font-size: 13px;
+          font-size: var(--fs-13);
           color: rgba(255, 255, 255, 0.4);
           padding: 10px 0;
         }
@@ -1173,11 +1173,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .mark-owned-btn {
           width: 100%;
           padding: 14px;
-          font-size: 13px;
+          font-size: var(--fs-13);
         }
 
         .owned-hint {
-          font-size: 11px;
+          font-size: var(--fs-11);
           color: rgba(255, 255, 255, 0.25);
           text-align: center;
           line-height: 1.5;

@@ -545,7 +545,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
 
         .editor-title {
           font-family: var(--font-display);
-          font-size: 15px;
+          font-size: var(--fs-15);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 2px;
@@ -608,7 +608,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         }
 
         .form-label {
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.45);
           margin-bottom: 6px;
@@ -628,19 +628,19 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         }
 
         .editor-input {
-          font-size: 13px;
+          font-size: var(--fs-13);
           padding: 10px 14px;
         }
 
         .editor-textarea {
-          font-size: 13px;
+          font-size: var(--fs-13);
           line-height: 1.5;
           resize: none;
         }
 
         .exe-path-input {
           font-family: monospace;
-          font-size: 11px;
+          font-size: var(--fs-11);
           border-color: rgba(var(--accent-color-rgb), 0.25);
         }
 
@@ -661,7 +661,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
 
         .sgdb-search-input {
           flex: 1;
-          font-size: 12px;
+          font-size: var(--fs-12);
           padding: 8px 10px;
         }
 
@@ -673,12 +673,12 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         .sgdb-auto-btn {
           padding: 6px 10px;
           flex-shrink: 0;
-          font-size: 10px;
+          font-size: var(--fs-10);
           gap: 5px;
         }
 
         .sgdb-error {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: #ef4444;
           padding: 4px 0;
         }
@@ -687,7 +687,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
           display: flex;
           flex-direction: column;
           gap: 6px;
-          max-height: 160px;
+          max-height: 12em;
           overflow-y: auto;
         }
 
@@ -711,7 +711,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         }
 
         .sgdb-result-name {
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 600;
           color: #fff;
           white-space: nowrap;
@@ -720,20 +720,20 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         }
 
         .sgdb-result-year {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.35);
           flex-shrink: 0;
         }
 
         .sgdb-apply-btn {
-          font-size: 10px;
+          font-size: var(--fs-10);
           padding: 4px 10px;
           flex-shrink: 0;
           gap: 4px;
         }
 
         .sgdb-no-results, .sgdb-hint {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.25);
           text-align: center;
           padding: 8px 0;
@@ -753,7 +753,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 9px;
+          font-size: var(--fs-9);
           color: rgba(255, 255, 255, 0.2);
           text-transform: uppercase;
           letter-spacing: 0.5px;

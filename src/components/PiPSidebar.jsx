@@ -202,7 +202,7 @@ export default function PiPSidebar({
           border-radius: 20px;
           padding: 4px 12px;
           font-family: var(--font-display);
-          font-size: 9px;
+          font-size: var(--fs-9);
           font-weight: 700;
           letter-spacing: 1px;
           text-transform: uppercase;
@@ -256,7 +256,7 @@ export default function PiPSidebar({
           background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.2), rgba(7, 7, 10, 0.95));
           color: rgba(255, 255, 255, 0.72);
           font-family: var(--font-display);
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 900;
           text-transform: uppercase;
         }
@@ -268,7 +268,7 @@ export default function PiPSidebar({
         }
 
         .pip-game-title {
-          font-size: 13px;
+          font-size: var(--fs-13);
           font-weight: 700;
           color: #fff;
           white-space: nowrap;
@@ -277,7 +277,7 @@ export default function PiPSidebar({
         }
 
         .pip-game-dev {
-          font-size: 10px;
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.4);
           white-space: nowrap;
           overflow: hidden;
@@ -315,7 +315,7 @@ export default function PiPSidebar({
 
         .session-label {
           font-family: var(--font-display);
-          font-size: 9px;
+          font-size: var(--fs-9);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1px;
@@ -324,7 +324,7 @@ export default function PiPSidebar({
 
         .session-timer-display {
           font-family: var(--font-display);
-          font-size: 26px;
+          font-size: var(--fs-26);
           font-weight: 900;
           letter-spacing: 1.5px;
           color: #fff;
@@ -344,7 +344,7 @@ export default function PiPSidebar({
           flex: 1;
           display: flex;
           justify-content: space-between;
-          font-size: 10px;
+          font-size: var(--fs-10);
         }
 
         .met-lbl {
@@ -361,7 +361,7 @@ export default function PiPSidebar({
           align-items: center;
           gap: 12px;
           color: rgba(255, 255, 255, 0.4);
-          font-size: 11px;
+          font-size: var(--fs-11);
           line-height: 1.4;
           background: rgba(255, 255, 255, 0.01);
         }
@@ -383,7 +383,7 @@ export default function PiPSidebar({
           align-items: center;
           gap: 8px;
           font-family: var(--font-display);
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1px;
@@ -441,7 +441,7 @@ export default function PiPSidebar({
         }
 
         .ach-check-title {
-          font-size: 11px;
+          font-size: var(--fs-11);
           font-weight: 700;
           color: #fff;
         }
@@ -453,7 +453,7 @@ export default function PiPSidebar({
         }
 
         .ach-check-desc {
-          font-size: 9px;
+          font-size: var(--fs-9);
           color: rgba(255, 255, 255, 0.35);
           margin-top: 2px;
           line-height: 1.3;
@@ -482,7 +482,7 @@ export default function PiPSidebar({
         }
 
         .ach-mini-progress-text {
-          font-size: 8px;
+          font-size: var(--fs-8);
           font-weight: 700;
           color: var(--accent-color);
         }

@@ -400,8 +400,8 @@ const roomStyles = `
     border-radius: 33554400px;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--fs-12);
+    line-height: 1.3;
     letter-spacing: 1.2px;
     text-transform: uppercase;
   }
@@ -423,8 +423,8 @@ const roomStyles = `
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 900;
-    font-size: 48px;
-    line-height: 52px;
+    font-size: var(--fs-48);
+    line-height: 1.1;
     display: flex;
     align-items: center;
     text-transform: uppercase;
@@ -437,8 +437,8 @@ const roomStyles = `
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 500;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--fs-14);
+    line-height: 1.4;
     display: flex;
     align-items: center;
     letter-spacing: 0.35px;
@@ -451,8 +451,8 @@ const roomStyles = `
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 500;
-    font-size: 13px;
-    line-height: 20px;
+    font-size: var(--fs-13);
+    line-height: 1.5;
     color: #94A3B8;
     margin-bottom: 32px;
     z-index: 2;
@@ -479,7 +479,7 @@ const roomStyles = `
     padding: 16px 24px;
     gap: 12px;
     flex: 1;
-    height: 52px;
+    min-height: 52px;
     background: var(--accent-color);
     box-shadow: 0px 0px 20px rgba(var(--accent-color-rgb), 0.4);
     border-radius: 33554400px;
@@ -487,8 +487,8 @@ const roomStyles = `
     cursor: pointer;
     font-family: 'Inter', sans-serif;
     font-weight: 700;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--fs-14);
+    line-height: 1.4;
     letter-spacing: 1.4px;
     text-transform: uppercase;
     color: #000000;
@@ -560,8 +560,8 @@ const roomStyles = `
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 900;
-    font-size: 24px;
-    line-height: 32px;
+    font-size: var(--fs-24);
+    line-height: 1.3;
     letter-spacing: 2.4px;
     text-transform: uppercase;
     color: #FFFFFF;
@@ -683,7 +683,7 @@ const roomStyles = `
     text-align: center;
     font-family: 'Inter', sans-serif;
     font-weight: 900;
-    font-size: 16px;
+    font-size: var(--fs-16);
     letter-spacing: 1px;
     text-transform: uppercase;
     color: #FFFFFF;
@@ -715,7 +715,7 @@ const roomStyles = `
     padding: 4px 12px;
     gap: 4px;
     position: absolute;
-    height: 24px;
+    min-height: 24px;
     right: 18px;
     top: 18px;
     background: var(--accent-color);
@@ -728,8 +728,8 @@ const roomStyles = `
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 700;
-    font-size: 12px;
-    line-height: 16px;
+    font-size: var(--fs-12);
+    line-height: 1.3;
     color: #000000;
   }
 
@@ -744,7 +744,7 @@ const roomStyles = `
     align-items: flex-start;
     gap: 4px;
     position: absolute;
-    height: 72px;
+    min-height: 72px;
     left: 22px;
     right: 22px;
     bottom: 22px;
@@ -757,8 +757,8 @@ const roomStyles = `
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 900;
-    font-size: 20px;
-    line-height: 28px;
+    font-size: var(--fs-20);
+    line-height: 1.4;
     letter-spacing: 1px;
     text-transform: uppercase;
     color: #FFFFFF;
@@ -774,15 +774,15 @@ const roomStyles = `
     padding: 0px;
     gap: 4px;
     width: 100%;
-    height: 12px;
+    min-height: 12px;
   }
 
   .inactive-card-title {
     font-family: 'Inter', sans-serif;
     font-style: normal;
     font-weight: 700;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: var(--fs-14);
+    line-height: 1.4;
     letter-spacing: 0.7px;
     text-transform: uppercase;
     color: #FFFFFF;
@@ -855,7 +855,7 @@ const roomStyles = `
     max-width: 360px;
     color: rgba(255,255,255,0.58);
     line-height: 1.6;
-    font-size: 14px;
+    font-size: var(--fs-14);
   }
 `;
 

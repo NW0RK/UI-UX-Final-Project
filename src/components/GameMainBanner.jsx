@@ -276,7 +276,7 @@ export default function GameMainBanner({
     { id: 'top-left', name: 'Top Left', leftPercent: 5, topPercent: 8, label: '◆' },
     { id: 'top-right', name: 'Top Right', leftPercent: 65, topPercent: 8, label: '◆' },
     { id: 'bottom-right', name: 'Bottom Right', leftPercent: 65, topPercent: 60, label: '◆' },
-    { id: 'default-middle', name: 'Default Middle', leftPercent: 35, topPercent: 30, label: '●' }
+    { id: 'reset-default', name: 'RESET', leftPercent: 65, topPercent: 30, width: 400, height: 120, label: '↺' }
   ];
 
   return (
@@ -477,11 +477,9 @@ export default function GameMainBanner({
                 }}
                 onClick={() => {
                   audioEngine.playClickPulse();
-                  const newLayout = {
-                    ...activeLayout,
-                    leftPercent: point.leftPercent,
-                    topPercent: point.topPercent
-                  };
+                  const newLayout = point.width && point.height
+                    ? { leftPercent: point.leftPercent, topPercent: point.topPercent, width: point.width, height: point.height }
+                    : { ...activeLayout, leftPercent: point.leftPercent, topPercent: point.topPercent };
                   setActiveLayout(newLayout);
                   if (onUpdateGameBannerLayout) {
                     onUpdateGameBannerLayout(game.id, newLayout);
@@ -539,7 +537,7 @@ export default function GameMainBanner({
           background: radial-gradient(circle at 50% 35%, rgba(var(--accent-color-rgb), 0.22), rgba(7, 7, 10, 0.95) 62%);
           color: rgba(255, 255, 255, 0.42);
           font-family: var(--font-display);
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 800;
           letter-spacing: 2px;
           text-transform: uppercase;
@@ -605,7 +603,7 @@ export default function GameMainBanner({
           color: var(--accent-color);
           padding: 4px 12px;
           border-radius: 20px;
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-family: var(--font-display);
           font-weight: 700;
           letter-spacing: 1px;
@@ -647,7 +645,7 @@ export default function GameMainBanner({
           background: var(--accent-color);
           color: #07070a;
           font-family: var(--font-display);
-          font-size: 8px;
+          font-size: var(--fs-8);
           font-weight: 900;
           letter-spacing: 1.5px;
           padding: 3px 10px;
@@ -655,6 +653,9 @@ export default function GameMainBanner({
           pointer-events: none;
           box-shadow: 0 4px 15px rgba(0,0,0,0.5);
           white-space: nowrap;
+          text-overflow: ellipsis;
+          overflow: hidden;
+          max-width: 100%;
         }
 
         /* Steam-Style Border Resize Handles */
@@ -737,7 +738,7 @@ export default function GameMainBanner({
           gap: 6px;
           color: rgba(255, 255, 255, 0.65);
           font-family: var(--font-display);
-          font-size: 9px;
+          font-size: var(--fs-9);
           font-weight: 700;
           letter-spacing: 0.5px;
           text-transform: uppercase;
@@ -764,7 +765,7 @@ export default function GameMainBanner({
         }
 
         .marker-shape {
-          font-size: 10px;
+          font-size: var(--fs-10);
         }
 
         .snap-point-marker.active .marker-shape {
@@ -793,7 +794,7 @@ export default function GameMainBanner({
           gap: 8px;
           color: rgba(255, 255, 255, 0.8);
           font-family: var(--font-sans);
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 500;
           transition: all var(--transition-fast);
         }
@@ -826,7 +827,7 @@ export default function GameMainBanner({
         .banner-game-title {
           font-family: var(--font-display);
           font-weight: 900;
-          font-size: 38px;
+          font-size: var(--fs-38);
           letter-spacing: 2px;
           line-height: 1.1;
           color: #ffffff;
@@ -848,7 +849,7 @@ export default function GameMainBanner({
         .developer-meta {
           display: flex;
           align-items: center;
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.6);
           margin-bottom: 20px;
@@ -864,7 +865,7 @@ export default function GameMainBanner({
         }
 
         .game-banner-description {
-          font-size: 14px;
+          font-size: var(--fs-14);
           line-height: 1.6;
           color: rgba(255, 255, 255, 0.7);
           margin-bottom: 25px;
@@ -881,7 +882,7 @@ export default function GameMainBanner({
         .game-banner-description.expanded {
           -webkit-line-clamp: unset;
           overflow-y: auto;
-          max-height: 120px;
+          max-height: 10em;
         }
 
         .telemetry-stats-glass-row {
@@ -893,11 +894,11 @@ export default function GameMainBanner({
         }
 
         .stat-glass-card {
-          flex: 1;
+          flex: 0 0 auto;
           background: rgba(255, 255, 255, 0.03);
           border: 1px solid rgba(255, 255, 255, 0.05);
           border-radius: 12px;
-          padding: 10px 14px;
+          padding: 10px 18px;
           display: flex;
           align-items: center;
           gap: 12px;
@@ -916,7 +917,7 @@ export default function GameMainBanner({
         }
 
         .stat-label {
-          font-size: 10px;
+          font-size: var(--fs-10);
           font-weight: 500;
           color: rgba(255, 255, 255, 0.35);
           text-transform: uppercase;
@@ -924,7 +925,7 @@ export default function GameMainBanner({
         }
 
         .stat-value {
-          font-size: 12px;
+          font-size: var(--fs-12);
           font-weight: 700;
           color: #fff;
           margin-top: 2px;
@@ -939,7 +940,7 @@ export default function GameMainBanner({
 
         .play-game-btn {
           padding: 12px 30px;
-          font-size: 14px;
+          font-size: var(--fs-14);
         }
 
         .play-game-btn.running-pulse {

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectExecutable: () => ipcRenderer.invoke('select-executable'),
   selectImage: () => ipcRenderer.invoke('select-image'),
   scanExecutables: (dirPath) => ipcRenderer.invoke('scan-executables', dirPath),
+  scanPlatforms: () => ipcRenderer.invoke('scan-platforms'),
 
   // Launch processes
   launchGame: (gameId, exePath) => ipcRenderer.invoke('launch-game', gameId, exePath),

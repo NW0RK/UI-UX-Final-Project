@@ -432,12 +432,14 @@ export default function App() {
         addedList.push({
           ...metadata,
           steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
+          platforms: scannedFile.platform ? [scannedFile.platform] : (metadata.platforms || ["PC"]),
           id: cleanId
         });
         newGameIds.push(cleanId);
         addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
           exePath: scannedFile.path,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null
+          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
+          platform: scannedFile.platform || 'Custom'
         });
       } else {
         duplicateCount += 1;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Trash2, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Film, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Trash2, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 const platformIcons = {
@@ -18,6 +18,8 @@ const MOCK_MEDIA_DATABASE = {
       { id: 0, path_full: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?q=80&w=1200' },
       { id: 1, path_full: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1200' },
       { id: 2, path_full: 'https://images.unsplash.com/photo-1515621061946-eff1c2a352bd?q=80&w=1200' },
+      { id: 3, path_full: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?q=80&w=1200' },
+      { id: 4, path_full: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?q=80&w=1200' }
     ],
     movies: [
       {
@@ -32,6 +34,8 @@ const MOCK_MEDIA_DATABASE = {
       { id: 0, path_full: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?q=80&w=1200' },
       { id: 1, path_full: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?q=80&w=1200' },
       { id: 2, path_full: 'https://images.unsplash.com/photo-1519074069444-1ba4e6663104?q=80&w=1200' },
+      { id: 3, path_full: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?q=80&w=1200' },
+      { id: 4, path_full: 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?q=80&w=1200' }
     ],
     movies: [
       {
@@ -45,6 +49,9 @@ const MOCK_MEDIA_DATABASE = {
     screenshots: [
       { id: 0, path_full: 'https://images.unsplash.com/photo-1608889175123-8ec330b86f84?q=80&w=1200' },
       { id: 1, path_full: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?q=80&w=1200' },
+      { id: 2, path_full: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?q=80&w=1200' },
+      { id: 3, path_full: 'https://images.unsplash.com/photo-1519074069444-1ba4e6663104?q=80&w=1200' },
+      { id: 4, path_full: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?q=80&w=1200' }
     ],
     movies: [
       {
@@ -68,7 +75,9 @@ function getCuratedMockMedia(gameId, title) {
       screenshots: [
         { id: 0, path_full: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1200' },
         { id: 1, path_full: 'https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?q=80&w=1200' },
-        { id: 2, path_full: 'https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=1200' }
+        { id: 2, path_full: 'https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=1200' },
+        { id: 3, path_full: 'https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?q=80&w=1200' },
+        { id: 4, path_full: 'https://images.unsplash.com/photo-1502134249126-9f3755a50d78?q=80&w=1200' }
       ],
       movies: [
         {
@@ -84,7 +93,10 @@ function getCuratedMockMedia(gameId, title) {
     return {
       screenshots: [
         { id: 0, path_full: 'https://images.unsplash.com/photo-1635805737707-575885ab0820?q=80&w=1200' },
-        { id: 1, path_full: 'https://images.unsplash.com/photo-1608889175250-c3b0c1667d3a?q=80&w=1200' }
+        { id: 1, path_full: 'https://images.unsplash.com/photo-1608889175250-c3b0c1667d3a?q=80&w=1200' },
+        { id: 2, path_full: 'https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?q=80&w=1200' },
+        { id: 3, path_full: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?q=80&w=1200' },
+        { id: 4, path_full: 'https://images.unsplash.com/photo-1607604276583-eef5d076aa5f?q=80&w=1200' }
       ],
       movies: [
         {
@@ -101,7 +113,9 @@ function getCuratedMockMedia(gameId, title) {
       screenshots: [
         { id: 0, path_full: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?q=80&w=1200' },
         { id: 1, path_full: 'https://images.unsplash.com/photo-1519074069444-1ba4e6663104?q=80&w=1200' },
-        { id: 2, path_full: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?q=80&w=1200' }
+        { id: 2, path_full: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?q=80&w=1200' },
+        { id: 3, path_full: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?q=80&w=1200' },
+        { id: 4, path_full: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?q=80&w=1200' }
       ],
       movies: [
         {
@@ -117,7 +131,9 @@ function getCuratedMockMedia(gameId, title) {
     screenshots: [
       { id: 0, path_full: 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?q=80&w=1200' },
       { id: 1, path_full: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1200' },
-      { id: 2, path_full: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?q=80&w=1200' }
+      { id: 2, path_full: 'https://images.unsplash.com/photo-1552820728-8b83bb6b773f?q=80&w=1200' },
+      { id: 3, path_full: 'https://images.unsplash.com/photo-1519074069444-1ba4e6663104?q=80&w=1200' },
+      { id: 4, path_full: 'https://images.unsplash.com/photo-1618336753974-aae8e04506aa?q=80&w=1200' }
     ],
     movies: [
       {
@@ -317,24 +333,14 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             })}
           </div>
 
-          {/* Media Section */}
+          {/* Screenshots Section */}
           <h3 className="store-item-section-title" style={{ marginTop: '40px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Film size={16} />
-            <span>Media & Gallery</span>
+            <ImageIcon size={16} />
+            <span>Screenshots & Gallery</span>
           </h3>
 
           {(() => {
             const combinedMedia = [];
-            if (media.movies) {
-              media.movies.forEach(m => {
-                combinedMedia.push({
-                  type: 'video',
-                  id: `movie-${m.id}`,
-                  url: m.mp4?.max || m.mp4?.['480'] || m.webm?.max || m.url,
-                  thumbnail: m.thumbnail
-                });
-              });
-            }
             if (media.screenshots) {
               media.screenshots.forEach((s, idx) => {
                 combinedMedia.push({
@@ -354,7 +360,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             ) : combinedMedia.length > 0 ? (
               <div className="store-item-media-grid">
                 {combinedMedia.slice(0, 4).map((med, index) => {
-                  const isLastSlot = index === 3 && combinedMedia.length > 4;
+                  const isLastSlot = index === 3 && combinedMedia.length >= 4;
                   const remainingCount = combinedMedia.length - 3;
 
                   if (isLastSlot) {
@@ -369,7 +375,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                       >
                         <img src={med.thumbnail} alt="More media" className="grid-card-img" />
                         <div className="more-card-overlay">
-                          <span>+ {remainingCount} MORE</span>
+                          <span>+ {remainingCount} {remainingCount === 1 ? 'PHOTO' : 'PHOTOS'}</span>
                         </div>
                       </div>
                     );
@@ -388,24 +394,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                         }
                       }}
                     >
-                      {med.type === 'video' ? (
-                        <div className="grid-video-container">
-                          <video
-                            src={med.url}
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            className="grid-card-video"
-                          />
-                          <div className="grid-video-badge">
-                            <Play size={12} fill="currentColor" />
-                            <span>TRAILER</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
-                      )}
+                      <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
                     </div>
                   );
                 })}
@@ -601,7 +590,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-banner {
           position: relative;
           width: 100%;
-          min-height: 220px;
+          height: 280px;
           border-radius: 16px;
           overflow: hidden;
           margin-bottom: 20px;
@@ -904,9 +893,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           z-index: 2;
         }
 
-        /* --- More Card Overlay Styled to match User's Image --- */
+        /* --- More Card Overlay Styled to be Translucent --- */
         .more-card {
-          border-color: transparent !important;
+          border-color: rgba(255, 255, 255, 0.1) !important;
         }
 
         .more-card-overlay {
@@ -915,7 +904,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           left: 0;
           width: 100%;
           height: 100%;
-          background: #b8c4d2; /* Premium grey solid card background as in user mockup */
+          background: rgba(15, 23, 42, 0.68); /* Sleek glassmorphic translucent dark slate */
+          backdrop-filter: blur(4px);
+          -webkit-backdrop-filter: blur(4px);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -924,15 +915,18 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         }
 
         .more-card:hover .more-card-overlay {
-          background: #cdd8e6; /* Brightens up on hover */
+          background: rgba(15, 23, 42, 0.45); /* Reveals more of the 4th picture on hover */
+          backdrop-filter: blur(1.5px);
+          -webkit-backdrop-filter: blur(1.5px);
         }
 
         .more-card-overlay span {
           font-family: var(--font-display);
-          font-weight: 800;
+          font-weight: 900;
           font-size: var(--fs-15);
           letter-spacing: 2px;
-          color: #4d5e75; /* Slate color matching the mockup exactly */
+          color: #ffffff; /* White text for great readability over dark/translucent imagery */
+          text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8), 0 0 12px rgba(var(--accent-color-rgb), 0.4);
           text-transform: uppercase;
         }
 

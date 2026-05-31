@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity, Image } from 'lucide-react';
+import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity, Image, Trash2 } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -7,6 +7,7 @@ export default function SettingsPanel({
   onUpdateSettings, 
   onClose,
   onResetDatabase,
+  onClearArtworkCache,
   gamesCount
 }) {
   const [apiKey, setApiKey] = useState('');
@@ -58,6 +59,14 @@ export default function SettingsPanel({
     if (confirm("Are you sure you want to reset the Nexus database? This will clear scanned paths, restore default catalog games, and reset playtimes.")) {
       onResetDatabase();
       alert("Database reset completed successfully!");
+      onClose();
+    }
+  };
+
+  const handleClearCacheClick = () => {
+    audioEngine.playClickPulse();
+    if (confirm("Are you sure you want to completely clear the cache of downloaded pictures (grids, hero banners, logos, and icons)? The launcher will automatically re-fetch clean pictures.")) {
+      onClearArtworkCache();
       onClose();
     }
   };
@@ -380,6 +389,21 @@ export default function SettingsPanel({
               >
                 <RefreshCw size={12} />
                 <span>Reset Database</span>
+              </button>
+            </div>
+
+            <div className="maintenance-card" style={{ marginTop: '14px' }}>
+              <div className="m-left">
+                <span className="m-title">Clear Picture & Artwork Cache</span>
+                <span className="m-desc">Deletes all downloaded vertical grids, hero banners, logos, and icons to free up disk space. The launcher will automatically re-fetch clean assets.</span>
+              </div>
+              <button 
+                className="glow-btn clear-cache-btn"
+                onClick={handleClearCacheClick}
+                onMouseEnter={audioEngine.playHoverTick}
+              >
+                <Trash2 size={12} />
+                <span>Clear Cache</span>
               </button>
             </div>
           </div>
@@ -810,6 +834,24 @@ export default function SettingsPanel({
           color: #fff;
           border-color: #ef4444;
           box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+
+        .clear-cache-btn {
+          border-color: rgba(245, 158, 11, 0.3);
+          background: rgba(245, 158, 11, 0.03);
+          color: #f59e0b;
+          font-size: var(--fs-11);
+          padding: 8px 16px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .clear-cache-btn:hover {
+          background: #f59e0b;
+          color: #fff;
+          border-color: #f59e0b;
+          box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
         }
 
         .settings-footer {

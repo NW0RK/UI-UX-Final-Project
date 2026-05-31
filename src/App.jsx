@@ -84,6 +84,7 @@ export default function App() {
   // --- Visual & UX Customisation Variables ---
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const settingsLoadedRef = useRef(false);
+  const [cacheVersion, setCacheVersion] = useState(0);
 
   // --- 1. Load Local Database or Fallback to Defaults ---
   useEffect(() => {
@@ -190,7 +191,7 @@ export default function App() {
     }
 
     hydrateLibraryArtwork();
-  }, [games]);
+  }, [games, cacheVersion]);
 
   useEffect(() => {
     if (!window.electronAPI?.autoFetchArtwork || storeArtworkHydratedRef.current) return;
@@ -215,7 +216,7 @@ export default function App() {
     }
 
     hydrateStoreArtwork();
-  }, []);
+  }, [cacheVersion]);
 
   // --- 2. Synchronize Custom Settings & CSS Styles ---
   useEffect(() => {
@@ -586,6 +587,75 @@ export default function App() {
     }
   };
 
+  // --- Action Trigger: Clear Pictures Cache ---
+  const handleClearArtworkCache = async () => {
+    if (window.electronAPI?.clearArtworkCache) {
+      addDiagnostic('Artwork', 'info', 'Initiating full artwork cache purge...');
+      const result = await window.electronAPI.clearArtworkCache();
+      if (result.success) {
+        // Reset artwork status in games database
+        const updated = games.map(game => {
+          if (game.artworkSource === 'steamgriddb' || (game.coverUrl && game.coverUrl.startsWith('nexus-artwork:///'))) {
+            return {
+              ...game,
+              coverUrl: null,
+              bannerUrl: null,
+              logoUrl: null,
+              iconUrl: null,
+              artworkFetched: false,
+              artworkSource: null
+            };
+          }
+          return game;
+        });
+
+        setGames(updated);
+        setSelectedGame(prev => updated.find(g => g.id === prev?.id) || updated[0] || null);
+        await window.electronAPI.saveDatabase(updated);
+
+        // Reset hydration refs so they can re-hydrate in background
+        libraryArtworkHydratedRef.current = false;
+        storeArtworkHydratedRef.current = false;
+
+        // Force a re-fetch of store artwork as well by resetting it
+        setStoreArtwork({});
+        
+        // Trigger useEffects by updating cacheVersion
+        setCacheVersion(v => v + 1);
+
+        addDiagnostic('Artwork', 'info', 'Artwork cache cleared successfully. Triggering re-fetch.');
+        alert("Artwork cache cleared successfully! The launcher will now re-fetch clean pictures.");
+      } else {
+        addDiagnostic('Artwork', 'error', `Purge failed: ${result.error}`);
+        alert(`Failed to clear artwork cache: ${result.error}`);
+      }
+    } else {
+      // Browser Sandbox fallback
+      const updated = games.map(game => {
+        return {
+          ...game,
+          coverUrl: null,
+          bannerUrl: null,
+          logoUrl: null,
+          iconUrl: null,
+          artworkFetched: false,
+          artworkSource: null
+        };
+      });
+      setGames(updated);
+      setSelectedGame(prev => updated.find(g => g.id === prev?.id) || updated[0] || null);
+      localStorage.setItem('nexus_games_cache', JSON.stringify(updated));
+      
+      // Reset hydration refs
+      libraryArtworkHydratedRef.current = false;
+      storeArtworkHydratedRef.current = false;
+      setStoreArtwork({});
+      setCacheVersion(v => v + 1);
+      
+      alert("Cache cleared successfully (sandbox mock)!");
+    }
+  };
+
   // --- Navigation / View Management ---
   const handleViewChange = (view) => {
     audioEngine.playClickPulse();
@@ -833,6 +903,7 @@ export default function App() {
           settings={settings}
           onUpdateSettings={setSettings}
           onResetDatabase={handleResetDatabase}
+          onClearArtworkCache={handleClearArtworkCache}
           gamesCount={games.length}
           onClose={() => setIsSettingsOpen(false)}
         />

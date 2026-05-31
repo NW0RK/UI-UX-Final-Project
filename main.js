@@ -13,7 +13,8 @@ const ARTWORK_PROTOCOL = 'nexus-artwork';
 
 let mainWindow = null;
 const activeGames = new Map();
-const artworkTrimJobs = new Map();
+// DEPRECATED: artworkTrimJobs Map is disabled.
+// const artworkTrimJobs = new Map();
 
 function emitDiagnostic(area, level, message, details = null) {
   const payload = {
@@ -256,83 +257,9 @@ async function downloadImage(url, destPath) {
   }
 }
 
-async function trimTransparentPadding(filePath) {
-  const normalizedPath = path.resolve(filePath);
-  if (artworkTrimJobs.has(normalizedPath)) return artworkTrimJobs.get(normalizedPath);
-
-  const job = trimTransparentPaddingUnsafe(normalizedPath).finally(() => {
-    artworkTrimJobs.delete(normalizedPath);
-  });
-
-  artworkTrimJobs.set(normalizedPath, job);
-  return job;
-}
-
-async function trimTransparentPaddingUnsafe(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return null;
-
-  const parsed = path.parse(filePath);
-  if (parsed.name.endsWith('.trimmed')) {
-    return { filePath, alreadyTrimmed: true };
-  }
-
-  const outputPath = path.join(parsed.dir, `${parsed.name}.trimmed${ext}`);
-  if (fs.existsSync(outputPath)) {
-    return { filePath: outputPath, alreadyTrimmed: true };
-  }
-
-  const image = sharp(filePath).ensureAlpha();
-  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
-  const { width, height, channels } = info;
-  const alphaIndex = channels - 1;
-  const alphaThreshold = 4;
-
-  let top = height;
-  let right = -1;
-  let bottom = -1;
-  let left = width;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const alpha = data[(y * width + x) * channels + alphaIndex];
-      if (alpha > alphaThreshold) {
-        if (x < left) left = x;
-        if (x > right) right = x;
-        if (y < top) top = y;
-        if (y > bottom) bottom = y;
-      }
-    }
-  }
-
-  if (right < left || bottom < top) return null;
-
-  const cropWidth = right - left + 1;
-  const cropHeight = bottom - top + 1;
-  if (left === 0 && top === 0 && cropWidth === width && cropHeight === height) {
-    return { filePath, alreadyTrimmed: true };
-  }
-
-  const tmpPath = path.join(parsed.dir, `${parsed.name}.trimmed.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}${ext}`);
-
-  await sharp(filePath)
-    .extract({ left, top, width: cropWidth, height: cropHeight })
-    .toFile(tmpPath);
-
-  if (fs.existsSync(outputPath)) {
-    try { fs.unlinkSync(tmpPath); } catch (e) { /* ignore locked temp cleanup */ }
-    return { filePath: outputPath, alreadyTrimmed: true };
-  }
-
-  fs.renameSync(tmpPath, outputPath);
-
-  return {
-    filePath: outputPath,
-    original: { width, height },
-    trimmed: { width: cropWidth, height: cropHeight },
-    crop: { left, top, right: width - right - 1, bottom: height - bottom - 1 }
-  };
-}
+// DEPRECATED: Image trimming functions are removed.
+// Original functions (trimTransparentPadding, trimTransparentPaddingUnsafe) have been archived
+// in './deprecated_features/imageTrimming.js'. Refer to deprecated_features/README.md for details.
 
 function getGameCacheDir(gameId) {
   const dir = path.join(getArtworkCacheDir(), gameId.replace(/[^a-zA-Z0-9_-]/g, '_'));
@@ -356,12 +283,15 @@ function getCachedArtworkPaths(gameId) {
 function getCachedArtworkFilePath(gameId, type) {
   const cacheDir = getGameCacheDir(gameId);
   const extensions = ['png', 'jpg', 'jpeg', 'webp', 'ico'];
+  // DEPRECATED: Image trimming is disabled. To re-enable loading of trimmed assets, uncomment below:
+  /*
   if (type === 'logo' || type === 'icon') {
     for (const ext of extensions) {
       const filePath = path.join(cacheDir, `${type}.trimmed.${ext}`);
       if (fs.existsSync(filePath)) return filePath;
     }
   }
+  */
   for (const ext of extensions) {
     const filePath = path.join(cacheDir, `${type}.${ext}`);
     if (fs.existsSync(filePath)) return filePath;
@@ -369,34 +299,8 @@ function getCachedArtworkFilePath(gameId, type) {
   return null;
 }
 
-async function trimCachedLogoArtworkForGame(game) {
-  if (!game?.id) return;
-
-  for (const key of ['logo', 'icon']) {
-    const filePath = getCachedArtworkFilePath(game.id, key);
-    if (!filePath) continue;
-
-    try {
-      const trimDetails = await trimTransparentPadding(filePath);
-      if (trimDetails?.filePath) {
-        if (key === 'logo') game.logoUrl = toArtworkUrl(trimDetails.filePath);
-        if (key === 'icon') game.iconUrl = toArtworkUrl(trimDetails.filePath);
-      }
-      if (trimDetails && !trimDetails.alreadyTrimmed) {
-        emitDiagnostic('Artwork', 'info', `Trimmed transparent padding from cached ${key} artwork for ${game.title || game.id}`, trimDetails);
-      }
-    } catch (err) {
-      emitDiagnostic('Artwork', 'warn', `Could not trim cached ${key} artwork for ${game.title || game.id}: ${err.message}`);
-    }
-  }
-}
-
-async function trimCachedLogoArtworkForDatabase(data) {
-  if (!Array.isArray(data)) return;
-  for (const game of data) {
-    await trimCachedLogoArtworkForGame(game);
-  }
-}
+// DEPRECATED: trimCachedLogoArtworkForGame and trimCachedLogoArtworkForDatabase are removed.
+// These functions have been archived in './deprecated_features/imageTrimming.js'.
 
 function sanitizeForPath(str) {
   return str.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
@@ -507,6 +411,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
       const cached = getCachedArtworkPaths(gameId);
       if (cached?.[key]) {
         let cachedFilePath = getCachedArtworkFilePath(gameId, key);
+        /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
         if ((key === 'logo' || key === 'icon') && cachedFilePath) {
           try {
             const trimDetails = await trimTransparentPadding(cachedFilePath);
@@ -518,6 +423,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
             addDiagnostic('warn', `Could not trim cached ${key} artwork for ${gameTitle}: ${trimError.message}`);
           }
         }
+        */
         result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${gameTitle}`);
         continue;
@@ -533,6 +439,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
       const ext = getExtensionFromArtwork(artwork);
       let destPath = path.join(cacheDir, `${key}.${ext}`);
       await downloadImage(artwork.url, destPath);
+      /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
       if (key === 'logo' || key === 'icon') {
         try {
           const trimDetails = await trimTransparentPadding(destPath);
@@ -544,6 +451,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
           addDiagnostic('warn', `Could not trim ${key} artwork for ${gameTitle}: ${trimError.message}`);
         }
       }
+      */
       result[key] = toArtworkUrl(destPath);
       addDiagnostic('info', `Downloaded ${key} artwork for ${gameTitle}`, {
         width: artwork.width,
@@ -659,7 +567,8 @@ ipcMain.handle('load-database', async () => {
     if (fs.existsSync(dbPath)) {
       const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
       const normalized = normalizeArtworkUrlsInDatabase(data);
-      await trimCachedLogoArtworkForDatabase(normalized);
+      // DEPRECATED: Image trimming is disabled. To re-enable, uncomment the line below:
+      // await trimCachedLogoArtworkForDatabase(normalized, { getCachedArtworkFilePath, toArtworkUrl, emitDiagnostic });
       return normalized;
     }
   } catch (err) { console.error('Error loading database:', err); }
@@ -1102,13 +1011,20 @@ ipcMain.handle('steamgriddb-fetch-artwork', async (event, sgdbId, gameId, gameTi
   }
 });
 
+async function isImageLowResolution(filePath, minWidth = 1000) {
+  try {
+    const metadata = await sharp(filePath).metadata();
+    return metadata.width < minWidth;
+  } catch (err) {
+    return false;
+  }
+}
+
 async function downloadSteamCDNArtwork(appId, key, cacheDir, gameTitle, diagnostics) {
   const cdnTemplates = {
     grid: [`https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_600x900.jpg`],
     hero: [
-      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg`,
-      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`,
-      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/capsule_616x353.jpg`
+      `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/library_hero.jpg`
     ],
     logo: [`https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/logo.png`],
     icon: [`https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/icon.png`]
@@ -1123,8 +1039,18 @@ async function downloadSteamCDNArtwork(appId, key, cacheDir, gameTitle, diagnost
       emitDiagnostic('ArtworkFetcher', 'info', `Attempting Steam CDN fetch for ${key}: ${url}`);
       await downloadImage(url, destPath);
 
+      if (key === 'hero') {
+        const isLowRes = await isImageLowResolution(destPath);
+        if (isLowRes) {
+          diagnostics.push({ level: 'warn', message: `Downloaded Steam CDN hero ${url} is low-resolution (< 1000px width), discarding to fall back to SteamGridDB` });
+          if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+          continue;
+        }
+      }
+
       // Crop transparent padding for logo/icon
       let finalPath = destPath;
+      /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
       if (key === 'logo' || key === 'icon') {
         try {
           const trimDetails = await trimTransparentPadding(destPath);
@@ -1133,6 +1059,7 @@ async function downloadSteamCDNArtwork(appId, key, cacheDir, gameTitle, diagnost
           diagnostics.push({ level: 'warn', message: `Could not trim transparent padding: ${trimError.message}` });
         }
       }
+      */
 
       diagnostics.push({ level: 'info', message: `Successfully fetched ${key} from Steam CDN` });
       return toArtworkUrl(finalPath);
@@ -1184,12 +1111,14 @@ async function fetchArtworkWithFallback(game) {
     for (const key of keys) {
       if (cached?.[key]) {
         let cachedFilePath = getCachedArtworkFilePath(game.id, key);
+        /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
         if ((key === 'logo' || key === 'icon') && cachedFilePath) {
           try {
             const trimDetails = await trimTransparentPadding(cachedFilePath);
             if (trimDetails?.filePath) cachedFilePath = trimDetails.filePath;
           } catch (e) {}
         }
+        */
         result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${game.title}`);
         continue;
@@ -1229,6 +1158,31 @@ async function fetchArtworkWithFallback(game) {
       }
     } catch (err) {
       addDiagnostic('warn', `Stage 3: SteamGridDB fallback failed: ${err.message}`);
+    }
+  }
+
+  // Stage 4 (Absolute Fallback for Hero/Banner): If hero is still missing, try downloading Steam CDN's lower-res header or capsule!
+  if (!result['hero'] && resolvedSteamAppId) {
+    addDiagnostic('info', `Stage 4: Hero is still missing. Attempting lower-res Steam CDN header/capsule fallbacks for ${game.title}`);
+    try {
+      const fallbackTemplates = [
+        `https://cdn.cloudflare.steamstatic.com/steam/apps/${resolvedSteamAppId}/header.jpg`,
+        `https://cdn.cloudflare.steamstatic.com/steam/apps/${resolvedSteamAppId}/capsule_616x353.jpg`
+      ];
+      const destPath = path.join(cacheDir, `hero.jpg`);
+      for (const url of fallbackTemplates) {
+        try {
+          addDiagnostic('info', `Attempting fallback Steam CDN fetch: ${url}`);
+          await downloadImage(url, destPath);
+          result['hero'] = toArtworkUrl(destPath);
+          addDiagnostic('info', `Successfully retrieved lower-res hero fallback from Steam CDN`);
+          break;
+        } catch (e) {
+          addDiagnostic('warn', `Fallback Steam CDN download failed for ${url}: ${e.message}`);
+        }
+      }
+    } catch (err) {
+      addDiagnostic('warn', `Stage 4 absolute fallback failed: ${err.message}`);
     }
   }
 
@@ -1330,3 +1284,22 @@ ipcMain.handle('load-settings', async () => {
   } catch (e) { /* ignore */ }
   return null;
 });
+
+ipcMain.handle('clear-artwork-cache', async () => {
+  try {
+    const artworkDir = getArtworkCacheDir();
+    if (fs.existsSync(artworkDir)) {
+      const files = fs.readdirSync(artworkDir);
+      for (const file of files) {
+        const filePath = path.join(artworkDir, file);
+        fs.rmSync(filePath, { recursive: true, force: true });
+      }
+    }
+    emitDiagnostic('Artwork', 'info', 'Artwork cache directory cleared successfully');
+    return { success: true };
+  } catch (err) {
+    emitDiagnostic('Artwork', 'error', `Failed to clear artwork cache: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+

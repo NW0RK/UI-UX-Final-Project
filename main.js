@@ -6,6 +6,10 @@ import { spawn, execFile, exec } from 'child_process';
 import https from 'https';
 import { pipeline } from 'stream/promises';
 import sharp from 'sharp';
+import { 
+  trimTransparentPadding, 
+  trimCachedLogoArtworkForDatabase 
+} from './deprecated_features/imageTrimming.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -283,15 +287,12 @@ function getCachedArtworkPaths(gameId) {
 function getCachedArtworkFilePath(gameId, type) {
   const cacheDir = getGameCacheDir(gameId);
   const extensions = ['png', 'jpg', 'jpeg', 'webp', 'ico'];
-  // DEPRECATED: Image trimming is disabled. To re-enable loading of trimmed assets, uncomment below:
-  /*
   if (type === 'logo' || type === 'icon') {
     for (const ext of extensions) {
       const filePath = path.join(cacheDir, `${type}.trimmed.${ext}`);
       if (fs.existsSync(filePath)) return filePath;
     }
   }
-  */
   for (const ext of extensions) {
     const filePath = path.join(cacheDir, `${type}.${ext}`);
     if (fs.existsSync(filePath)) return filePath;
@@ -411,7 +412,6 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
       const cached = getCachedArtworkPaths(gameId);
       if (cached?.[key]) {
         let cachedFilePath = getCachedArtworkFilePath(gameId, key);
-        /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
         if ((key === 'logo' || key === 'icon') && cachedFilePath) {
           try {
             const trimDetails = await trimTransparentPadding(cachedFilePath);
@@ -423,7 +423,6 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
             addDiagnostic('warn', `Could not trim cached ${key} artwork for ${gameTitle}: ${trimError.message}`);
           }
         }
-        */
         result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${gameTitle}`);
         continue;
@@ -439,7 +438,6 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
       const ext = getExtensionFromArtwork(artwork);
       let destPath = path.join(cacheDir, `${key}.${ext}`);
       await downloadImage(artwork.url, destPath);
-      /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
       if (key === 'logo' || key === 'icon') {
         try {
           const trimDetails = await trimTransparentPadding(destPath);
@@ -451,7 +449,6 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
           addDiagnostic('warn', `Could not trim ${key} artwork for ${gameTitle}: ${trimError.message}`);
         }
       }
-      */
       result[key] = toArtworkUrl(destPath);
       addDiagnostic('info', `Downloaded ${key} artwork for ${gameTitle}`, {
         width: artwork.width,
@@ -567,8 +564,7 @@ ipcMain.handle('load-database', async () => {
     if (fs.existsSync(dbPath)) {
       const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
       const normalized = normalizeArtworkUrlsInDatabase(data);
-      // DEPRECATED: Image trimming is disabled. To re-enable, uncomment the line below:
-      // await trimCachedLogoArtworkForDatabase(normalized, { getCachedArtworkFilePath, toArtworkUrl, emitDiagnostic });
+      await trimCachedLogoArtworkForDatabase(normalized, { getCachedArtworkFilePath, toArtworkUrl, emitDiagnostic });
       return normalized;
     }
   } catch (err) { console.error('Error loading database:', err); }
@@ -1050,7 +1046,6 @@ async function downloadSteamCDNArtwork(appId, key, cacheDir, gameTitle, diagnost
 
       // Crop transparent padding for logo/icon
       let finalPath = destPath;
-      /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
       if (key === 'logo' || key === 'icon') {
         try {
           const trimDetails = await trimTransparentPadding(destPath);
@@ -1059,7 +1054,6 @@ async function downloadSteamCDNArtwork(appId, key, cacheDir, gameTitle, diagnost
           diagnostics.push({ level: 'warn', message: `Could not trim transparent padding: ${trimError.message}` });
         }
       }
-      */
 
       diagnostics.push({ level: 'info', message: `Successfully fetched ${key} from Steam CDN` });
       return toArtworkUrl(finalPath);
@@ -1111,14 +1105,12 @@ async function fetchArtworkWithFallback(game) {
     for (const key of keys) {
       if (cached?.[key]) {
         let cachedFilePath = getCachedArtworkFilePath(game.id, key);
-        /* DEPRECATED: Image trimming is disabled. To re-enable, uncomment the block below:
         if ((key === 'logo' || key === 'icon') && cachedFilePath) {
           try {
             const trimDetails = await trimTransparentPadding(cachedFilePath);
             if (trimDetails?.filePath) cachedFilePath = trimDetails.filePath;
           } catch (e) {}
         }
-        */
         result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${game.title}`);
         continue;

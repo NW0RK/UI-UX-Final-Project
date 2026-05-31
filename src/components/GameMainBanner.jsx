@@ -814,10 +814,8 @@ export default function GameMainBanner({
         }
 
         .banner-logo-img {
-          max-height: 100%;
-          max-width: 100%;
-          width: auto;
-          height: auto;
+          width: 100%;
+          height: 100%;
           object-fit: contain;
           filter: drop-shadow(0 0 25px rgba(0, 0, 0, 0.85));
           flex-shrink: 0;

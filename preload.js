@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fetchArtwork: (sgdbId, gameId, gameTitle) => ipcRenderer.invoke('steamgriddb-fetch-artwork', sgdbId, gameId, gameTitle),
   autoFetchArtwork: (game) => ipcRenderer.invoke('steamgriddb-auto-fetch-artwork', game),
   getCachedArtwork: (gameId) => ipcRenderer.invoke('get-cached-artwork', gameId),
+  fetchSteamDetails: (steamAppId) => ipcRenderer.invoke('fetch-steam-details', steamAppId),
   saveApiKey: (key) => ipcRenderer.invoke('save-api-key', key),
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),

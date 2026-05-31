@@ -212,32 +212,13 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
       <style dangerouslySetInnerHTML={{__html: `
         .store-card {
           flex: 0 0 210px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid rgba(255, 255, 255, 0.04);
-          border-radius: 14px;
-          overflow: hidden;
+          background: transparent;
+          border: none;
           cursor: pointer;
           transition: all var(--transition-fast);
           display: flex;
           flex-direction: column;
-        }
-
-        .store-card:hover {
-          transform: translateY(-6px);
-          border-color: rgba(var(--accent-color-rgb), 0.25);
-          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5), 0 0 20px rgba(var(--accent-color-rgb), 0.08);
-          background: rgba(var(--accent-color-rgb), 0.03);
-        }
-
-        .store-card.selected {
-          border-color: var(--accent-color);
-          box-shadow: var(--accent-glow), 0 10px 30px rgba(var(--accent-color-rgb), 0.2);
-          background: rgba(var(--accent-color-rgb), 0.04);
-        }
-
-        .store-card.running {
-          border-color: rgba(239, 68, 68, 0.6);
-          box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+          gap: 6px;
         }
 
         .store-card-image-wrapper {
@@ -246,33 +227,86 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           aspect-ratio: 2 / 3;
           overflow: hidden;
           background: rgba(0, 0, 0, 0.2);
+          box-sizing: border-box;
+          transition: all 0.4s cubic-bezier(0.15, 0.85, 0.3, 1);
+          
+          /* Inactive card default style */
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 24px;
+          opacity: 0.5;
+        }
+
+        /* Hovering over inactive card */
+        .store-card:not(.selected):hover .store-card-image-wrapper {
+          opacity: 0.85;
+          transform: translateY(-4px);
+          border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Active Selected Card styling matching Favourites page */
+        .store-card.selected .store-card-image-wrapper {
+          border: 2px solid var(--accent-color);
+          box-shadow: 0px 0px 25px rgba(var(--accent-color-rgb), 0.25);
+          border-radius: 32px;
+          opacity: 1;
+        }
+
+        .store-card.selected:hover .store-card-image-wrapper {
+          transform: translateY(-4px);
+        }
+
+        .store-card.running .store-card-image-wrapper {
+          border-color: rgba(239, 68, 68, 0.6);
+          box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
         }
 
         .store-card-image {
           width: 100%;
           height: 100%;
           object-fit: cover;
-          transition: transform 0.6s ease;
+          transition: transform 0.6s ease, filter 0.4s ease;
           display: block;
         }
 
+        /* Grayscale for inactive cover images matching Favourites page */
+        .store-card:not(.selected) .store-card-image {
+          filter: grayscale(100%) brightness(0.5) contrast(1.1);
+        }
+
+        .store-card:not(.selected):hover .store-card-image {
+          filter: grayscale(40%) brightness(0.7) contrast(1.05);
+        }
+
+        .store-card.selected .store-card-image {
+          filter: none;
+        }
+
         .store-card-image-placeholder {
+          width: 100%;
+          height: 100%;
+          border-radius: inherit;
           display: flex;
           align-items: center;
           justify-content: center;
           padding: 20px;
-          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.14), rgba(7, 7, 10, 0.94));
-          color: rgba(255, 255, 255, 0.7);
+          text-align: center;
           font-family: var(--font-display);
           font-size: 14px;
           font-weight: 900;
           letter-spacing: 1px;
-          text-align: center;
           text-transform: uppercase;
+          transition: background 0.4s ease;
+          background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .store-card.selected .store-card-image-placeholder {
+          background: linear-gradient(135deg, rgba(var(--accent-color-rgb), 0.15) 0%, #0f172a 100%);
+          color: #fff;
         }
 
         .store-card:hover .store-card-image {
-          transform: scale(1.08);
+          transform: scale(1.06);
         }
 
         .store-card-hover {
@@ -289,6 +323,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           opacity: 0;
           transition: opacity var(--transition-fast);
           z-index: 4;
+          border-radius: inherit;
         }
 
         .store-card:hover .store-card-hover {

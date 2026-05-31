@@ -1261,6 +1261,20 @@ ipcMain.handle('get-cached-artwork', async (event, gameId) => {
   return getCachedArtworkPaths(gameId);
 });
 
+ipcMain.handle('fetch-steam-details', async (event, steamAppId) => {
+  try {
+    const url = `https://store.steampowered.com/api/appdetails?appids=${steamAppId}`;
+    const data = await fetchJson(url);
+    if (data && data[steamAppId] && data[steamAppId].success) {
+      return data[steamAppId].data;
+    }
+    return null;
+  } catch (err) {
+    emitDiagnostic('SteamDetails', 'error', `Failed to fetch Steam details for AppId ${steamAppId}: ${err.message}`);
+    return null;
+  }
+});
+
 ipcMain.handle('save-api-key', async (event, key) => {
   try {
     const configPath = getConfigPath();

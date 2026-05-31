@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pin, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
+import { Play, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function GameMainBanner({ 
@@ -7,10 +7,8 @@ export default function GameMainBanner({
   onLaunch, 
   onToggleFavorite, 
   onEditMetadata, 
-  onPinSidebar,
   onRemoveGame,
   isRunning,
-  isSidebarPinned,
   bannerAnimation = true,
   onUpdateGameBannerLayout,
   editMode: controlledEditMode,
@@ -88,10 +86,7 @@ export default function GameMainBanner({
     onEditMetadata(game);
   };
 
-  const handlePinClick = () => {
-    audioEngine.playClickPulse();
-    onPinSidebar();
-  };
+
 
   const handleRemoveClick = () => {
     audioEngine.playClickPulse();
@@ -386,16 +381,7 @@ export default function GameMainBanner({
             <span>{isRunning ? 'Running...' : 'Play Game'}</span>
           </button>
 
-          {/* Pin Sidebar for Multitasking */}
-          <button 
-            className={`glow-btn action-pill-btn ${isSidebarPinned ? 'pinned-active' : ''}`}
-            onClick={handlePinClick}
-            onMouseEnter={audioEngine.playHoverTick}
-            title="Pin Achievements to Side"
-          >
-            <Pin size={16} />
-            <span>{isSidebarPinned ? 'Pinned' : 'Pin to Side'}</span>
-          </button>
+
 
           {/* Edit Metadata */}
           <button 

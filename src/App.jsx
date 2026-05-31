@@ -4,12 +4,12 @@ import InteractiveCanvas from './components/InteractiveCanvas';
 import HorizontalLibrary from './components/HorizontalLibrary';
 import GameMainBanner from './components/GameMainBanner';
 import ControlCenter from './components/ControlCenter';
-import PiPSidebar from './components/PiPSidebar';
-import MetadataEditor from './components/MetadataEditor';
 import SettingsPanel from './components/SettingsPanel';
+import MetadataEditor from './components/MetadataEditor';
 import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
+import ProfileOverlay from './components/ProfileOverlay';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { audioEngine } from './utils/audioEngine';
@@ -37,11 +37,28 @@ export default function App() {
   const [sessionTime, setSessionTime] = useState(0);
   const sessionTimerRef = useRef(null);
 
-  // --- Panels & Dialog Overlay Toggles ---
   const [isCcOpen, setIsCcOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
-  const [isSidebarPinned, setIsSidebarPinned] = useState(false);
+  
+  // --- Editable Gold Profile Screen States ---
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('nexus_username') || 'And360red';
+  });
+  const [userAvatar, setUserAvatar] = useState(() => {
+    return localStorage.getItem('nexus_user_avatar') || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop';
+  });
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const handleUsernameChange = (newName) => {
+    setUsername(newName);
+    localStorage.setItem('nexus_username', newName);
+  };
+
+  const handleAvatarChange = (newAvatar) => {
+    setUserAvatar(newAvatar);
+    localStorage.setItem('nexus_user_avatar', newAvatar);
+  };
   const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
   const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
@@ -699,10 +716,13 @@ export default function App() {
         activeView={activeView}
         onViewChange={handleViewChange}
         systemStatusTracking={settings.trackSystemStatus}
+        username={username}
+        userAvatar={userAvatar}
+        onOpenProfile={() => setIsProfileOpen(true)}
       />
 
       {/* 3. Main Dashboard Interactive Workspace */}
-      <main className={`main-viewport ${isSidebarPinned && activeView === 'library' ? 'sidebar-active' : ''}`}>
+      <main className="main-viewport">
         {activeView === 'library' && (
           <>
             <GameMainBanner 
@@ -710,10 +730,8 @@ export default function App() {
               onLaunch={handleLaunchGame}
               onToggleFavorite={handleToggleFavorite}
               onEditMetadata={() => setIsMetadataOpen(true)}
-              onPinSidebar={() => setIsSidebarPinned(!isSidebarPinned)}
               onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
-              isSidebarPinned={isSidebarPinned}
               bannerAnimation={settings.bannerAnimation}
               onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
               editMode={bannerEditMode}
@@ -783,18 +801,7 @@ export default function App() {
         onClearDiagnostics={() => setDiagnostics([])}
       />
 
-      {/* 5. Snapped Multitasking Activity Sidebar */}
-      {isSidebarPinned && (
-        <PiPSidebar 
-          game={selectedGame}
-          onClose={() => setIsSidebarPinned(false)}
-          isRunning={runningGameId === selectedGame?.id}
-          sessionTime={sessionTime}
-          cpuUsage={cpuUsage}
-          ramUsage={ramUsage}
-          systemStatusTracking={settings.trackSystemStatus}
-        />
-      )}
+
 
       {/* 6. Settings Panel Configuration pop-up */}
       {isSettingsOpen && (
@@ -819,6 +826,16 @@ export default function App() {
           }}
         />
       )}
+
+      {/* 8. Gold Profile Selection Overlay */}
+      <ProfileOverlay 
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        username={username}
+        onUsernameChange={handleUsernameChange}
+        userAvatar={userAvatar}
+        onAvatarChange={handleAvatarChange}
+      />
     </div>
   );
 }

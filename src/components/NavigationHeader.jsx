@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Settings, Minus, Square, X, User, Library, ShoppingCart, Trophy } from 'lucide-react';
+import { Search, Settings, Minus, Square, X } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function NavigationHeader({ 
@@ -10,11 +10,14 @@ export default function NavigationHeader({
   ramUsage,
   activeView,
   onViewChange,
-  systemStatusTracking = true
+  systemStatusTracking = true,
+  username = "And360red",
+  userAvatar = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop",
+  onOpenProfile
 }) {
   const [time, setTime] = useState('');
 
-  // Update Clock in PS5 format (HH:MM)
+  // Update Clock in HH:MM format
   useEffect(() => {
     const updateTime = () => {
       const date = new Date();
@@ -22,7 +25,7 @@ export default function NavigationHeader({
       let minutes = date.getMinutes();
       const ampm = hours >= 12 ? 'PM' : 'AM';
       hours = hours % 12;
-      hours = hours ? hours : 12; // the hour '0' should be '12'
+      hours = hours ? hours : 12;
       minutes = minutes < 10 ? '0' + minutes : minutes;
       setTime(`${hours}:${minutes} ${ampm}`);
     };
@@ -45,34 +48,31 @@ export default function NavigationHeader({
       {/* Frameless Drag Handle */}
       <div className="titlebar-draggable" />
 
-      {/* Primary Logo */}
+      {/* Primary Logo & Flat Tabs */}
       <div className="nav-left">
-        <div className="nexus-logo">
+        <div className="nexus-logo" onClick={() => { audioEngine.playClickPulse(); onViewChange('library'); }}>
           N E X U S
         </div>
-        <div className="mode-tabs">
+        <nav className="mode-tabs">
+          <button
+            className={`mode-tab ${activeView === 'store' || activeView === 'store-item' ? 'active' : ''}`}
+            onClick={() => { audioEngine.playClickPulse(); onViewChange('store'); }}
+          >
+            Store
+          </button>
           <button
             className={`mode-tab ${activeView === 'library' ? 'active' : ''}`}
             onClick={() => { audioEngine.playClickPulse(); onViewChange('library'); }}
           >
-            <Library size={12} />
-            <span>Library</span>
+            Library
           </button>
           <button
             className={`mode-tab ${activeView === 'favourites' ? 'active' : ''}`}
             onClick={() => { audioEngine.playClickPulse(); onViewChange('favourites'); }}
           >
-            <Trophy size={12} />
-            <span>Favourites</span>
+            Favourites
           </button>
-          <button
-            className={`mode-tab ${activeView === 'store' || activeView === 'store-item' ? 'active' : ''}`}
-            onClick={() => { audioEngine.playClickPulse(); onViewChange('store'); }}
-          >
-            <ShoppingCart size={12} />
-            <span>Store</span>
-          </button>
-        </div>
+        </nav>
       </div>
 
       {/* Center Search Bar */}
@@ -90,43 +90,59 @@ export default function NavigationHeader({
         </div>
       </div>
 
-      {/* Right Profiles, Telemetry, and Native Controls */}
+      {/* Right Profiles, Telemetry, and Settings */}
       <div className="nav-right">
-        {/* System Monitor Telemetry */}
-        {systemStatusTracking && (
-          <div className="system-telemetry-pill">
-            <div className="telemetry-item">
-              <span className="telemetry-label">CPU</span>
-              <span className="telemetry-value">{cpuUsage}%</span>
-            </div>
-            <div className="telemetry-divider" />
-            <div className="telemetry-item">
-              <span className="telemetry-label">RAM</span>
-              <span className="telemetry-value">{ramUsage}%</span>
-            </div>
-          </div>
-        )}
-
-        {/* Action Widgets */}
+        {/* Settings button next to dashboard */}
         <button 
           className="nav-icon-btn" 
           onClick={onOpenSettings}
           onMouseEnter={audioEngine.playHoverTick}
           title="Launcher Settings"
         >
-          <Settings size={18} />
+          <Settings size={16} />
         </button>
 
-        {/* Profile Avatar widget */}
-        <div 
-          className="profile-avatar-pill" 
-          onMouseEnter={audioEngine.playHoverTick}
-          title="User Profile"
-        >
-          <div className="avatar-icon-wrapper">
-            <User size={14} />
+        {/* Unified Glassmorphic Profile & Resource Telemetry Dashboard */}
+        <div className="unified-profile-dashboard">
+          {systemStatusTracking && (
+            <>
+              {/* CPU Telemetry Block */}
+              <div className="telemetry-block">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="telemetry-icon">
+                  <rect x="2" y="2" width="8" height="8" rx="1.5" stroke="var(--accent-color)" strokeWidth="1" />
+                  <path d="M4 0v2M8 0v2M4 10v2M8 10v2M0 4h2M0 8h2M10 4h2M10 8h2" stroke="var(--accent-color)" strokeWidth="1" />
+                </svg>
+                <span className="telemetry-text">CPU {cpuUsage}%</span>
+              </div>
+
+              {/* RAM Telemetry Block */}
+              <div className="telemetry-block">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="telemetry-icon">
+                  <rect x="1" y="3" width="10" height="6" rx="1.5" stroke="var(--accent-color)" strokeWidth="1" />
+                  <path d="M3 3v6M6 3v6M9 3v6" stroke="var(--accent-color)" strokeWidth="1" />
+                </svg>
+                <span className="telemetry-text">RAM {12 + Math.round((ramUsage / 100) * 4)}GB</span>
+              </div>
+
+              {/* Divider */}
+              <div className="dashboard-divider" />
+            </>
+          )}
+
+          {/* User Profile Section */}
+          <div 
+            className="profile-user-section" 
+            onClick={() => { audioEngine.playClickPulse(); onOpenProfile && onOpenProfile(); }}
+            style={{ cursor: 'pointer' }}
+            title="Manage Profile"
+          >
+            <span className="profile-username">{username}</span>
+            <img 
+              src={userAvatar} 
+              alt={username} 
+              className="profile-avatar" 
+            />
           </div>
-          <span className="avatar-username">Player 1</span>
         </div>
 
         {/* Live Clock */}
@@ -158,7 +174,7 @@ export default function NavigationHeader({
         </div>
       </div>
 
-      {/* Styled JSX for the Navigation Header */}
+      {/* Styled JSX for the Redesigned Navigation Header */}
       <style dangerouslySetInnerHTML={{__html: `
         .navigation-header {
           position: fixed;
@@ -166,10 +182,10 @@ export default function NavigationHeader({
           left: 0;
           width: 100%;
           height: var(--header-height);
-          background: linear-gradient(180deg, rgba(10, 10, 16, 0.8) 0%, rgba(10, 10, 16, 0) 100%);
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+          background: linear-gradient(180deg, rgba(5, 11, 20, 0.95) 0%, rgba(5, 11, 20, 0) 100%);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -181,59 +197,60 @@ export default function NavigationHeader({
         .nav-left {
           display: flex;
           align-items: center;
-          gap: 40px;
+          gap: 64px;
           z-index: 10000;
           -webkit-app-region: no-drag;
         }
 
         .nexus-logo {
-          font-family: var(--font-display);
+          font-family: 'Inter', sans-serif;
           font-weight: 900;
-          font-size: 20px;
-          letter-spacing: 5px;
-          color: #fff;
+          font-size: 30px;
+          line-height: 36px;
+          letter-spacing: 12px;
+          color: #FFFFFF;
           cursor: pointer;
-          background: linear-gradient(90deg, #fff 0%, rgba(255, 255, 255, 0.7) 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          text-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+          transition: all 0.3s var(--ease-ps5);
+          text-shadow: 0 0 10px rgba(var(--accent-color-rgb), 0.15);
+        }
+
+        .nexus-logo:hover {
+          color: var(--accent-color);
+          text-shadow: var(--accent-glow-subtle);
         }
 
         .mode-tabs {
           display: flex;
-          gap: 8px;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          padding: 4px;
-          border-radius: 30px;
+          align-items: center;
+          gap: 32px;
         }
 
         .mode-tab {
           background: transparent;
           border: none;
-          color: rgba(255, 255, 255, 0.5);
-          border-radius: 20px;
-          padding: 6px 16px;
+          color: #94A3B8;
+          padding: 0px 0px 4px;
           display: flex;
           align-items: center;
-          gap: 8px;
-          font-family: var(--font-display);
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 1px;
+          font-family: 'Inter', sans-serif;
+          font-style: normal;
+          font-weight: 600;
+          font-size: 14px;
+          line-height: 20px;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
           cursor: pointer;
-          transition: all var(--transition-fast);
+          transition: color var(--transition-fast), border-color var(--transition-fast);
+          border-bottom: 2px solid transparent;
         }
 
         .mode-tab:hover {
-          color: #fff;
+          color: #FFFFFF;
         }
 
         .mode-tab.active {
-          background: rgba(255, 255, 255, 0.08);
           color: var(--accent-color);
-          box-shadow: 0 0 15px rgba(var(--accent-color-rgb), 0.1);
-          border: 1px solid rgba(var(--accent-color-rgb), 0.15);
+          border-bottom: 2px solid var(--accent-color);
         }
 
         .nav-center {
@@ -279,42 +296,8 @@ export default function NavigationHeader({
           align-items: center;
           gap: 20px;
           z-index: 10000;
-          margin-right: 120px; /* Leave space for native window controls */
+          margin-right: 120px;
           -webkit-app-region: no-drag;
-        }
-
-        .system-telemetry-pill {
-          display: flex;
-          align-items: center;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 12px;
-          padding: 4px 12px;
-          font-size: 11px;
-          font-family: var(--font-display);
-        }
-
-        .telemetry-item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .telemetry-label {
-          color: rgba(255, 255, 255, 0.4);
-          font-weight: 400;
-        }
-
-        .telemetry-value {
-          color: var(--accent-color);
-          font-weight: 700;
-        }
-
-        .telemetry-divider {
-          width: 1px;
-          height: 12px;
-          background: rgba(255, 255, 255, 0.1);
-          margin: 0 10px;
         }
 
         .nav-icon-btn {
@@ -337,39 +320,88 @@ export default function NavigationHeader({
           transform: translateY(-1px);
         }
 
-        .profile-avatar-pill {
+        /* Unified Glassmorphic Dashboard Pill Styles */
+        .unified-profile-dashboard {
+          box-sizing: border-box;
           display: flex;
+          flex-direction: row;
           align-items: center;
-          gap: 10px;
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid rgba(255, 255, 255, 0.05);
-          border-radius: 20px;
-          padding: 4px 12px 4px 4px;
-          cursor: pointer;
-          transition: all var(--transition-fast);
+          padding: 8px 16px;
+          gap: 24px;
+          height: 50px;
+          background: rgba(255, 255, 255, 0.0305882);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          border-radius: 33554400px;
+          transition: all var(--transition-normal);
         }
 
-        .profile-avatar-pill:hover {
-          background: rgba(255, 255, 255, 0.08);
+        .unified-profile-dashboard:hover {
+          background: rgba(255, 255, 255, 0.05);
           border-color: rgba(255, 255, 255, 0.15);
         }
 
-        .avatar-icon-wrapper {
-          width: 26px;
-          height: 26px;
-          border-radius: 50%;
-          background: var(--accent-color);
-          color: #000;
+        .telemetry-block {
           display: flex;
+          flex-direction: row;
           align-items: center;
-          justify-content: center;
-          box-shadow: var(--accent-glow-subtle);
+          padding: 0px;
+          gap: 8px;
+          height: 16px;
         }
 
-        .avatar-username {
-          color: #fff;
+        .telemetry-icon {
+          flex-shrink: 0;
+        }
+
+        .telemetry-text {
+          font-family: 'Liberation Mono', monospace;
+          font-style: normal;
+          font-weight: 400;
           font-size: 12px;
-          font-weight: 600;
+          line-height: 16px;
+          display: flex;
+          align-items: center;
+          letter-spacing: 0.3px;
+          color: #94A3B8;
+        }
+
+        .dashboard-divider {
+          width: 1px;
+          height: 16px;
+          background: rgba(255, 255, 255, 0.1);
+        }
+
+        .profile-user-section {
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          padding: 0px;
+          gap: 12px;
+          height: 32px;
+        }
+
+        .profile-username {
+          font-family: 'Inter', sans-serif;
+          font-style: normal;
+          font-weight: 500;
+          font-size: 12px;
+          line-height: 16px;
+          display: flex;
+          align-items: center;
+          letter-spacing: 0.3px;
+          color: #FFFFFF;
+        }
+
+        .profile-avatar {
+          box-sizing: border-box;
+          width: 32px;
+          height: 32px;
+          border: 2px solid var(--accent-color);
+          border-radius: 33554400px;
+          object-fit: cover;
+          display: block;
         }
 
         .live-clock {
@@ -385,3 +417,4 @@ export default function NavigationHeader({
     </header>
   );
 }
+

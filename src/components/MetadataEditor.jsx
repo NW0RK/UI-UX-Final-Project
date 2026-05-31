@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { X, Save, Film, Image, Keyboard, Tag, Search, Download, Cloud } from 'lucide-react';
+import { X, Save, Film, Image, Keyboard, Tag, Search, Download, Cloud, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
-export default function MetadataEditor({ game, onSave, onClose }) {
+export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPosition }) {
   if (!game) return null;
 
   const [title, setTitle] = useState(game.title);
@@ -286,6 +286,36 @@ export default function MetadataEditor({ game, onSave, onClose }) {
                   value={description} 
                   onChange={(e) => setDescription(e.target.value)} 
                 />
+              </div>
+
+              {/* Custom Banner Title Position Button */}
+              <div className="form-group" style={{ marginTop: '12px' }}>
+                <button
+                  type="button"
+                  className="glow-btn"
+                  onClick={() => {
+                    audioEngine.playClickPulse();
+                    if (onChangeBannerPosition) {
+                      onChangeBannerPosition();
+                    }
+                  }}
+                  onMouseEnter={audioEngine.playHoverTick}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    justifyContent: 'center',
+                    padding: '10px 16px',
+                    background: 'rgba(168, 85, 247, 0.1)',
+                    border: '1px solid rgba(168, 85, 247, 0.3)',
+                    color: '#e9d5ff',
+                    boxShadow: '0 0 10px rgba(168, 85, 247, 0.1)'
+                  }}
+                >
+                  <Move size={14} />
+                  <span>Change Banner Title Position</span>
+                </button>
               </div>
             </div>
 

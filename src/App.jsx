@@ -43,6 +43,7 @@ export default function App() {
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [isSidebarPinned, setIsSidebarPinned] = useState(false);
   const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
+  const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
   const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
@@ -715,6 +716,8 @@ export default function App() {
               isSidebarPinned={isSidebarPinned}
               bannerAnimation={settings.bannerAnimation}
               onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
+              editMode={bannerEditMode}
+              setEditMode={setBannerEditMode}
             />
 
             <HorizontalLibrary 
@@ -810,6 +813,10 @@ export default function App() {
           game={selectedGame}
           onSave={handleSaveMetadata}
           onClose={() => setIsMetadataOpen(false)}
+          onChangeBannerPosition={() => {
+            setIsMetadataOpen(false);
+            setBannerEditMode(true);
+          }}
         />
       )}
     </div>

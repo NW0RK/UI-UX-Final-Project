@@ -12,10 +12,15 @@ export default function GameMainBanner({
   isRunning,
   isSidebarPinned,
   bannerAnimation = true,
-  onUpdateGameBannerLayout
+  onUpdateGameBannerLayout,
+  editMode: controlledEditMode,
+  setEditMode: controlledSetEditMode
 }) {
   const [descExpanded, setDescExpanded] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+  const [localEditMode, setLocalEditMode] = useState(false);
+
+  const editMode = controlledEditMode !== undefined ? controlledEditMode : localEditMode;
+  const setEditMode = controlledSetEditMode !== undefined ? controlledSetEditMode : setLocalEditMode;
 
   // Layout state initialized from game
   const initialLayout = game?.bannerLayout || {
@@ -34,6 +39,9 @@ export default function GameMainBanner({
   
   // Keep a ref of the layout to avoid stale closure state in mouse event handlers
   const layoutRef = useRef(activeLayout);
+  const dragStartRef = useRef(null);
+  const resizeStartRef = useRef(null);
+  const handlersRef = useRef({});
 
   // Sync state when game changes
   useEffect(() => {
@@ -54,12 +62,14 @@ export default function GameMainBanner({
   // Clean up global listeners if component unmounts
   useEffect(() => {
     return () => {
-      document.removeEventListener('mousemove', handleDragMove);
-      document.removeEventListener('mouseup', handleDragEnd);
-      document.removeEventListener('mousemove', handleResizeMove);
-      document.removeEventListener('mouseup', handleResizeEnd);
+      const h = handlersRef.current;
+      if (h.dragMove) document.removeEventListener('mousemove', h.dragMove);
+      if (h.dragEnd) document.removeEventListener('mouseup', h.dragEnd);
+      if (h.resizeMove) document.removeEventListener('mousemove', h.resizeMove);
+      if (h.resizeEnd) document.removeEventListener('mouseup', h.resizeEnd);
     };
   }, []);
+
 
   if (!game) return null;
 
@@ -99,7 +109,6 @@ export default function GameMainBanner({
   };
 
   // Drag start handler
-  const dragStartRef = useRef(null);
   const handleDragStart = (e) => {
     if (!editMode) return;
     // Don't drag if clicking a resize handle
@@ -166,7 +175,6 @@ export default function GameMainBanner({
   };
 
   // Resize start handler
-  const resizeStartRef = useRef(null);
   const handleResizeStart = (e, direction) => {
     if (!editMode) return;
     e.preventDefault();
@@ -265,6 +273,9 @@ export default function GameMainBanner({
     }
   };
 
+  // Store handler references for cleanup
+  handlersRef.current = { dragMove: handleDragMove, dragEnd: handleDragEnd, resizeMove: handleResizeMove, resizeEnd: handleResizeEnd };
+
   // Recommended snap positions
   const presetSnapPoints = [
     { id: 'top-left', name: 'Top Left', leftPercent: 5, topPercent: 8, label: '◆' },
@@ -317,20 +328,22 @@ export default function GameMainBanner({
         </p>
 
         {/* Change Banner Title Position Trigger Button */}
-        <div className="banner-edit-toggle-row">
-          <button 
-            className={`glow-btn action-pill-btn banner-edit-btn ${editMode ? 'edit-active' : ''}`}
-            onClick={() => {
-              audioEngine.playClickPulse();
-              setEditMode(!editMode);
-            }}
-            onMouseEnter={audioEngine.playHoverTick}
-            title={editMode ? "Exit Customization" : "Customize Title Position & Size"}
-          >
-            <Move size={14} className="edit-icon" />
-            <span>{editMode ? 'Done Customizing Title' : 'Change Banner Title Position'}</span>
-          </button>
-        </div>
+        {editMode && (
+          <div className="banner-edit-toggle-row">
+            <button 
+              className="glow-btn action-pill-btn banner-edit-btn edit-active"
+              onClick={() => {
+                audioEngine.playClickPulse();
+                setEditMode(false);
+              }}
+              onMouseEnter={audioEngine.playHoverTick}
+              title="Exit Customization"
+            >
+              <Move size={14} className="edit-icon" />
+              <span>Done Customizing Title</span>
+            </button>
+          </div>
+        )}
 
         {/* Telemetry Stats Card */}
         <div className="telemetry-stats-glass-row">

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Play, Pin, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import './GameMainBanner.css';
@@ -14,6 +14,8 @@ export default function GameMainBanner({
   isSidebarPinned,
   bannerAnimation = true
 }) {
+  const [descExpanded, setDescExpanded] = useState(false);
+
   if (!game) return null;
 
   const handleLaunchClick = () => {
@@ -96,7 +98,12 @@ export default function GameMainBanner({
         </div>
 
         {/* Short Description */}
-        <p className="game-banner-description">{game.description}</p>
+        <p
+          className={`game-banner-description${descExpanded ? ' expanded' : ''}`}
+          onClick={() => setDescExpanded(!descExpanded)}
+        >
+          {game.description}
+        </p>
 
         {/* Telemetry Stats Card */}
         <div className="telemetry-stats-glass-row">

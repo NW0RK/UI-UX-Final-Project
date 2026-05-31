@@ -379,6 +379,27 @@ export default function App() {
     }
   };
 
+  // --- Action Trigger: Update Game Banner Position ---
+  const handleUpdateGameBannerLayout = async (gameId, layout) => {
+    const updatedList = games.map(g => {
+      if (g.id === gameId) {
+        return { ...g, bannerLayout: layout };
+      }
+      return g;
+    });
+    setGames(updatedList);
+    const updatedGame = updatedList.find(g => g.id === gameId);
+    if (updatedGame) {
+      setSelectedGame(updatedGame);
+    }
+
+    if (window.electronAPI) {
+      await window.electronAPI.saveDatabase(updatedList);
+    } else {
+      localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+    }
+  };
+
   // --- Action Trigger: Favorites Toggle ---
   const handleToggleFavorite = async (gameId) => {
     const updatedList = games.map(g => {
@@ -693,6 +714,7 @@ export default function App() {
               isRunning={runningGameId === selectedGame?.id}
               isSidebarPinned={isSidebarPinned}
               bannerAnimation={settings.bannerAnimation}
+              onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
             />
 
             <HorizontalLibrary 

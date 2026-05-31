@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Play, Pin, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pin, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function GameMainBanner({ 
@@ -11,9 +11,55 @@ export default function GameMainBanner({
   onRemoveGame,
   isRunning,
   isSidebarPinned,
-  bannerAnimation = true
+  bannerAnimation = true,
+  onUpdateGameBannerLayout
 }) {
   const [descExpanded, setDescExpanded] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+
+  // Layout state initialized from game
+  const initialLayout = game?.bannerLayout || {
+    leftPercent: 65,
+    topPercent: 30,
+    width: 400,
+    height: 120
+  };
+
+  const [activeLayout, setActiveLayout] = useState(initialLayout);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const bannerRef = useRef(null);
+  const titleRef = useRef(null);
+  
+  // Keep a ref of the layout to avoid stale closure state in mouse event handlers
+  const layoutRef = useRef(activeLayout);
+
+  // Sync state when game changes
+  useEffect(() => {
+    const updated = game?.bannerLayout || {
+      leftPercent: 65,
+      topPercent: 30,
+      width: 400,
+      height: 120
+    };
+    setActiveLayout(updated);
+    layoutRef.current = updated;
+  }, [game?.id, game?.bannerLayout]);
+
+  useEffect(() => {
+    layoutRef.current = activeLayout;
+  }, [activeLayout]);
+
+  // Clean up global listeners if component unmounts
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('mousemove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
+      document.removeEventListener('mousemove', handleResizeMove);
+      document.removeEventListener('mouseup', handleResizeEnd);
+    };
+  }, []);
 
   if (!game) return null;
 
@@ -52,8 +98,183 @@ export default function GameMainBanner({
     return `${hrs}h ${mins}m`;
   };
 
+  // Drag start handler
+  const dragStartRef = useRef(null);
+  const handleDragStart = (e) => {
+    if (!editMode) return;
+    // Don't drag if clicking a resize handle
+    if (e.target.classList.contains('resize-handle')) return;
+    
+    e.preventDefault();
+    audioEngine.playClickPulse();
+    setIsDragging(true);
+
+    const bannerRect = bannerRef.current.getBoundingClientRect();
+    const currentLeftPx = (layoutRef.current.leftPercent / 100) * bannerRect.width;
+    const currentTopPx = (layoutRef.current.topPercent / 100) * bannerRect.height;
+
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeftPx: currentLeftPx,
+      startTopPx: currentTopPx,
+      bannerWidth: bannerRect.width,
+      bannerHeight: bannerRect.height
+    };
+
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+  };
+
+  const handleDragMove = (e) => {
+    if (!dragStartRef.current) return;
+    const { startX, startY, startLeftPx, startTopPx, bannerWidth, bannerHeight } = dragStartRef.current;
+    
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+
+    let newLeftPx = startLeftPx + deltaX;
+    let newTopPx = startTopPx + deltaY;
+
+    // Clamp inside container
+    const maxLeftPx = bannerWidth - layoutRef.current.width;
+    const maxTopPx = bannerHeight - layoutRef.current.height;
+
+    newLeftPx = Math.max(0, Math.min(newLeftPx, maxLeftPx));
+    newTopPx = Math.max(0, Math.min(newTopPx, maxTopPx));
+
+    const leftPercent = (newLeftPx / bannerWidth) * 100;
+    const topPercent = (newTopPx / bannerHeight) * 100;
+
+    setActiveLayout(prev => ({
+      ...prev,
+      leftPercent,
+      topPercent
+    }));
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    dragStartRef.current = null;
+    document.removeEventListener('mousemove', handleDragMove);
+    document.removeEventListener('mouseup', handleDragEnd);
+
+    // Save database update
+    if (onUpdateGameBannerLayout) {
+      onUpdateGameBannerLayout(game.id, layoutRef.current);
+    }
+  };
+
+  // Resize start handler
+  const resizeStartRef = useRef(null);
+  const handleResizeStart = (e, direction) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    audioEngine.playClickPulse();
+    setIsResizing(true);
+
+    const bannerRect = bannerRef.current.getBoundingClientRect();
+    const currentLeftPx = (layoutRef.current.leftPercent / 100) * bannerRect.width;
+    const currentTopPx = (layoutRef.current.topPercent / 100) * bannerRect.height;
+
+    resizeStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeftPx: currentLeftPx,
+      startTopPx: currentTopPx,
+      startWidth: layoutRef.current.width,
+      startHeight: layoutRef.current.height,
+      direction,
+      bannerWidth: bannerRect.width,
+      bannerHeight: bannerRect.height
+    };
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+  };
+
+  const handleResizeMove = (e) => {
+    if (!resizeStartRef.current) return;
+    const { 
+      startX, 
+      startY, 
+      startLeftPx, 
+      startTopPx, 
+      startWidth, 
+      startHeight, 
+      direction,
+      bannerWidth, 
+      bannerHeight 
+    } = resizeStartRef.current;
+
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+
+    let newWidth = startWidth;
+    let newHeight = startHeight;
+    let newLeftPx = startLeftPx;
+    let newTopPx = startTopPx;
+
+    const minWidth = 150;
+    const minHeight = 60;
+    const maxWidth = bannerWidth - startLeftPx;
+    const maxHeight = bannerHeight - startTopPx;
+
+    // Horizonal
+    if (direction.includes('e')) {
+      newWidth = Math.max(minWidth, Math.min(startWidth + deltaX, maxWidth));
+    } else if (direction.includes('w')) {
+      const maxDeltaX = startWidth - minWidth;
+      const appliedDeltaX = Math.max(-startLeftPx, Math.min(deltaX, maxDeltaX));
+      newLeftPx = startLeftPx + appliedDeltaX;
+      newWidth = startWidth - appliedDeltaX;
+    }
+
+    // Vertical
+    if (direction.includes('s')) {
+      newHeight = Math.max(minHeight, Math.min(startHeight + deltaY, maxHeight));
+    } else if (direction.includes('n')) {
+      const maxDeltaY = startHeight - minHeight;
+      const appliedDeltaY = Math.max(-startTopPx, Math.min(deltaY, maxDeltaY));
+      newTopPx = startTopPx + appliedDeltaY;
+      newHeight = startHeight - appliedDeltaY;
+    }
+
+    const leftPercent = (newLeftPx / bannerWidth) * 100;
+    const topPercent = (newTopPx / bannerHeight) * 100;
+
+    setActiveLayout(prev => ({
+      ...prev,
+      leftPercent,
+      topPercent,
+      width: newWidth,
+      height: newHeight
+    }));
+  };
+
+  const handleResizeEnd = () => {
+    setIsResizing(false);
+    resizeStartRef.current = null;
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+
+    // Save database update
+    if (onUpdateGameBannerLayout) {
+      onUpdateGameBannerLayout(game.id, layoutRef.current);
+    }
+  };
+
+  // Recommended snap positions
+  const presetSnapPoints = [
+    { id: 'top-left', name: 'Top Left', leftPercent: 5, topPercent: 8, label: '◆' },
+    { id: 'top-right', name: 'Top Right', leftPercent: 65, topPercent: 8, label: '◆' },
+    { id: 'bottom-right', name: 'Bottom Right', leftPercent: 65, topPercent: 60, label: '◆' },
+    { id: 'default-middle', name: 'Default Middle', leftPercent: 35, topPercent: 30, label: '●' }
+  ];
+
   return (
-    <div className="game-main-banner-container">
+    <div className="game-main-banner-container" ref={bannerRef}>
       {/* Background Dissolve Backdrop Canvas */}
       <div className="backdrop-image-mask">
           {game.bannerUrl ? (
@@ -79,15 +300,6 @@ export default function GameMainBanner({
             <span key={idx} className="genre-badge">{tag}</span>
           ))}
         </div>
-
-        {/* Logo (if available, otherwise fallback to text title) — fixed 80px container */}
-        <div className="banner-title-container">
-          {game.logoUrl ? (
-            <img src={game.logoUrl} alt={game.title} className="banner-logo-img" />
-          ) : (
-            <h1 className="banner-game-title">{game.title}</h1>
-          )}
-        </div>
         
         {/* Developer & Developer Meta */}
         <div className="developer-meta">
@@ -103,6 +315,22 @@ export default function GameMainBanner({
         >
           {game.description}
         </p>
+
+        {/* Change Banner Title Position Trigger Button */}
+        <div className="banner-edit-toggle-row">
+          <button 
+            className={`glow-btn action-pill-btn banner-edit-btn ${editMode ? 'edit-active' : ''}`}
+            onClick={() => {
+              audioEngine.playClickPulse();
+              setEditMode(!editMode);
+            }}
+            onMouseEnter={audioEngine.playHoverTick}
+            title={editMode ? "Exit Customization" : "Customize Title Position & Size"}
+          >
+            <Move size={14} className="edit-icon" />
+            <span>{editMode ? 'Done Customizing Title' : 'Change Banner Title Position'}</span>
+          </button>
+        </div>
 
         {/* Telemetry Stats Card */}
         <div className="telemetry-stats-glass-row">
@@ -188,6 +416,87 @@ export default function GameMainBanner({
           </button>
         </div>
       </div>
+
+      {/* DRAGGABLE & RESIZABLE TITLE CONTAINER */}
+      <div 
+        ref={titleRef}
+        className={`banner-title-container ${editMode ? 'edit-mode-active' : ''} ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
+        style={{
+          position: 'absolute',
+          left: `${activeLayout.leftPercent}%`,
+          top: `${activeLayout.topPercent}%`,
+          width: `${activeLayout.width}px`,
+          height: `${activeLayout.height}px`,
+          transition: (isDragging || isResizing) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease',
+          zIndex: 50,
+          pointerEvents: 'auto'
+        }}
+        onMouseDown={handleDragStart}
+      >
+        {game.logoUrl ? (
+          <img src={game.logoUrl} alt={game.title} className="banner-logo-img" />
+        ) : (
+          <h1 className="banner-game-title">{game.title}</h1>
+        )}
+
+        {/* Drag Hint Overlay */}
+        {editMode && (
+          <div className="drag-handle-overlay">
+            <span>DRAG TO POSITION</span>
+          </div>
+        )}
+
+        {/* Steam-Style Border Handles for Resizing */}
+        {editMode && (
+          <>
+            <div className="resize-handle n" onMouseDown={(e) => handleResizeStart(e, 'n')} />
+            <div className="resize-handle s" onMouseDown={(e) => handleResizeStart(e, 's')} />
+            <div className="resize-handle e" onMouseDown={(e) => handleResizeStart(e, 'e')} />
+            <div className="resize-handle w" onMouseDown={(e) => handleResizeStart(e, 'w')} />
+            <div className="resize-handle ne" onMouseDown={(e) => handleResizeStart(e, 'ne')} />
+            <div className="resize-handle nw" onMouseDown={(e) => handleResizeStart(e, 'nw')} />
+            <div className="resize-handle se" onMouseDown={(e) => handleResizeStart(e, 'se')} />
+            <div className="resize-handle sw" onMouseDown={(e) => handleResizeStart(e, 'sw')} />
+          </>
+        )}
+      </div>
+
+      {/* Snap Points Layer */}
+      {editMode && (
+        <div className="snap-points-layer">
+          {presetSnapPoints.map(point => {
+            const isActive = activeLayout.leftPercent === point.leftPercent && activeLayout.topPercent === point.topPercent;
+            return (
+              <button
+                key={point.id}
+                className={`snap-point-marker ${point.id} ${isActive ? 'active' : ''}`}
+                style={{
+                  position: 'absolute',
+                  left: `${point.leftPercent}%`,
+                  top: `${point.topPercent}%`,
+                  pointerEvents: 'auto'
+                }}
+                onClick={() => {
+                  audioEngine.playClickPulse();
+                  const newLayout = {
+                    ...activeLayout,
+                    leftPercent: point.leftPercent,
+                    topPercent: point.topPercent
+                  };
+                  setActiveLayout(newLayout);
+                  if (onUpdateGameBannerLayout) {
+                    onUpdateGameBannerLayout(game.id, newLayout);
+                  }
+                }}
+                title={`Snap to ${point.name}`}
+              >
+                <span className="marker-shape">{point.label}</span>
+                <span className="marker-label">{point.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <style dangerouslySetInnerHTML={{__html: `
         .game-main-banner-container {
@@ -304,37 +613,237 @@ export default function GameMainBanner({
           text-transform: uppercase;
         }
 
+        /* Absolutely-placed title container */
         .banner-title-container {
-          width: 100%;
-          height: 80px;
           flex-shrink: 0;
           display: flex;
           align-items: center;
-          overflow: hidden;
-          margin-bottom: 16px;
+          justify-content: center;
+          overflow: visible;
+          padding: 10px;
+          box-sizing: border-box;
+        }
+
+        .banner-title-container.edit-mode-active {
+          border: 2.5px dashed var(--accent-color);
+          box-shadow: 0 0 20px rgba(var(--accent-color-rgb), 0.35), inset 0 0 15px rgba(var(--accent-color-rgb), 0.1);
+          background: rgba(10, 10, 16, 0.65);
+          backdrop-filter: blur(8px);
+          border-radius: 8px;
+          cursor: grab;
+        }
+
+        .banner-title-container.dragging {
+          cursor: grabbing;
+          border-style: solid;
+          box-shadow: 0 0 30px rgba(var(--accent-color-rgb), 0.7), inset 0 0 20px rgba(var(--accent-color-rgb), 0.2);
+          background: rgba(10, 10, 16, 0.8);
+        }
+
+        .drag-handle-overlay {
+          position: absolute;
+          top: -12px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: var(--accent-color);
+          color: #07070a;
+          font-family: var(--font-display);
+          font-size: 8px;
+          font-weight: 900;
+          letter-spacing: 1.5px;
+          padding: 3px 10px;
+          border-radius: 4px;
+          pointer-events: none;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+          white-space: nowrap;
+        }
+
+        /* Steam-Style Border Resize Handles */
+        .resize-handle {
+          position: absolute;
+          width: 8px;
+          height: 8px;
+          background: #ffffff;
+          border: 1.5px solid var(--accent-color);
+          border-radius: 50%;
+          z-index: 110;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.8);
+          transition: transform 0.15s var(--ease-ps5), background 0.15s var(--ease-ps5);
+        }
+
+        .resize-handle:hover {
+          transform: scale(1.4);
+          background: var(--accent-color);
+        }
+
+        .resize-handle.n {
+          top: -4px;
+          left: calc(50% - 4px);
+          cursor: ns-resize;
+        }
+        .resize-handle.s {
+          bottom: -4px;
+          left: calc(50% - 4px);
+          cursor: ns-resize;
+        }
+        .resize-handle.e {
+          right: -4px;
+          top: calc(50% - 4px);
+          cursor: ew-resize;
+        }
+        .resize-handle.w {
+          left: -4px;
+          top: calc(50% - 4px);
+          cursor: ew-resize;
+        }
+        .resize-handle.ne {
+          top: -4px;
+          right: -4px;
+          cursor: nesw-resize;
+        }
+        .resize-handle.nw {
+          top: -4px;
+          left: -4px;
+          cursor: nwse-resize;
+        }
+        .resize-handle.se {
+          bottom: -4px;
+          right: -4px;
+          cursor: nwse-resize;
+        }
+        .resize-handle.sw {
+          bottom: -4px;
+          left: -4px;
+          cursor: nesw-resize;
+        }
+
+        /* Snap Points Layer */
+        .snap-points-layer {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          z-index: 40;
+        }
+
+        .snap-point-marker {
+          background: rgba(10, 10, 16, 0.7);
+          border: 1px dashed rgba(var(--accent-color-rgb), 0.45);
+          border-radius: 30px;
+          padding: 6px 12px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          color: rgba(255, 255, 255, 0.65);
+          font-family: var(--font-display);
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+          box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+          transform: translate(-50%, -50%);
+        }
+
+        .snap-point-marker:hover {
+          color: #ffffff;
+          border-color: var(--accent-color);
+          background: rgba(var(--accent-color-rgb), 0.15);
+          box-shadow: var(--accent-glow-subtle);
+          transform: translate(-50%, -50%) scale(1.08);
+        }
+
+        .snap-point-marker.active {
+          color: #07070a;
+          background: var(--accent-color);
+          border-color: var(--accent-color);
+          box-shadow: var(--accent-glow);
+          transform: translate(-50%, -50%) scale(1.05);
+        }
+
+        .marker-shape {
+          font-size: 10px;
+        }
+
+        .snap-point-marker.active .marker-shape {
+          animation: shape-pulse 1.5s infinite ease-in-out;
+        }
+
+        @keyframes shape-pulse {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.25); }
+          100% { transform: scale(1); }
+        }
+
+        /* Banner title edit action row */
+        .banner-edit-toggle-row {
+          margin-bottom: 22px;
+          display: flex;
+        }
+
+        .banner-edit-btn {
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 8px;
+          padding: 6px 14px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: rgba(255, 255, 255, 0.8);
+          font-family: var(--font-sans);
+          font-size: 12px;
+          font-weight: 500;
+          transition: all var(--transition-fast);
+        }
+
+        .banner-edit-btn:hover {
+          color: #ffffff;
+          background: rgba(var(--accent-color-rgb), 0.08);
+          border-color: rgba(var(--accent-color-rgb), 0.35);
+          box-shadow: var(--accent-glow-subtle);
+        }
+
+        .banner-edit-btn.edit-active {
+          background: rgba(var(--accent-color-rgb), 0.15) !important;
+          border-color: var(--accent-color) !important;
+          color: var(--accent-color) !important;
+          box-shadow: var(--accent-glow);
         }
 
         .banner-logo-img {
-          height: 80px;
+          max-height: 100%;
+          max-width: 100%;
           width: auto;
-          filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.8));
+          height: auto;
+          object-fit: contain;
+          filter: drop-shadow(0 0 25px rgba(0, 0, 0, 0.85));
           flex-shrink: 0;
+          pointer-events: none;
         }
 
         .banner-game-title {
           font-family: var(--font-display);
           font-weight: 900;
-          font-size: 44px;
+          font-size: 38px;
           letter-spacing: 2px;
           line-height: 1.1;
-          color: #fff;
-          text-shadow: 0 0 30px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.5);
+          color: #ffffff;
+          text-shadow: 0 0 35px rgba(0, 0, 0, 0.9), 0 3px 15px rgba(0, 0, 0, 0.6);
           text-transform: uppercase;
-          white-space: nowrap;
+          text-align: center;
+          white-space: normal;
           overflow: hidden;
           text-overflow: ellipsis;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
           max-width: 100%;
-          min-width: 0;
+          max-height: 100%;
+          user-select: none;
+          pointer-events: none;
         }
 
         .developer-meta {

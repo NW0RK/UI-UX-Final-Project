@@ -14,7 +14,6 @@ export default function GameMainBanner({
   editMode: controlledEditMode,
   setEditMode: controlledSetEditMode
 }) {
-  const [descExpanded, setDescExpanded] = useState(false);
   const [localEditMode, setLocalEditMode] = useState(false);
 
   const editMode = controlledEditMode !== undefined ? controlledEditMode : localEditMode;
@@ -68,8 +67,43 @@ export default function GameMainBanner({
     };
   }, []);
 
-
   if (!game) return null;
+
+  const getSteamRating = (rating) => {
+    let numericRating = parseFloat(rating);
+    if (isNaN(numericRating)) {
+      const lower = String(rating || '').toLowerCase();
+      if (lower.includes('positive')) {
+        return { 
+          label: rating, 
+          class: lower.includes('overwhelmingly') ? 'overwhelmingly-positive' : lower.includes('very') ? 'very-positive' : 'mostly-positive' 
+        };
+      } else if (lower.includes('mixed')) {
+        return { label: rating, class: 'mixed' };
+      } else if (lower.includes('negative')) {
+        return { label: rating, class: 'mostly-negative' };
+      }
+      return { label: rating || 'Mostly Positive', class: 'mostly-positive' };
+    }
+
+    if (numericRating >= 4.8) {
+      return { label: 'Overwhelmingly Positive', class: 'overwhelmingly-positive' };
+    } else if (numericRating >= 4.5) {
+      return { label: 'Very Positive', class: 'very-positive' };
+    } else if (numericRating >= 4.0) {
+      return { label: 'Mostly Positive', class: 'mostly-positive' };
+    } else if (numericRating >= 3.0) {
+      return { label: 'Mixed', class: 'mixed' };
+    } else if (numericRating >= 2.0) {
+      return { label: 'Mostly Negative', class: 'mostly-negative' };
+    } else if (numericRating >= 1.0) {
+      return { label: 'Very Negative', class: 'very-negative' };
+    } else {
+      return { label: 'Overwhelmingly Negative', class: 'overwhelmingly-negative' };
+    }
+  };
+
+  const ratingData = getSteamRating(game.rating);
 
   const handleLaunchClick = () => {
     audioEngine.playClickPulse();
@@ -300,25 +334,17 @@ export default function GameMainBanner({
 
       {/* Floating Info Overlay Sheet */}
       <div className="banner-content-box">
-        {/* Genre Tags */}
-        <div className="genre-badges-row">
-          {game.tags?.map((tag, idx) => (
-            <span key={idx} className="genre-badge">{tag}</span>
-          ))}
-        </div>
-        
         {/* Developer & Developer Meta */}
         <div className="developer-meta">
-          <span>{game.developer}</span>
+          <span className="developer-name">{game.developer}</span>
           <span className="dot-divider" />
-          <span>Rating: <strong>{game.rating}★</strong></span>
+          <span className="steam-rating">
+            Rating: <strong className={`rating-highlight ${ratingData.class}`}>{ratingData.label}</strong>
+          </span>
         </div>
 
         {/* Short Description */}
-        <p
-          className={`game-banner-description${descExpanded ? ' expanded' : ''}`}
-          onClick={() => setDescExpanded(!descExpanded)}
-        >
+        <p className="game-banner-description">
           {game.description}
         </p>
 
@@ -591,24 +617,7 @@ export default function GameMainBanner({
           overflow: hidden;
         }
 
-        .genre-badges-row {
-          display: flex;
-          gap: 8px;
-          margin-bottom: 16px;
-        }
 
-        .genre-badge {
-          background: rgba(var(--accent-color-rgb), 0.12);
-          border: 1px solid rgba(var(--accent-color-rgb), 0.25);
-          color: var(--accent-color);
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: var(--fs-10);
-          font-family: var(--font-display);
-          font-weight: 700;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-        }
 
         /* Absolutely-placed title container */
         .banner-title-container {
@@ -847,11 +856,50 @@ export default function GameMainBanner({
         .developer-meta {
           display: flex;
           align-items: center;
-          font-size: var(--fs-12);
-          font-weight: 600;
+          gap: 10px;
           color: rgba(255, 255, 255, 0.6);
           margin-bottom: 20px;
           letter-spacing: 0.5px;
+          flex-shrink: 0;
+        }
+
+        .developer-name {
+          font-size: var(--fs-18);
+          font-weight: 700;
+          color: #ffffff;
+          text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .steam-rating {
+          font-size: var(--fs-12);
+          font-weight: 600;
+          color: rgba(255, 255, 255, 0.6);
+          display: flex;
+          align-items: center;
+        }
+
+        .rating-highlight {
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-left: 4px;
+          text-shadow: 0 0 10px rgba(0,0,0,0.4);
+        }
+
+        .rating-highlight.overwhelmingly-positive,
+        .rating-highlight.very-positive,
+        .rating-highlight.mostly-positive {
+          color: #66c0f4;
+        }
+
+        .rating-highlight.mixed {
+          color: #b8b22a;
+        }
+
+        .rating-highlight.mostly-negative,
+        .rating-highlight.very-negative,
+        .rating-highlight.overwhelmingly-negative {
+          color: #ef4444;
         }
 
         .dot-divider {
@@ -866,21 +914,15 @@ export default function GameMainBanner({
           font-size: var(--fs-14);
           line-height: 1.6;
           color: rgba(255, 255, 255, 0.7);
-          margin-bottom: 25px;
+          margin-bottom: 20px;
           text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
           overflow: hidden;
-          text-overflow: ellipsis;
-          display: -webkit-box;
-          -webkit-line-clamp: 1;
-          -webkit-box-orient: vertical;
-          cursor: pointer;
-          transition: -webkit-line-clamp 0.2s ease;
-        }
-
-        .game-banner-description.expanded {
-          -webkit-line-clamp: unset;
-          overflow-y: auto;
-          max-height: 10em;
+          flex: 1;
+          width: 100%;
+          display: flex;
+          align-items: center;
+          mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+          -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
         }
 
         .telemetry-stats-glass-row {

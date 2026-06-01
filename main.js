@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'electron';
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
@@ -1286,7 +1286,8 @@ ipcMain.handle('clear-artwork-cache', async () => {
         fs.rmSync(filePath, { recursive: true, force: true });
       }
     }
-    emitDiagnostic('Artwork', 'info', 'Artwork cache directory cleared successfully');
+    await session.defaultSession.clearCache();
+    emitDiagnostic('Artwork', 'info', 'Artwork cache directory and Brandfetch image cache cleared successfully');
     return { success: true };
   } catch (err) {
     emitDiagnostic('Artwork', 'error', `Failed to clear artwork cache: ${err.message}`);

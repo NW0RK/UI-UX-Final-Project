@@ -10,6 +10,8 @@ import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import ProfileOverlay from './components/ProfileOverlay';
+import ControllerHintOverlay from './components/ControllerHintOverlay';
+import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { audioEngine } from './utils/audioEngine';
@@ -793,6 +795,97 @@ export default function App() {
     owned: games.some(g => g.id === item.id && g.owned)
   }));
 
+  const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode;
+  const primaryViews = ['store', 'library', 'favourites'];
+
+  const handleControllerBack = () => {
+    if (isMetadataOpen) {
+      setIsMetadataOpen(false);
+      return true;
+    }
+    if (isSettingsOpen) {
+      setIsSettingsOpen(false);
+      return true;
+    }
+    if (isProfileOpen) {
+      setIsProfileOpen(false);
+      return true;
+    }
+    if (bannerEditMode) {
+      setBannerEditMode(false);
+      return true;
+    }
+    if (isCcOpen) {
+      setIsCcOpen(false);
+      return true;
+    }
+    if (activeView === 'store-item') {
+      handleBackToStore();
+      return true;
+    }
+    if (activeView !== 'library') {
+      handleViewChange('library');
+      return true;
+    }
+    return false;
+  };
+
+  const handleControllerViewCycle = (step) => {
+    if (hasBlockingOverlay || isCcOpen || activeView === 'store-item') return false;
+
+    const currentIndex = Math.max(0, primaryViews.indexOf(activeView));
+    const nextView = primaryViews[(currentIndex + step + primaryViews.length) % primaryViews.length];
+    handleViewChange(nextView);
+    return true;
+  };
+
+  const handleControllerFavorite = () => {
+    if (hasBlockingOverlay || isCcOpen || !selectedGame || (activeView !== 'library' && activeView !== 'favourites')) {
+      return false;
+    }
+
+    audioEngine.playClickPulse();
+    handleToggleFavorite(selectedGame.id);
+    return true;
+  };
+
+  const handleControllerMenu = () => {
+    if (hasBlockingOverlay) return false;
+
+    audioEngine.playClickPulse();
+    setIsCcOpen(prev => !prev);
+    return true;
+  };
+
+  const handleControllerMetadata = () => {
+    if (hasBlockingOverlay || isCcOpen || activeView !== 'library' || !selectedGame) return false;
+
+    audioEngine.playClickPulse();
+    setIsMetadataOpen(true);
+    return true;
+  };
+
+  useUnifiedInput({
+    onBack: handleControllerBack,
+    onShoulderLeft: () => handleControllerViewCycle(-1),
+    onShoulderRight: () => handleControllerViewCycle(1),
+    onSecondary: handleControllerFavorite,
+    onTertiary: handleControllerMetadata,
+    onMenu: handleControllerMenu,
+    focusDependencies: [
+      activeView,
+      selectedGame?.id,
+      selectedStoreItem?.id,
+      searchQuery,
+      games.length,
+      isCcOpen,
+      isSettingsOpen,
+      isMetadataOpen,
+      isProfileOpen,
+      bannerEditMode
+    ]
+  });
+
   return (
     <div className="app-container">
       {/* 1. Ambient Particle Background */}
@@ -831,6 +924,7 @@ export default function App() {
               bannerAnimation={settings.bannerAnimation}
               studioLogosEnabled={settings.studioLogosEnabled}
               brandfetchClientId={settings.brandfetchClientId}
+              brandfetchCacheVersion={cacheVersion}
               onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
               editMode={bannerEditMode}
               setEditMode={setBannerEditMode}
@@ -897,6 +991,16 @@ export default function App() {
         systemStatusTracking={settings.trackSystemStatus}
         diagnostics={diagnostics}
         onClearDiagnostics={() => setDiagnostics([])}
+      />
+
+      <ControllerHintOverlay
+        activeView={activeView}
+        isControlCenterOpen={isCcOpen}
+        isSettingsOpen={isSettingsOpen}
+        isMetadataOpen={isMetadataOpen}
+        isProfileOpen={isProfileOpen}
+        isBannerEditMode={bannerEditMode}
+        selectedGame={selectedGame}
       />
 
 

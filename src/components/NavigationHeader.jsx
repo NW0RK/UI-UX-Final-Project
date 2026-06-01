@@ -50,7 +50,12 @@ export default function NavigationHeader({
 
       {/* Primary Logo & Flat Tabs */}
       <div className="nav-left">
-        <div className="nexus-logo" onClick={() => { audioEngine.playClickPulse(); onViewChange('library'); }}>
+        <div
+          className="nexus-logo"
+          role="button"
+          tabIndex={0}
+          onClick={() => { audioEngine.playClickPulse(); onViewChange('library'); }}
+        >
           N E X U S
         </div>
         <nav className="mode-tabs">
@@ -132,6 +137,8 @@ export default function NavigationHeader({
           {/* User Profile Section */}
           <div 
             className="profile-user-section" 
+            role="button"
+            tabIndex={0}
             onClick={() => { audioEngine.playClickPulse(); onOpenProfile && onOpenProfile(); }}
             style={{ cursor: 'pointer' }}
             title="Manage Profile"

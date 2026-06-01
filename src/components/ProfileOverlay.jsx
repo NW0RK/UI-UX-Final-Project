@@ -54,6 +54,7 @@ export default function ProfileOverlay({
         className="profile-close-btn"
         onClick={() => { audioEngine.playClickPulse(); onClose(); }}
         onMouseEnter={audioEngine.playHoverTick}
+        data-controller-back="true"
       >
         <X size={20} />
       </button>
@@ -132,6 +133,9 @@ export default function ProfileOverlay({
         {/* Profile Image Wrapper */}
         <div 
           className="profile-avatar-large-wrapper"
+          role="button"
+          tabIndex={0}
+          data-controller-confirm-label="Change profile picture"
           onClick={() => { audioEngine.playClickPulse(); setIsEditingAvatar(!isEditingAvatar); }}
           onMouseEnter={audioEngine.playHoverTick}
           title="Click to Change Picture"
@@ -159,7 +163,11 @@ export default function ProfileOverlay({
                   src={url} 
                   alt={`preset-${idx}`} 
                   className={`preset-option-img ${userAvatar === url ? 'preset-active' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  data-controller-confirm-label={`Use profile picture ${idx + 1}`}
                   onClick={() => handleSaveAvatar(url)}
+                  onFocus={audioEngine.playHoverTick}
                 />
               ))}
             </div>
@@ -203,6 +211,9 @@ export default function ProfileOverlay({
           ) : (
             <h2 
               className="profile-username-display"
+              role="button"
+              tabIndex={0}
+              data-controller-confirm-label="Edit profile name"
               onClick={() => { audioEngine.playClickPulse(); setTempName(username); setIsEditingName(true); }}
               onMouseEnter={audioEngine.playHoverTick}
               title="Click to Edit Name"

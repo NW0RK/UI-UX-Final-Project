@@ -29,6 +29,13 @@ export default function FavouritesTrophyRoom({
     onSelectGame(game);
   };
 
+  const handleFocus = (game) => {
+    if (selectedGame?.id !== game.id) {
+      audioEngine.playHoverTick();
+      onSelectGame(game);
+    }
+  };
+
   const handleLaunch = (event, game) => {
     event.stopPropagation();
     audioEngine.playLaunchSwell();
@@ -206,7 +213,13 @@ export default function FavouritesTrophyRoom({
                 <div 
                   key={game.id}
                   className={`fav-game-card ${isSelected ? 'active-card' : 'inactive-card'}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-selected={isSelected}
+                  data-controller-confirm-label={`Select ${game.title}`}
+                  data-controller-selected={isSelected ? 'true' : undefined}
                   onClick={() => handleSelect(game)}
+                  onFocus={() => handleFocus(game)}
                   onMouseEnter={audioEngine.playHoverTick}
                 >
                   {/* Card Cover Art */}

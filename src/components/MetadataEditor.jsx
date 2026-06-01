@@ -173,6 +173,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
             className="editor-close-btn" 
             onClick={handleClose}
             onMouseEnter={audioEngine.playHoverTick}
+            data-controller-back="true"
           >
             <X size={16} />
           </button>
@@ -467,16 +468,48 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
 
               {/* Artwork Previews */}
               <div className="preview-aspects-row">
-                <div className="aspect-ratio-preview vert-aspect clickable-preview" title="Cover" onClick={() => handleImagePick(setCoverUrl)}>
+                <div
+                  className="aspect-ratio-preview vert-aspect clickable-preview"
+                  title="Cover"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Choose cover art"
+                  onClick={() => handleImagePick(setCoverUrl)}
+                  onFocus={audioEngine.playHoverTick}
+                >
                   {coverUrl ? <img src={coverUrl} alt="Cover Preview" /> : <span>Cover</span>}
                 </div>
-                <div className="aspect-ratio-preview horiz-aspect clickable-preview" title="Banner" onClick={() => handleImagePick(setBannerUrl)}>
+                <div
+                  className="aspect-ratio-preview horiz-aspect clickable-preview"
+                  title="Banner"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Choose banner art"
+                  onClick={() => handleImagePick(setBannerUrl)}
+                  onFocus={audioEngine.playHoverTick}
+                >
                   {bannerUrl ? <img src={bannerUrl} alt="Banner Preview" /> : <span>Banner</span>}
                 </div>
-                <div className="aspect-ratio-preview vert-aspect clickable-preview" title="Logo" onClick={() => handleImagePick(setLogoUrl)}>
+                <div
+                  className="aspect-ratio-preview vert-aspect clickable-preview"
+                  title="Logo"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Choose logo art"
+                  onClick={() => handleImagePick(setLogoUrl)}
+                  onFocus={audioEngine.playHoverTick}
+                >
                   {logoUrl ? <img src={logoUrl} alt="Logo Preview" style={{ objectFit: 'contain' }} /> : <span>Logo</span>}
                 </div>
-                <div className="aspect-ratio-preview sq-aspect clickable-preview" title="Icon" onClick={() => handleImagePick(setIconUrl)}>
+                <div
+                  className="aspect-ratio-preview sq-aspect clickable-preview"
+                  title="Icon"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Choose icon art"
+                  onClick={() => handleImagePick(setIconUrl)}
+                  onFocus={audioEngine.playHoverTick}
+                >
                   {iconUrl ? <img src={iconUrl} alt="Icon Preview" /> : <span>Icon</span>}
                 </div>
               </div>

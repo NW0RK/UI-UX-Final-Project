@@ -74,7 +74,7 @@ export default function SettingsPanel({
 
   const handleClearCacheClick = () => {
     audioEngine.playClickPulse();
-    if (confirm("Are you sure you want to completely clear the cache of downloaded pictures (grids, hero banners, logos, and icons)? The launcher will automatically re-fetch clean pictures.")) {
+    if (confirm("Are you sure you want to completely clear the cache of downloaded pictures (grids, hero banners, logos, icons, and Brandfetch studio logos)? The launcher will automatically re-fetch clean pictures.")) {
       onClearArtworkCache();
       onClose();
     }
@@ -113,6 +113,7 @@ export default function SettingsPanel({
             className="settings-close-btn" 
             onClick={handleClose}
             onMouseEnter={audioEngine.playHoverTick}
+            data-controller-back="true"
           >
             <X size={16} />
           </button>
@@ -182,7 +183,14 @@ export default function SettingsPanel({
             <h3 className="section-label-heading">Acoustic System Settings</h3>
             <p className="section-description">Toggle synthesized haptics, click ticks, game-specific ambient drones, and orchestral intro swells.</p>
             
-            <div className="audio-toggle-card" onClick={handleAudioToggle}>
+            <div
+              className="audio-toggle-card"
+              role="switch"
+              tabIndex={0}
+              aria-checked={!settings.isMuted}
+              onClick={handleAudioToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
               <div className="audio-card-left">
                 {settings.isMuted ? <VolumeX size={20} className="mute-status-icon muted" /> : <Volume2 size={20} className="mute-status-icon active-volume" />}
                 <div className="audio-card-info">
@@ -206,7 +214,14 @@ export default function SettingsPanel({
             </h3>
             <p className="section-description">Disable this to stop CPU/RAM status polling and hide System Status readouts across the launcher.</p>
             
-            <div className="audio-toggle-card" onClick={handleSystemStatusToggle}>
+            <div
+              className="audio-toggle-card"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.trackSystemStatus}
+              onClick={handleSystemStatusToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
               <div className="audio-card-left">
                 <Activity size={20} className={settings.trackSystemStatus ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
                 <div className="audio-card-info">
@@ -230,7 +245,14 @@ export default function SettingsPanel({
             </h3>
             <p className="section-description">Disable this to stop the hero banner background from slowly zooming and panning.</p>
             
-            <div className="audio-toggle-card" onClick={handleBannerAnimationToggle}>
+            <div
+              className="audio-toggle-card"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.bannerAnimation}
+              onClick={handleBannerAnimationToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
               <div className="audio-card-left">
                 <Image size={20} className={settings.bannerAnimation ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
                 <div className="audio-card-info">
@@ -254,7 +276,14 @@ export default function SettingsPanel({
             </h3>
             <p className="section-description">When enabled, the banner studio name can display live studio logos from Brandfetch's Logo API. A Brandfetch Client ID is required by the API.</p>
             
-            <div className="audio-toggle-card" onClick={handleStudioLogosToggle}>
+            <div
+              className="audio-toggle-card"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.studioLogosEnabled}
+              onClick={handleStudioLogosToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
               <div className="audio-card-left">
                 <BadgeCheck size={20} className={settings.studioLogosEnabled ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
                 <div className="audio-card-info">
@@ -446,7 +475,7 @@ export default function SettingsPanel({
             <div className="maintenance-card" style={{ marginTop: '14px' }}>
               <div className="m-left">
                 <span className="m-title">Clear Picture & Artwork Cache</span>
-                <span className="m-desc">Deletes all downloaded vertical grids, hero banners, logos, and icons to free up disk space. The launcher will automatically re-fetch clean assets.</span>
+                <span className="m-desc">Deletes all downloaded vertical grids, hero banners, logos, icons, and cached Brandfetch studio logos. The launcher will automatically re-fetch clean assets.</span>
               </div>
               <button 
                 className="glow-btn clear-cache-btn"

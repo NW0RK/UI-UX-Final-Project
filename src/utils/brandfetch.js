@@ -29,10 +29,12 @@ const fallbackDomainFromStudioName = (studioName) => {
   return slug ? `${slug}.com` : null;
 };
 
-const createBrandfetchUrl = (domain, clientId, pathParts = []) =>
-  `https://cdn.brandfetch.io/domain/${encodeURIComponent(domain)}/${pathParts.join('/')}?c=${encodeURIComponent(clientId)}`;
+const createBrandfetchUrl = (domain, clientId, pathParts = [], cacheVersion = 0) => {
+  const cacheBust = Number(cacheVersion) > 0 ? `&v=${encodeURIComponent(cacheVersion)}` : '';
+  return `https://cdn.brandfetch.io/domain/${encodeURIComponent(domain)}/${pathParts.join('/')}?c=${encodeURIComponent(clientId)}${cacheBust}`;
+};
 
-export const getBrandfetchStudioLogoSources = (studioName, clientId) => {
+export const getBrandfetchStudioLogoSources = (studioName, clientId, cacheVersion = 0) => {
   const normalized = normalizeStudioName(studioName);
   const cleanClientId = String(clientId || '').trim();
 
@@ -42,10 +44,10 @@ export const getBrandfetchStudioLogoSources = (studioName, clientId) => {
   if (!domain) return null;
 
   return {
-    lightLogoUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '820', 'h', '352', 'theme', 'light', 'logo']),
-    lightLogoProbeUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '820', 'h', '352', 'theme', 'light', 'fallback', '404', 'type', 'logo']),
-    defaultLogoUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '800', 'h', '228', 'logo']),
-    defaultLogoProbeUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '800', 'h', '228', 'fallback', '404', 'type', 'logo']),
-    iconUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '400', 'h', '400', 'fallback', 'lettermark'])
+    lightLogoUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '820', 'h', '352', 'theme', 'light', 'logo'], cacheVersion),
+    lightLogoProbeUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '820', 'h', '352', 'theme', 'light', 'fallback', '404', 'type', 'logo'], cacheVersion),
+    defaultLogoUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '800', 'h', '228', 'logo'], cacheVersion),
+    defaultLogoProbeUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '800', 'h', '228', 'fallback', '404', 'type', 'logo'], cacheVersion),
+    iconUrl: createBrandfetchUrl(domain, cleanClientId, ['w', '400', 'h', '400', 'fallback', 'lettermark'], cacheVersion)
   };
 };

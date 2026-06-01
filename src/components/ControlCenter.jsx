@@ -170,6 +170,9 @@ export default function ControlCenter({
       {/* Slide Handle Trigger */}
       <div 
         className="drawer-trigger-handle" 
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
         onClick={handleToggleClick}
         onMouseEnter={audioEngine.playHoverTick}
       >
@@ -323,7 +326,11 @@ export default function ControlCenter({
                       <div 
                         key={idx} 
                         className={`result-item-row ${isSelected ? 'row-active' : ''}`}
+                        role="checkbox"
+                        tabIndex={0}
+                        aria-checked={isSelected}
                         onClick={() => handleToggleSelectFile(file.path)}
+                        onFocus={audioEngine.playHoverTick}
                       >
                         {isSelected ? <CheckSquare size={14} className="checkbox-icon" /> : <Square size={14} className="checkbox-icon" />}
                         <div className="result-info">

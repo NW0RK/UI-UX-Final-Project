@@ -58,13 +58,18 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
       )}
 
       <div className="store-grid">
-        {filtered.map(item => {
+        {filtered.map((item, index) => {
           const isOwned = ownedIds.has(item.id);
           return (
             <div
               key={item.id}
               className={`store-card ${isOwned ? 'owned' : ''}`}
+              role="button"
+              tabIndex={0}
+              data-controller-confirm-label={`View ${item.title}`}
+              data-controller-default={index === 0 ? 'true' : undefined}
               onClick={() => handleItemClick(item)}
+              onFocus={audioEngine.playHoverTick}
             >
               <div className="store-card-image-wrapper">
                 {item.coverUrl ? (

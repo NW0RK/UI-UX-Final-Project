@@ -17,6 +17,13 @@ export default function HorizontalLibrary({
     onSelectGame(game);
   };
 
+  const handleCardFocus = (game) => {
+    if (selectedGame?.id !== game.id) {
+      onSelectGame(game);
+      audioEngine.playHoverTick();
+    }
+  };
+
   return (
     <div className="horizontal-library-shelf" ref={shelfRef}>
       <div className="shelf-title-row">
@@ -36,6 +43,7 @@ export default function HorizontalLibrary({
               isSelected={isSelected}
               isRunning={isRunning}
               onClick={() => handleCardClick(game)}
+              onFocus={() => handleCardFocus(game)}
               onLaunch={() => onLaunchGame(game)}
               onRemove={() => onRemoveGame(game.id)}
             />
@@ -129,7 +137,7 @@ function PlatformIcon({ platform }) {
   );
 }
 
-function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) {
+function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onRemove }) {
   const handleLaunchClick = (e) => {
     e.stopPropagation();
     onLaunch();
@@ -145,7 +153,13 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
   return (
     <div 
       className={`store-card ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-selected={isSelected}
+      data-controller-confirm-label={`Select ${game.title}`}
+      data-controller-selected={isSelected ? 'true' : undefined}
       onClick={onClick}
+      onFocus={onFocus}
       onMouseEnter={audioEngine.playHoverTick}
     >
       <div className="store-card-image-wrapper">

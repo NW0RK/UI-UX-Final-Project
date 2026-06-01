@@ -13,6 +13,7 @@ export default function GameMainBanner({
   bannerAnimation = true,
   studioLogosEnabled = false,
   brandfetchClientId = '',
+  brandfetchCacheVersion = 0,
   onUpdateGameBannerLayout,
   editMode: controlledEditMode,
   setEditMode: controlledSetEditMode
@@ -64,7 +65,7 @@ export default function GameMainBanner({
   useEffect(() => {
     setStudioLogoMode('lightLogo');
     setAcceptedStudioLogoUrl(null);
-  }, [game?.developer, studioLogosEnabled, brandfetchClientId]);
+  }, [game?.developer, studioLogosEnabled, brandfetchClientId, brandfetchCacheVersion]);
 
   // Clean up global listeners if component unmounts
   useEffect(() => {
@@ -139,7 +140,7 @@ export default function GameMainBanner({
 
   const parallaxClass = bannerAnimation ? ' backdrop-parallax' : '';
   const studioLogoSources = studioLogosEnabled
-    ? getBrandfetchStudioLogoSources(game.developer, brandfetchClientId)
+    ? getBrandfetchStudioLogoSources(game.developer, brandfetchClientId, brandfetchCacheVersion)
     : null;
 
   const activeStudioLogoMode = studioLogoSources ? studioLogoMode : 'hidden';
@@ -155,6 +156,8 @@ export default function GameMainBanner({
       : null;
   const studioLogoUrl = activeStudioLogoMode === 'icon'
     ? studioLogoSources?.iconUrl
+    : activeStudioLogoMode === 'gameIcon'
+      ? game.iconUrl
     : acceptedStudioLogoUrl;
   const shouldProbeStudioWordmark = activeWordmarkProbeUrl && activeWordmarkDisplayUrl && !acceptedStudioLogoUrl;
 
@@ -182,6 +185,11 @@ export default function GameMainBanner({
 
   const handleStudioLogoError = () => {
     if (activeStudioLogoMode === 'icon') {
+      setStudioLogoMode(game.iconUrl ? 'gameIcon' : 'hidden');
+      return;
+    }
+
+    if (activeStudioLogoMode === 'gameIcon') {
       setStudioLogoMode('hidden');
       return;
     }
@@ -190,13 +198,15 @@ export default function GameMainBanner({
   };
 
   const visibleStudioLogoClass = activeStudioLogoMode === 'icon'
+    || activeStudioLogoMode === 'gameIcon'
     ? 'studio-icon-logo'
-    : 'studio-wordmark-logo';
+    : `studio-wordmark-logo ${activeStudioLogoMode === 'lightLogo' ? 'studio-logo-on-black' : 'studio-logo-on-white'}`;
 
   const visibleStudioLogoUrl = activeStudioLogoMode !== 'hidden'
     ? studioLogoUrl
     : null;
-  const shouldShowDeveloperText = !visibleStudioLogoUrl || activeStudioLogoMode === 'icon';
+  const shouldShowDeveloperText = !visibleStudioLogoUrl || activeStudioLogoMode === 'icon' || activeStudioLogoMode === 'gameIcon';
+  const developerLogoBadgeClass = activeStudioLogoMode === 'icon' || activeStudioLogoMode === 'gameIcon' ? 'developer-name-icon-badge' : '';
 
   // Playtime formatting (convert seconds to hours and minutes)
   const formatPlaytime = (seconds) => {
@@ -405,7 +415,7 @@ export default function GameMainBanner({
       <div className="banner-content-box">
         {/* Developer & Developer Meta */}
         <div className="developer-meta">
-          <span className={`developer-name ${visibleStudioLogoUrl ? 'developer-name-with-logo' : ''}`}>
+          <span className={`developer-name ${visibleStudioLogoUrl ? 'developer-name-with-logo' : ''} ${developerLogoBadgeClass}`}>
             {shouldProbeStudioWordmark && (
               <img
                 src={activeWordmarkProbeUrl}
@@ -964,6 +974,13 @@ export default function GameMainBanner({
           gap: 10px;
         }
 
+        .developer-name-icon-badge {
+          background: rgba(0, 0, 0, 0.88);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 14px;
+          padding: 7px 12px;
+        }
+
         .developer-studio-logo {
           object-fit: contain;
           filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55));
@@ -978,6 +995,19 @@ export default function GameMainBanner({
           width: auto;
           max-width: 180px;
           height: 32px;
+          padding: 7px 12px;
+          border-radius: 12px;
+          box-sizing: content-box;
+        }
+
+        .studio-logo-on-black {
+          background: rgba(0, 0, 0, 0.88);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .studio-logo-on-white {
+          background: rgba(255, 255, 255, 0.92);
+          border: 1px solid rgba(0, 0, 0, 0.08);
         }
 
         .studio-icon-logo {

@@ -87,6 +87,151 @@
   -webkit-user-drag: none;
 }
 
+:where(
+  button,
+  a[href],
+  input,
+  select,
+  textarea,
+  [role="button"],
+  [role="checkbox"],
+  [role="switch"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible,
+body.controller-navigation-active :where(
+  button,
+  a[href],
+  input,
+  select,
+  textarea,
+  [role="button"],
+  [role="checkbox"],
+  [role="switch"],
+  [tabindex]:not([tabindex="-1"])
+):focus {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px rgba(var(--accent-color-rgb), 0.16), var(--accent-glow-subtle);
+}
+
+body.controller-navigation-active .store-card:focus,
+body.controller-navigation-active .fav-game-card:focus,
+body.controller-navigation-active .media-grid-card:focus,
+body.controller-navigation-active .result-item-row:focus,
+body.controller-navigation-active .audio-toggle-card:focus,
+body.controller-navigation-active .drawer-trigger-handle:focus,
+body.controller-navigation-active .profile-avatar-large-wrapper:focus,
+body.controller-navigation-active .profile-username-display:focus,
+body.controller-navigation-active .preset-option-img:focus,
+body.controller-navigation-active .aspect-ratio-preview:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(var(--accent-color-rgb), 0.14), var(--accent-glow-subtle);
+}
+
+.store-card:focus-within .store-card-hover,
+.store-card:focus .store-card-hover {
+  opacity: 1;
+}
+
+.controller-hint-overlay {
+  position: fixed;
+  right: 26px;
+  bottom: 22px;
+  z-index: 11000;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  max-width: min(760px, calc(100vw - 52px));
+  padding: 10px;
+  pointer-events: none;
+}
+
+.controller-hint-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(6, 10, 18, 0.62);
+  color: rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.controller-hint-item.hint-primary {
+  border-color: rgba(var(--accent-color-rgb), 0.26);
+  background: rgba(var(--accent-color-rgb), 0.12);
+  color: #ffffff;
+}
+
+.controller-button-glyph {
+  flex: 0 0 auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--fs-10);
+  font-weight: 900;
+  letter-spacing: 0;
+  color: #05070c;
+  background: #ffffff;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2), 0 0 12px rgba(255, 255, 255, 0.14);
+}
+
+.glyph-playstation {
+  min-width: 24px;
+  color: #eaf2ff;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.95), rgba(15, 23, 42, 0.95));
+  border: 1px solid rgba(147, 197, 253, 0.35);
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.28);
+}
+
+.glyph-keyboard {
+  min-width: 32px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.26);
+}
+
+.controller-hint-label {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-11);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+@media (max-width: 760px) {
+  .controller-hint-overlay {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
+    gap: 6px;
+  }
+
+  .controller-hint-item {
+    min-height: 28px;
+    padding-right: 8px;
+  }
+
+  .controller-hint-label {
+    max-width: 126px;
+    font-size: var(--fs-10);
+  }
+}
+
 body {
   font-family: var(--font-sans);
   background-color: #07070a;

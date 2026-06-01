@@ -279,7 +279,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   return (
     <div className="store-item-viewport">
       {/* Back button */}
-      <button className="store-item-back-btn" onClick={onBack}>
+      <button className="store-item-back-btn" onClick={onBack} data-controller-back="true" data-controller-default="true">
         <ArrowLeft size={16} />
         <span>Back to Store</span>
       </button>
@@ -368,10 +368,14 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                       <div
                         key="more-card"
                         className="media-grid-card more-card"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open ${remainingCount} more screenshots`}
                         onClick={() => {
                           const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
                           setLightboxIndex(screenshotIdx !== -1 ? screenshotIdx : 0);
                         }}
+                        onFocus={audioEngine.playHoverTick}
                       >
                         <img src={med.thumbnail} alt="More media" className="grid-card-img" />
                         <div className="more-card-overlay">
@@ -385,6 +389,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                     <div
                       key={med.id}
                       className="media-grid-card"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open gameplay screenshot ${index + 1}`}
                       onClick={() => {
                         const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
                         if (screenshotIdx !== -1) {
@@ -393,6 +400,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                           setLightboxIndex(0);
                         }
                       }}
+                      onFocus={audioEngine.playHoverTick}
                     >
                       <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
                     </div>
@@ -409,12 +417,13 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           {/* Fullscreen Lightbox Modal */}
           {lightboxIndex !== -1 && media.screenshots && media.screenshots[lightboxIndex] && (
             <div className="media-lightbox-overlay" onClick={() => setLightboxIndex(-1)}>
-              <button className="lightbox-close-btn" onClick={() => setLightboxIndex(-1)}>
+              <button className="lightbox-close-btn" onClick={() => setLightboxIndex(-1)} data-controller-back="true">
                 <X size={24} />
               </button>
               
               <button
                 className="lightbox-nav-btn prev"
+                data-controller-left="true"
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightboxIndex(prev => (prev - 1 + media.screenshots.length) % media.screenshots.length);
@@ -436,6 +445,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
               <button
                 className="lightbox-nav-btn next"
+                data-controller-right="true"
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightboxIndex(prev => (prev + 1) % media.screenshots.length);

@@ -4,39 +4,58 @@ const GAMEPAD_FAMILY_POLL_MS = 800;
 
 const buttonSets = {
   xbox: {
-    confirm: 'A',
-    back: 'B',
-    secondary: 'X',
-    tertiary: 'Y',
-    shoulderLeft: 'LB',
-    shoulderRight: 'RB',
-    menu: 'Menu',
-    dpad: 'D-Pad'
+    confirm: { label: 'A', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/A.svg', import.meta.url).href },
+    back: { label: 'B', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/B.svg', import.meta.url).href },
+    secondary: { label: 'X', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/X.svg', import.meta.url).href },
+    tertiary: { label: 'Y', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Y.svg', import.meta.url).href },
+    shoulderLeft: { label: 'LB', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Left Bumper.svg', import.meta.url).href },
+    shoulderRight: { label: 'RB', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Right Bumper.svg', import.meta.url).href },
+    menu: { label: 'Menu', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Menu.svg', import.meta.url).href },
+    dpad: { label: 'D-Pad', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/D-Pad.svg', import.meta.url).href }
   },
   playstation: {
-    confirm: '✕',
-    back: '○',
-    secondary: '□',
-    tertiary: '△',
-    shoulderLeft: 'L1',
-    shoulderRight: 'R1',
-    menu: 'Options',
-    dpad: 'D-Pad'
+    confirm: { label: 'Cross', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Main Buttons/Button - PS Cross 1.svg', import.meta.url).href },
+    back: { label: 'Circle', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Main Buttons/Button - PS Circle 1.svg', import.meta.url).href },
+    secondary: { label: 'Square', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Main Buttons/Button - PS Square 1.svg', import.meta.url).href },
+    tertiary: { label: 'Triangle', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Main Buttons/Button - PS Triangle 1.svg', import.meta.url).href },
+    shoulderLeft: { label: 'L1', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/R and L Inputs/Button - PS L1.svg', import.meta.url).href },
+    shoulderRight: { label: 'R1', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/R and L Inputs/Button - PS R1.svg', import.meta.url).href },
+    menu: { label: 'Options', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Other Inputs/Button - PS Options.svg', import.meta.url).href },
+    dpad: { label: 'D-Pad', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Directional Arrows/Button - PS Directional Arrows.svg', import.meta.url).href }
+  },
+  switch: {
+    confirm: { label: 'A', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/A_Button.svg', import.meta.url).href },
+    back: { label: 'B', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/B_Button.svg', import.meta.url).href },
+    secondary: { label: 'X', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/X_Button.svg', import.meta.url).href },
+    tertiary: { label: 'Y', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/Y_Button.svg', import.meta.url).href },
+    shoulderLeft: { label: 'L', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/L_Button.svg', import.meta.url).href },
+    shoulderRight: { label: 'R', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/R_Button.svg', import.meta.url).href },
+    menu: { label: 'Plus', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/Plus_Button.svg', import.meta.url).href },
+    dpad: { label: 'D-Pad', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/PlusControlPad_AllDirections.svg', import.meta.url).href }
   },
   keyboard: {
-    confirm: 'Enter',
-    back: 'Esc',
-    secondary: 'F',
-    tertiary: 'C',
-    shoulderLeft: 'Q',
-    shoulderRight: 'E',
-    menu: 'M',
-    dpad: 'Arrows'
+    confirm: { label: 'Enter' },
+    back: { label: 'Esc' },
+    secondary: { label: 'F' },
+    tertiary: { label: 'C' },
+    shoulderLeft: { label: 'Q' },
+    shoulderRight: { label: 'E' },
+    menu: { label: 'M' },
+    dpad: { label: 'Arrows' }
   }
 };
 
 function getGamepadFamily(gamepadId = '') {
   const normalized = gamepadId.toLowerCase();
+  if (
+    normalized.includes('nintendo') ||
+    normalized.includes('switch') ||
+    normalized.includes('joy-con') ||
+    normalized.includes('joycon') ||
+    normalized.includes('pro controller')
+  ) {
+    return 'switch';
+  }
   if (
     normalized.includes('playstation') ||
     normalized.includes('dualshock') ||
@@ -132,10 +151,16 @@ function useFocusedHint(fallbackLabel) {
   return label;
 }
 
-function ButtonHint({ family, button, label, tone = 'neutral' }) {
+function ButtonHint({ action, family, button, label, tone = 'neutral' }) {
   return (
     <div className={`controller-hint-item hint-${tone}`}>
-      <span className={`controller-button-glyph glyph-${family}`}>{button}</span>
+      <span className={`controller-button-glyph glyph-${family} button-action-${action} ${button.icon ? 'has-icon' : ''}`}>
+        {button.icon ? (
+          <img src={button.icon} alt={button.label} className="controller-button-image" />
+        ) : (
+          button.label
+        )}
+      </span>
       <span className="controller-hint-label">{label}</span>
     </div>
   );
@@ -245,6 +270,7 @@ export default function ControllerHintOverlay({
       {contextualHints.map(hint => (
         <ButtonHint
           key={`${hint.action}-${hint.label}`}
+          action={hint.action}
           family={family}
           button={buttons[hint.action]}
           label={hint.label}

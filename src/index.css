@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700;800&family=Orbitron:wght@400;600;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Outfit:wght@200;300;400;500;600;700;800&family=Orbitron:wght@400;600;700;900&display=swap');
 
 /* --- Core Theme Declarations & CSS Variables --- */
 :root {
@@ -16,7 +16,7 @@
   
   /* Fonts */
   --font-display: 'Orbitron', system-ui, -apple-system, sans-serif;
-  --font-sans: 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
 
   /* Dynamic Font Size Scale */
   --fs-8: 8px;
@@ -247,11 +247,10 @@ body {
 }
 
 .glow-btn-primary {
-  background: var(--accent-color);
-  color: #07070a;
-  font-weight: 700;
-  border-color: var(--accent-color);
-  box-shadow: var(--accent-glow-subtle);
+  background: #fff;
+  color: #000;
+  font-weight: 600;
+  border-color: #fff;
 }
 
 .glow-btn-primary:hover {

@@ -22,7 +22,9 @@ const DEFAULT_SETTINGS = {
   particleSpeed: 1.0,
   trackSystemStatus: true,
   bannerAnimation: true,
-  fontScale: 1.0
+  fontScale: 1.0,
+  studioLogosEnabled: false,
+  brandfetchClientId: ''
 };
 
 export default function App() {
@@ -827,6 +829,8 @@ export default function App() {
               onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
               bannerAnimation={settings.bannerAnimation}
+              studioLogosEnabled={settings.studioLogosEnabled}
+              brandfetchClientId={settings.brandfetchClientId}
               onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
               editMode={bannerEditMode}
               setEditMode={setBannerEditMode}

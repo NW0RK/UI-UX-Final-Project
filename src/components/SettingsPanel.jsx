@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, Sparkles, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity, Image, Trash2 } from 'lucide-react';
+import { X, Volume2, VolumeX, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity, Image, Trash2, BadgeCheck } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -48,6 +48,15 @@ export default function SettingsPanel({
   const handleBannerAnimationToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, bannerAnimation: !settings.bannerAnimation });
+  };
+
+  const handleStudioLogosToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, studioLogosEnabled: !settings.studioLogosEnabled });
+  };
+
+  const handleBrandfetchClientIdChange = (value) => {
+    onUpdateSettings({ ...settings, brandfetchClientId: value });
   };
 
   const handleSliderChange = (key, value) => {
@@ -234,6 +243,48 @@ export default function SettingsPanel({
                   <div className="switch-knob" />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Section 4: Studio Logo Source */}
+          <div className="settings-section">
+            <h3 className="section-label-heading flex-center-start">
+              <BadgeCheck size={14} className="heading-icon" />
+              <span>Studio Logo Source</span>
+            </h3>
+            <p className="section-description">When enabled, the banner studio name can display live studio logos from Brandfetch's Logo API. A Brandfetch Client ID is required by the API.</p>
+            
+            <div className="audio-toggle-card" onClick={handleStudioLogosToggle}>
+              <div className="audio-card-left">
+                <BadgeCheck size={20} className={settings.studioLogosEnabled ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Brandfetch Studio Logos</span>
+                  <span className="audio-card-desc">{settings.studioLogosEnabled ? 'Studio labels will try to load current Brandfetch logos first, then fall back to icons.' : 'Studio labels stay as text only.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.studioLogosEnabled ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div className="api-key-card brandfetch-key-card">
+              <div className="api-key-input-row">
+                <div className="api-key-status-icon brandfetch-status-icon">
+                  <BadgeCheck size={14} />
+                </div>
+                <input 
+                  type="text" 
+                  className="glass-input api-key-input" 
+                  value={settings.brandfetchClientId || ''}
+                  onChange={(e) => handleBrandfetchClientIdChange(e.target.value)}
+                  placeholder="Brandfetch Client ID..."
+                />
+              </div>
+              <span className="api-key-status-text">
+                Get a free client ID from Brandfetch Developer Portal before deploying.
+              </span>
             </div>
           </div>
 
@@ -692,6 +743,10 @@ export default function SettingsPanel({
           gap: 12px;
         }
 
+        .brandfetch-key-card {
+          margin-top: 12px;
+        }
+
         .api-key-input-row {
           display: flex;
           align-items: center;
@@ -708,6 +763,11 @@ export default function SettingsPanel({
           justify-content: center;
           color: #818cf8;
           flex-shrink: 0;
+        }
+
+        .brandfetch-status-icon {
+          background: rgba(var(--accent-color-rgb), 0.1);
+          color: var(--accent-color);
         }
 
         .api-key-input {

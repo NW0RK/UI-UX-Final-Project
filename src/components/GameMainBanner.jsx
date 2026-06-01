@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
 
 export default function GameMainBanner({ 
   game, 
@@ -10,11 +11,15 @@ export default function GameMainBanner({
   onRemoveGame,
   isRunning,
   bannerAnimation = true,
+  studioLogosEnabled = false,
+  brandfetchClientId = '',
   onUpdateGameBannerLayout,
   editMode: controlledEditMode,
   setEditMode: controlledSetEditMode
 }) {
   const [localEditMode, setLocalEditMode] = useState(false);
+  const [studioLogoMode, setStudioLogoMode] = useState('lightLogo');
+  const [acceptedStudioLogoUrl, setAcceptedStudioLogoUrl] = useState(null);
 
   const editMode = controlledEditMode !== undefined ? controlledEditMode : localEditMode;
   const setEditMode = controlledSetEditMode !== undefined ? controlledSetEditMode : setLocalEditMode;
@@ -55,6 +60,11 @@ export default function GameMainBanner({
   useEffect(() => {
     layoutRef.current = activeLayout;
   }, [activeLayout]);
+
+  useEffect(() => {
+    setStudioLogoMode('lightLogo');
+    setAcceptedStudioLogoUrl(null);
+  }, [game?.developer, studioLogosEnabled, brandfetchClientId]);
 
   // Clean up global listeners if component unmounts
   useEffect(() => {
@@ -128,6 +138,65 @@ export default function GameMainBanner({
   };
 
   const parallaxClass = bannerAnimation ? ' backdrop-parallax' : '';
+  const studioLogoSources = studioLogosEnabled
+    ? getBrandfetchStudioLogoSources(game.developer, brandfetchClientId)
+    : null;
+
+  const activeStudioLogoMode = studioLogoSources ? studioLogoMode : 'hidden';
+  const activeWordmarkProbeUrl = activeStudioLogoMode === 'lightLogo'
+    ? studioLogoSources?.lightLogoProbeUrl
+    : activeStudioLogoMode === 'defaultLogo'
+      ? studioLogoSources?.defaultLogoProbeUrl
+      : null;
+  const activeWordmarkDisplayUrl = activeStudioLogoMode === 'lightLogo'
+    ? studioLogoSources?.lightLogoUrl
+    : activeStudioLogoMode === 'defaultLogo'
+      ? studioLogoSources?.defaultLogoUrl
+      : null;
+  const studioLogoUrl = activeStudioLogoMode === 'icon'
+    ? studioLogoSources?.iconUrl
+    : acceptedStudioLogoUrl;
+  const shouldProbeStudioWordmark = activeWordmarkProbeUrl && activeWordmarkDisplayUrl && !acceptedStudioLogoUrl;
+
+  const useNextStudioLogoMode = () => {
+    setAcceptedStudioLogoUrl(null);
+    setStudioLogoMode(prev => {
+      if (prev === 'lightLogo') return 'defaultLogo';
+      if (prev === 'defaultLogo') return 'icon';
+      return 'hidden';
+    });
+  };
+
+  const handleStudioLogoProbeLoad = (event) => {
+    const { naturalWidth } = event.currentTarget;
+    if (naturalWidth >= 200 && activeWordmarkDisplayUrl) {
+      setAcceptedStudioLogoUrl(activeWordmarkDisplayUrl);
+    } else {
+      useNextStudioLogoMode();
+    }
+  };
+
+  const handleStudioLogoProbeError = () => {
+    useNextStudioLogoMode();
+  };
+
+  const handleStudioLogoError = () => {
+    if (activeStudioLogoMode === 'icon') {
+      setStudioLogoMode('hidden');
+      return;
+    }
+
+    useNextStudioLogoMode();
+  };
+
+  const visibleStudioLogoClass = activeStudioLogoMode === 'icon'
+    ? 'studio-icon-logo'
+    : 'studio-wordmark-logo';
+
+  const visibleStudioLogoUrl = activeStudioLogoMode !== 'hidden'
+    ? studioLogoUrl
+    : null;
+  const shouldShowDeveloperText = !visibleStudioLogoUrl || activeStudioLogoMode === 'icon';
 
   // Playtime formatting (convert seconds to hours and minutes)
   const formatPlaytime = (seconds) => {
@@ -336,7 +405,26 @@ export default function GameMainBanner({
       <div className="banner-content-box">
         {/* Developer & Developer Meta */}
         <div className="developer-meta">
-          <span className="developer-name">{game.developer}</span>
+          <span className={`developer-name ${visibleStudioLogoUrl ? 'developer-name-with-logo' : ''}`}>
+            {shouldProbeStudioWordmark && (
+              <img
+                src={activeWordmarkProbeUrl}
+                alt=""
+                className="studio-logo-probe"
+                onLoad={handleStudioLogoProbeLoad}
+                onError={handleStudioLogoProbeError}
+              />
+            )}
+            {visibleStudioLogoUrl && (
+              <img
+                src={visibleStudioLogoUrl}
+                alt={`${game.developer} logo`}
+                className={`developer-studio-logo ${visibleStudioLogoClass}`}
+                onError={handleStudioLogoError}
+              />
+            )}
+            {shouldShowDeveloperText && <span>{game.developer}</span>}
+          </span>
           <span className="dot-divider" />
           <span className="steam-rating">
             Rating: <strong className={`rating-highlight ${ratingData.class}`}>{ratingData.label}</strong>
@@ -868,6 +956,34 @@ export default function GameMainBanner({
           font-weight: 700;
           color: #ffffff;
           text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .developer-name-with-logo {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .developer-studio-logo {
+          object-fit: contain;
+          filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55));
+          flex-shrink: 0;
+        }
+
+        .studio-logo-probe {
+          display: none;
+        }
+
+        .studio-wordmark-logo {
+          width: auto;
+          max-width: 180px;
+          height: 32px;
+        }
+
+        .studio-icon-logo {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
         }
 
         .steam-rating {

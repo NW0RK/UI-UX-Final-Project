@@ -231,22 +231,20 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
           transition: all 0.4s cubic-bezier(0.15, 0.85, 0.3, 1);
           
           /* Inactive card default style */
-          border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 24px;
-          opacity: 0.5;
+          opacity: 0.7;
         }
 
         /* Hovering over inactive card */
         .store-card:not(.selected):hover .store-card-image-wrapper {
           opacity: 0.85;
           transform: translateY(-4px);
-          border-color: rgba(255, 255, 255, 0.2);
         }
 
         /* Active Selected Card styling matching Favourites page */
         .store-card.selected .store-card-image-wrapper {
-          border: 2px solid var(--accent-color);
-          box-shadow: 0px 0px 25px rgba(var(--accent-color-rgb), 0.25);
+          border: 2px solid #fff;
+          box-shadow: 0px 0px 20px rgba(255, 255, 255, 0.4);
           border-radius: 32px;
           opacity: 1;
         }
@@ -270,11 +268,11 @@ function GameCard({ game, isSelected, isRunning, onClick, onLaunch, onRemove }) 
 
         /* Grayscale for inactive cover images matching Favourites page */
         .store-card:not(.selected) .store-card-image {
-          filter: grayscale(100%) brightness(0.5) contrast(1.1);
+          filter: brightness(0.8);
         }
 
         .store-card:not(.selected):hover .store-card-image {
-          filter: grayscale(40%) brightness(0.7) contrast(1.05);
+          filter: brightness(0.9);
         }
 
         .store-card.selected .store-card-image {

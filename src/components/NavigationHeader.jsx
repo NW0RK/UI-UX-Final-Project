@@ -207,11 +207,11 @@ export default function NavigationHeader({
           font-weight: 900;
           font-size: var(--fs-30);
           line-height: 1.2;
-          letter-spacing: 12px;
+          letter-spacing: 8px;
           color: #FFFFFF;
           cursor: pointer;
           transition: all 0.3s var(--ease-ps5);
-          text-shadow: 0 0 10px rgba(var(--accent-color-rgb), 0.15);
+          text-shadow: 0 0 5px rgba(var(--accent-color-rgb), 0.1);
         }
 
         .nexus-logo:hover {
@@ -229,7 +229,8 @@ export default function NavigationHeader({
           background: transparent;
           border: none;
           color: #94A3B8;
-          padding: 0px 0px 4px;
+          padding: 6px 12px;
+          border-radius: 6px;
           display: flex;
           align-items: center;
           font-family: 'Inter', sans-serif;
@@ -240,17 +241,17 @@ export default function NavigationHeader({
           letter-spacing: 0.7px;
           text-transform: uppercase;
           cursor: pointer;
-          transition: color var(--transition-fast), border-color var(--transition-fast);
-          border-bottom: 2px solid transparent;
+          transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
         }
 
         .mode-tab:hover {
           color: #FFFFFF;
+          background: rgba(255, 255, 255, 0.05);
         }
 
         .mode-tab.active {
-          color: var(--accent-color);
-          border-bottom: 2px solid var(--accent-color);
+          color: #FFFFFF;
+          background: rgba(255, 255, 255, 0.1);
         }
 
         .nav-center {
@@ -276,8 +277,8 @@ export default function NavigationHeader({
           width: 100%;
           background: rgba(255, 255, 255, 0.03);
           border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 20px;
-          padding: 8px 16px 8px 40px;
+          border-radius: 24px;
+          padding: 10px 16px 10px 40px;
           color: #fff;
           font-family: var(--font-sans);
           font-size: var(--fs-13);
@@ -330,9 +331,9 @@ export default function NavigationHeader({
           gap: 24px;
           min-height: 50px;
           background: rgba(255, 255, 255, 0.0305882);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          backdrop-filter: blur(6px);
-          -webkit-backdrop-filter: blur(6px);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
           border-radius: 33554400px;
           transition: all var(--transition-normal);
         }

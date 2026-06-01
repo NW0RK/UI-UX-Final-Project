@@ -558,8 +558,8 @@ export default function GameMainBanner({
           background: linear-gradient(
             to bottom,
             rgba(7, 7, 10, 0) 0%,
-            rgba(7, 7, 10, 0.22) 38%,
-            rgba(7, 7, 10, 0.68) 72%,
+            rgba(7, 7, 10, 0.4) 50%,
+            rgba(7, 7, 10, 0.9) 80%,
             #07070a 100%
           );
           z-index: 3;

@@ -11,6 +11,7 @@ const buttonSets = {
     shoulderLeft: { label: 'LB', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Left Bumper.svg', import.meta.url).href },
     shoulderRight: { label: 'RB', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Right Bumper.svg', import.meta.url).href },
     menu: { label: 'Menu', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Menu.svg', import.meta.url).href },
+    toggleHints: { label: 'LS', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/Left Stick Click.svg', import.meta.url).href },
     dpad: { label: 'D-Pad', icon: new URL('../../Xbox Series Button Icons and Controls/Xbox Series Button Icons and Controls/Buttons Full Solid/White/SVG/D-Pad.svg', import.meta.url).href }
   },
   playstation: {
@@ -21,6 +22,7 @@ const buttonSets = {
     shoulderLeft: { label: 'L1', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/R and L Inputs/Button - PS L1.svg', import.meta.url).href },
     shoulderRight: { label: 'R1', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/R and L Inputs/Button - PS R1.svg', import.meta.url).href },
     menu: { label: 'Options', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Other Inputs/Button - PS Options.svg', import.meta.url).href },
+    toggleHints: { label: 'L3', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/R and L Inputs/Button - PS L3.svg', import.meta.url).href },
     dpad: { label: 'D-Pad', icon: new URL('../../PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/PS4 BUTTONS - Premium Assets/Directional Arrows/Button - PS Directional Arrows.svg', import.meta.url).href }
   },
   switch: {
@@ -31,6 +33,7 @@ const buttonSets = {
     shoulderLeft: { label: 'L', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/L_Button.svg', import.meta.url).href },
     shoulderRight: { label: 'R', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/R_Button.svg', import.meta.url).href },
     menu: { label: 'Plus', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/Plus_Button.svg', import.meta.url).href },
+    toggleHints: { label: 'Stick', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Mono/Dark theme/Stick_Button_EXTENSION.svg', import.meta.url).href },
     dpad: { label: 'D-Pad', icon: new URL('../../Switch Button Icons [Essential pack] 0.9/Switch Button Icons [Essential pack] 0.9/Solid Duo/Dark theme/PlusControlPad_AllDirections.svg', import.meta.url).href }
   },
   keyboard: {
@@ -41,6 +44,7 @@ const buttonSets = {
     shoulderLeft: { label: 'Q' },
     shoulderRight: { label: 'E' },
     menu: { label: 'M' },
+    toggleHints: { label: 'H' },
     dpad: { label: 'Arrows' }
   }
 };
@@ -177,6 +181,30 @@ export default function ControllerHintOverlay({
 }) {
   const family = useControllerFamily();
   const buttons = buttonSets[family];
+  const [areHintsHidden, setAreHintsHidden] = useState(() => {
+    try {
+      return window.localStorage.getItem('controllerHintsHidden') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const handleToggleHints = () => {
+      setAreHintsHidden(prev => {
+        const next = !prev;
+        try {
+          window.localStorage.setItem('controllerHintsHidden', String(next));
+        } catch {
+          // Ignore storage failures; the in-memory toggle still works.
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('controller-hints-toggle', handleToggleHints);
+    return () => window.removeEventListener('controller-hints-toggle', handleToggleHints);
+  }, []);
 
   const fallbackConfirmLabel = useMemo(() => {
     if (isSettingsOpen) return 'Change setting';
@@ -196,7 +224,8 @@ export default function ControllerHintOverlay({
       return [
         { action: 'confirm', label: focusedLabel, tone: 'primary' },
         { action: 'back', label: 'Close panel' },
-        { action: 'dpad', label: 'Move focus' }
+        { action: 'dpad', label: 'Move focus' },
+        { action: 'toggleHints', label: 'Hide hints' }
       ];
     }
 
@@ -204,7 +233,8 @@ export default function ControllerHintOverlay({
       return [
         { action: 'confirm', label: focusedLabel, tone: 'primary' },
         { action: 'back', label: 'Close Control Center' },
-        { action: 'dpad', label: 'Move focus' }
+        { action: 'dpad', label: 'Move focus' },
+        { action: 'toggleHints', label: 'Hide hints' }
       ];
     }
 
@@ -212,7 +242,8 @@ export default function ControllerHintOverlay({
       return [
         { action: 'confirm', label: focusedLabel, tone: 'primary' },
         { action: 'back', label: 'Done customizing' },
-        { action: 'dpad', label: 'Move focus' }
+        { action: 'dpad', label: 'Move focus' },
+        { action: 'toggleHints', label: 'Hide hints' }
       ];
     }
 
@@ -221,7 +252,8 @@ export default function ControllerHintOverlay({
         { action: 'confirm', label: focusedLabel, tone: 'primary' },
         { action: 'back', label: 'Back to Store' },
         { action: 'dpad', label: 'Browse page' },
-        { action: 'menu', label: 'Control Center' }
+        { action: 'menu', label: 'Control Center' },
+        { action: 'toggleHints', label: 'Hide hints' }
       ];
     }
 
@@ -231,7 +263,8 @@ export default function ControllerHintOverlay({
         { action: 'dpad', label: 'Browse Store' },
         { action: 'shoulderLeft', label: 'Previous tab' },
         { action: 'shoulderRight', label: 'Next tab' },
-        { action: 'menu', label: 'Control Center' }
+        { action: 'menu', label: 'Control Center' },
+        { action: 'toggleHints', label: 'Hide hints' }
       ];
     }
 
@@ -242,7 +275,8 @@ export default function ControllerHintOverlay({
         { action: 'dpad', label: 'Browse favourites' },
         { action: 'shoulderLeft', label: 'Previous tab' },
         { action: 'shoulderRight', label: 'Next tab' },
-        { action: 'menu', label: 'Control Center' }
+        { action: 'menu', label: 'Control Center' },
+        { action: 'toggleHints', label: 'Hide hints' }
       ];
     }
 
@@ -253,7 +287,8 @@ export default function ControllerHintOverlay({
       { action: 'dpad', label: 'Browse library' },
       { action: 'shoulderLeft', label: 'Previous tab' },
       { action: 'shoulderRight', label: 'Next tab' },
-      { action: 'menu', label: 'Control Center' }
+      { action: 'menu', label: 'Control Center' },
+      { action: 'toggleHints', label: 'Hide hints' }
     ];
   }, [
     activeView,
@@ -264,6 +299,8 @@ export default function ControllerHintOverlay({
     isProfileOpen,
     isSettingsOpen
   ]);
+
+  if (areHintsHidden) return null;
 
   return (
     <aside className={`controller-hint-overlay controller-family-${family}`} aria-label="Controller and keyboard shortcuts">

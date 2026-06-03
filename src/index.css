@@ -218,6 +218,11 @@ body.controller-navigation-active .aspect-ratio-preview:focus {
   min-width: 32px;
 }
 
+.controller-button-glyph.has-icon.button-action-toggleHints {
+  width: 32px;
+  min-width: 32px;
+}
+
 .controller-button-image {
   display: block;
   width: 100%;

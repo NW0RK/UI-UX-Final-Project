@@ -51,7 +51,9 @@ const KEY_ACTIONS = {
   c: 'tertiary',
   C: 'tertiary',
   m: 'menu',
-  M: 'menu'
+  M: 'menu',
+  h: 'toggleHints',
+  H: 'toggleHints'
 };
 
 const REPEATABLE_ACTIONS = new Set(['up', 'down', 'left', 'right']);
@@ -277,6 +279,7 @@ function readGamepadActions(gamepad) {
     shoulderLeft: readButton(buttons[4]),
     shoulderRight: readButton(buttons[5]),
     menu: readButton(buttons[8]) || readButton(buttons[9]),
+    toggleHints: readButton(buttons[10]),
     up: readButton(buttons[12]),
     down: readButton(buttons[13]),
     left: readButton(buttons[14]),
@@ -353,6 +356,11 @@ export function useUnifiedInput({
 
     if (action === 'menu') {
       return callbacksRef.current.onMenu?.() || false;
+    }
+
+    if (action === 'toggleHints') {
+      window.dispatchEvent(new CustomEvent('controller-hints-toggle'));
+      return true;
     }
 
     return false;

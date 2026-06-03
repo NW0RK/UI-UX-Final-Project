@@ -11,6 +11,8 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])'
 ].join(',');
 
+const NAVIGABLE_ITEM_SELECTOR = '[data-controller-item="true"]';
+
 const ROOT_SELECTORS = [
   '.media-lightbox-overlay',
   '.profile-overlay-fullscreen',
@@ -82,7 +84,16 @@ function getActiveRoot() {
 
 function getFocusableElements(root = getActiveRoot()) {
   return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR))
-    .filter(element => !element.disabled && isVisible(element));
+    .filter(element => {
+      if (element.disabled || !isVisible(element)) return false;
+
+      const parentItem = element.closest(NAVIGABLE_ITEM_SELECTOR);
+      if (parentItem && parentItem !== element && !element.dataset.controllerNested) {
+        return false;
+      }
+
+      return true;
+    });
 }
 
 function markNavigationActive(mode) {
@@ -93,6 +104,8 @@ function markNavigationActive(mode) {
 function focusElement(element) {
   if (!element) return false;
   element.focus({ preventScroll: true });
+  element.classList.add('controller-focus-pulse');
+  window.setTimeout(() => element.classList.remove('controller-focus-pulse'), 220);
   element.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   return true;
 }
@@ -127,6 +140,19 @@ function getFallbackFocus(current, candidates, direction) {
   return candidates[Math.max(0, Math.min(candidates.length - 1, nextIndex))];
 }
 
+function getNavigationCandidates(root, current, direction) {
+  const itemRoot = current?.closest?.(NAVIGABLE_ITEM_SELECTOR);
+  const scopedItems = itemRoot
+    ? Array.from(root.querySelectorAll(NAVIGABLE_ITEM_SELECTOR)).filter(isVisible)
+    : [];
+
+  if (scopedItems.length > 1 && (direction === 'left' || direction === 'right')) {
+    return scopedItems;
+  }
+
+  return getFocusableElements(root);
+}
+
 function moveSpatialFocus(direction) {
   const root = getActiveRoot();
   const directionalTarget = root.querySelector(`[data-controller-${direction}="true"]`);
@@ -135,10 +161,10 @@ function moveSpatialFocus(direction) {
     return true;
   }
 
-  const candidates = getFocusableElements(root);
+  const current = root.contains(document.activeElement) ? document.activeElement : null;
+  const candidates = getNavigationCandidates(root, current, direction);
   if (candidates.length === 0) return false;
 
-  const current = root.contains(document.activeElement) ? document.activeElement : null;
   if (!current || current === document.body || !isVisible(current)) {
     return focusElement(
       root.querySelector('[data-controller-selected="true"]') ||

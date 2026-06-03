@@ -63,6 +63,7 @@ function getGamepadFamily(gamepadId = '') {
     normalized.includes('wireless controller') ||
     normalized.includes('sony') ||
     normalized.includes('ps4') ||
+    normalized.includes('ps5') ||
     normalized.includes('dinput')
   ) {
     return 'playstation';

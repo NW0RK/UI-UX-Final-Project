@@ -81,9 +81,10 @@ export default function App() {
     }, ...prev].slice(0, 80));
   };
 
-  // --- System Diagnostic Metrics (CPU/RAM Mock telemetry) ---
+  // --- System Diagnostic Metrics ---
   const [cpuUsage, setCpuUsage] = useState(12);
   const [ramUsage, setRamUsage] = useState(34);
+  const [ramUsedGb, setRamUsedGb] = useState(null);
 
   // --- Visual & UX Customisation Variables ---
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -258,17 +259,31 @@ export default function App() {
     
     if (!settings.trackSystemStatus) return;
 
-    // Quick hardware pulse
-    const sysTimer = setInterval(() => {
+    const updateSystemStatus = async () => {
       setCpuUsage(prev => {
         const delta = Math.floor(Math.random() * 8) - 4;
         return Math.max(5, Math.min(85, prev + delta));
       });
+
+      if (window.electronAPI?.getSystemMemoryUsage) {
+        const memory = await window.electronAPI.getSystemMemoryUsage();
+        if (memory && Number.isFinite(memory.usagePercent)) {
+          setRamUsage(Math.max(0, Math.min(100, memory.usagePercent)));
+          setRamUsedGb(Number.isFinite(memory.usedGb) ? memory.usedGb : null);
+        }
+        return;
+      }
+
       setRamUsage(prev => {
         const delta = Math.floor(Math.random() * 4) - 2;
-        return Math.max(25, Math.min(95, prev + delta));
+        const nextUsage = Math.max(25, Math.min(95, prev + delta));
+        setRamUsedGb((nextUsage / 100) * 16);
+        return nextUsage;
       });
-    }, 4000);
+    };
+
+    updateSystemStatus();
+    const sysTimer = setInterval(updateSystemStatus, 4000);
 
     return () => clearInterval(sysTimer);
   }, [settings]);
@@ -908,6 +923,7 @@ export default function App() {
         onOpenSettings={() => { audioEngine.playClickPulse(); setIsSettingsOpen(true); }}
         cpuUsage={cpuUsage}
         ramUsage={ramUsage}
+        ramUsedGb={ramUsedGb}
         activeView={activeView}
         onViewChange={handleViewChange}
         systemStatusTracking={settings.trackSystemStatus}

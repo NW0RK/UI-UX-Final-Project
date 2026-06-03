@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'ele
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
+import os from 'os';
 import { spawn, execFile, exec } from 'child_process';
 import https from 'https';
 import { pipeline } from 'stream/promises';
@@ -552,6 +553,18 @@ ipcMain.handle('power-off', async () => {
       resolve({ success: true });
     });
   });
+});
+
+ipcMain.handle('get-system-memory-usage', async () => {
+  const totalBytes = os.totalmem();
+  const freeBytes = os.freemem();
+  const usedBytes = Math.max(0, totalBytes - freeBytes);
+
+  return {
+    totalGb: totalBytes / (1024 ** 3),
+    usedGb: usedBytes / (1024 ** 3),
+    usagePercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0
+  };
 });
 
 // --- IPC: Database ---

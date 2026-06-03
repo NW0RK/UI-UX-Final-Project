@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // System power management
   powerOff: () => ipcRenderer.invoke('power-off'),
+  getSystemMemoryUsage: () => ipcRenderer.invoke('get-system-memory-usage'),
 
   // SteamGridDB Artwork
   searchSteamGridDB: (term) => ipcRenderer.invoke('steamgriddb-search', term),

@@ -8,6 +8,7 @@ export default function NavigationHeader({
   onOpenSettings,
   cpuUsage,
   ramUsage,
+  ramUsedGb,
   activeView,
   onViewChange,
   systemStatusTracking = true,
@@ -17,6 +18,9 @@ export default function NavigationHeader({
 }) {
   const [time, setTime] = useState('');
   const searchInputRef = useRef(null);
+  const activeRamLabel = Number.isFinite(ramUsedGb)
+    ? `${ramUsedGb.toFixed(ramUsedGb >= 10 ? 0 : 1)}GB`
+    : `${ramUsage}%`;
 
   // Update Clock in HH:MM format
   useEffect(() => {
@@ -148,7 +152,7 @@ export default function NavigationHeader({
                   <rect x="1" y="3" width="10" height="6" rx="1.5" stroke="var(--accent-color)" strokeWidth="1" />
                   <path d="M3 3v6M6 3v6M9 3v6" stroke="var(--accent-color)" strokeWidth="1" />
                 </svg>
-                <span className="telemetry-text">RAM {12 + Math.round((ramUsage / 100) * 4)}GB</span>
+                <span className="telemetry-text">RAM {activeRamLabel}</span>
               </div>
 
               {/* Divider */}

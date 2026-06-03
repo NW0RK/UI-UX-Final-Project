@@ -174,7 +174,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
 
       <div className="store-card-info">
         <div className="store-card-title">{game.title}</div>
-        <div className="store-card-developer">{game.developer}</div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -312,15 +311,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
           font-weight: 700;
           font-size: var(--fs-13);
           color: #fff;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          min-width: 0;
-        }
-
-        .store-card-developer {
-          font-size: var(--fs-11);
-          color: rgba(255, 255, 255, 0.4);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;

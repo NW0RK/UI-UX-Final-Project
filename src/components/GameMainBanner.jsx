@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Star, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
+import { Play, Star, Flame, Clock, Hourglass, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
+import { getPrimaryHltbText } from '../utils/hltb';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 export default function GameMainBanner({ 
@@ -116,6 +117,7 @@ export default function GameMainBanner({
   };
 
   const ratingData = getSteamRating(game.rating);
+  const hltbText = getPrimaryHltbText(game.hltb);
 
   const handleLaunchClick = () => {
     audioEngine.playClickPulse();
@@ -471,15 +473,13 @@ export default function GameMainBanner({
             </div>
           </div>
 
-          {game.progress > 0 && (
-            <div className="stat-glass-card">
-              <Award size={16} className="stat-icon" />
-              <div className="stat-info">
-                <span className="stat-label">Progress</span>
-                <span className="stat-value">{game.progress}% ({game.timeToComplete} left)</span>
-              </div>
+          <div className="stat-glass-card">
+            <Hourglass size={16} className="stat-icon" />
+            <div className="stat-info">
+              <span className="stat-label">HowLongToBeat</span>
+              <span className="stat-value">{hltbText}</span>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Action Row */}

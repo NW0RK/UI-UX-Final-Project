@@ -14,6 +14,7 @@ import ControllerHintOverlay from './components/ControllerHintOverlay';
 import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
+import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -70,6 +71,7 @@ export default function App() {
   const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
+  const hltbLookupAttemptedRef = useRef(new Set());
 
   const addDiagnostic = (area, level, message, details = null) => {
     setDiagnostics(prev => [{
@@ -98,29 +100,37 @@ export default function App() {
         try {
           const loadedData = await window.electronAPI.loadDatabase();
           if (loadedData && Array.isArray(loadedData) && loadedData.length > 0) {
-            setGames(loadedData);
-            setSelectedGame(loadedData[0]);
+            const hydratedData = loadedData.map(applySeededHltbToGame);
+            setGames(hydratedData);
+            setSelectedGame(hydratedData[0]);
+            if (JSON.stringify(hydratedData) !== JSON.stringify(loadedData)) {
+              await window.electronAPI.saveDatabase(hydratedData);
+            }
           } else {
             // Save defaults if file is empty
-            setGames(defaultGames);
-            setSelectedGame(defaultGames[0]);
-            await window.electronAPI.saveDatabase(defaultGames);
+            const seededDefaults = defaultGames.map(applySeededHltbToGame);
+            setGames(seededDefaults);
+            setSelectedGame(seededDefaults[0]);
+            await window.electronAPI.saveDatabase(seededDefaults);
           }
         } catch (e) {
           console.error("Database load error, falling back to mock:", e);
-          setGames(defaultGames);
-          setSelectedGame(defaultGames[0]);
+          const seededDefaults = defaultGames.map(applySeededHltbToGame);
+          setGames(seededDefaults);
+          setSelectedGame(seededDefaults[0]);
         }
       } else {
         // Web Browser Sandbox Loading
         const localCache = localStorage.getItem('nexus_games_cache');
         if (localCache) {
-          const parsed = JSON.parse(localCache);
+          const parsed = JSON.parse(localCache).map(applySeededHltbToGame);
           setGames(parsed);
           setSelectedGame(parsed[0]);
+          localStorage.setItem('nexus_games_cache', JSON.stringify(parsed));
         } else {
-          setGames(defaultGames);
-          setSelectedGame(defaultGames[0]);
+          const seededDefaults = defaultGames.map(applySeededHltbToGame);
+          setGames(seededDefaults);
+          setSelectedGame(seededDefaults[0]);
         }
       }
     }
@@ -222,6 +232,46 @@ export default function App() {
 
     hydrateStoreArtwork();
   }, [cacheVersion]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.autoFetchHowLongToBeat || games.length === 0) return;
+
+    const candidates = games.filter(game => {
+      const key = `${game.id}:${game.title}`;
+      return shouldFetchHltb(game) && !hltbLookupAttemptedRef.current.has(key);
+    });
+    if (candidates.length === 0) return;
+
+    async function hydrateHowLongToBeat() {
+      const hltbById = {};
+
+      for (const game of candidates) {
+        const key = `${game.id}:${game.title}`;
+        hltbLookupAttemptedRef.current.add(key);
+
+        const hltb = await window.electronAPI.autoFetchHowLongToBeat(game);
+        if (!hltb?.error) {
+          hltbById[game.id] = hltb;
+          addDiagnostic('HowLongToBeat', 'info', `HLTB times applied to ${game.title}`);
+        } else {
+          addDiagnostic('HowLongToBeat', 'warn', `HLTB lookup skipped ${game.title}: ${hltb.error}`);
+        }
+      }
+
+      if (Object.keys(hltbById).length === 0) return;
+
+      setGames(prevGames => {
+        const mergedList = prevGames.map(existing =>
+          hltbById[existing.id] ? { ...existing, hltb: hltbById[existing.id] } : existing
+        );
+        setSelectedGame(prev => mergedList.find(g => g.id === prev?.id) || mergedList[0] || null);
+        window.electronAPI.saveDatabase(mergedList);
+        return mergedList;
+      });
+    }
+
+    hydrateHowLongToBeat();
+  }, [games]);
 
   // --- 2. Synchronize Custom Settings & CSS Styles ---
   useEffect(() => {
@@ -518,12 +568,12 @@ export default function App() {
         const metadata = matchGameMetadata(scannedFile.name, scannedFile.path);
         // Create clean ID
         const cleanId = scannedFile.name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
-        addedList.push({
+        addedList.push(applySeededHltbToGame({
           ...metadata,
           steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
           platforms: scannedFile.platform ? [scannedFile.platform] : (metadata.platforms || ["PC"]),
           id: cleanId
-        });
+        }));
         newGameIds.push(cleanId);
         addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
           exePath: scannedFile.path,
@@ -578,7 +628,7 @@ export default function App() {
     const metadata = matchGameMetadata(name, mockExe);
     addDiagnostic('Importer', 'info', `Manual executable selected: ${mockExe}`);
 
-    let newGame = { ...metadata, id: cleanId };
+    let newGame = applySeededHltbToGame({ ...metadata, id: cleanId });
     if (window.electronAPI?.autoFetchArtwork) {
       const artwork = await window.electronAPI.autoFetchArtwork({ ...newGame, forceTitleLookup: true });
       if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
@@ -603,10 +653,11 @@ export default function App() {
 
   // --- Action Trigger: Factory DB Resets ---
   const handleResetDatabase = async () => {
-    setGames(defaultGames);
-    setSelectedGame(defaultGames[0]);
+    const seededDefaults = defaultGames.map(applySeededHltbToGame);
+    setGames(seededDefaults);
+    setSelectedGame(seededDefaults[0]);
     if (window.electronAPI) {
-      await window.electronAPI.saveDatabase(defaultGames);
+      await window.electronAPI.saveDatabase(seededDefaults);
     } else {
       localStorage.removeItem('nexus_games_cache');
     }
@@ -719,7 +770,7 @@ export default function App() {
     // Sync the store catalog ownership
     storeItem.owned = true;
 
-    const newGame = {
+    const newGame = applySeededHltbToGame({
       ...storeItem,
       playtime: 0,
       lastPlayed: "Never",
@@ -729,7 +780,7 @@ export default function App() {
       exePath: "",
       isFavorite: false,
       owned: true
-    };
+    });
 
     const updatedList = [...games, newGame];
     setGames(updatedList);
@@ -810,7 +861,7 @@ export default function App() {
   };
 
   // Sync store catalog ownership with games library
-  const syncedCatalog = storeCatalog.map(item => ({
+  const syncedCatalog = storeCatalog.map(item => applySeededHltbToGame({
     ...item,
     ...storeArtwork[item.id],
     owned: games.some(g => g.id === item.id && g.owned)

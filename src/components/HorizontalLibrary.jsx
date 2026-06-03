@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Play, Flame, Star, Award, Monitor, Gamepad2, Smartphone } from 'lucide-react';
+import { Play, Star } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 
@@ -115,39 +115,11 @@ export default function HorizontalLibrary({
   );
 }
 
-const platformIcons = {
-  'PC': Monitor,
-  'Console': Gamepad2,
-  'PS4': Gamepad2,
-  'Xbox Series X|S': Gamepad2,
-  'Xbox One': Gamepad2,
-  'Switch': Gamepad2,
-  'Mobile': Smartphone
-};
-
-function PlatformIcon({ platform }) {
-  const Icon = platformIcons[platform] || Gamepad2;
-  const label = platform === 'Console' ? 'Con' :
-                platform === 'PS4' ? 'PS' :
-                platform.startsWith('Xbox') ? 'XB' :
-                platform === 'Switch' ? 'NS' :
-                platform === 'Mobile' ? 'Mob' :
-                platform === 'PC' ? 'PC' : platform.slice(0, 2);
-  return (
-    <div className="platform-icon-badge" title={platform}>
-      <Icon size={10} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
 function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onEditMetadata, onRemove }) {
   const handleLaunchClick = (e) => {
     e.stopPropagation();
     onLaunch();
   };
-
-  const playtimeHours = Math.round((game.playtime / 3600) * 10) / 10;
 
   return (
     <div 
@@ -203,22 +175,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
       <div className="store-card-info">
         <div className="store-card-title">{game.title}</div>
         <div className="store-card-developer">{game.developer}</div>
-        <div className="store-card-platforms">
-          {game.platforms?.map(p => (
-            <PlatformIcon key={p} platform={p} />
-          ))}
-        </div>
-        <div className="store-card-rating">
-          <Flame size={10} className="metric-icon" />
-          <span>{playtimeHours}h</span>
-          {game.progress > 0 && (
-            <>
-              <span className="rating-divider">·</span>
-              <Award size={10} className="metric-icon" />
-              <span>{game.progress}%</span>
-            </>
-          )}
-        </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -371,42 +327,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
           min-width: 0;
         }
 
-        .store-card-platforms {
-          display: flex;
-          gap: 4px;
-          flex-wrap: wrap;
-          margin-top: 2px;
-        }
-
-        .platform-icon-badge {
-          display: flex;
-          align-items: center;
-          gap: 3px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 4px;
-          padding: 2px 5px;
-          font-size: var(--fs-8);
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          letter-spacing: 0.3px;
-        }
-
-        .store-card-rating {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: var(--fs-11);
-          font-weight: 600;
-          color: #e6af2e;
-          margin-top: auto;
-          min-width: 0;
-        }
-
-        .rating-divider {
-          color: rgba(255, 255, 255, 0.2);
-        }
-
         .running-overlay-indicator {
           position: absolute;
           top: 10px;
@@ -516,10 +436,8 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
           color: rgba(255, 255, 255, 0.72);
         }
 
-        .metric-icon {
-          color: var(--accent-color);
-        }
       `}} />
     </div>
   );
 }
+

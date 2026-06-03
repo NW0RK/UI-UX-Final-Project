@@ -18,6 +18,7 @@ const ARTWORK_PROTOCOL = 'nexus-artwork';
 
 let mainWindow = null;
 const activeGames = new Map();
+let hltbSecurity = null;
 // DEPRECATED: artworkTrimJobs Map is disabled.
 // const artworkTrimJobs = new Map();
 
@@ -159,8 +160,8 @@ function httpsGet(url, options = {}, redirectCount = 0) {
   });
 }
 
-function fetchJson(url) {
-  return httpsGet(url).then(res => {
+function fetchJson(url, options = {}) {
+  return httpsGet(url, options).then(res => {
     return new Promise((resolve, reject) => {
       let data = '';
       res.setEncoding('utf8');
@@ -174,6 +175,51 @@ function fetchJson(url) {
       });
       res.on('error', reject);
     });
+  });
+}
+
+function postJson(url, payload, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const target = new URL(url);
+    const req = https.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        ...headers
+      },
+      timeout: REQUEST_TIMEOUT_MS
+    }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Failed to parse JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(parsed?.message || `HTTP ${res.statusCode}`));
+          return;
+        }
+
+        resolve(parsed);
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.write(body);
+    req.end();
   });
 }
 
@@ -316,6 +362,194 @@ function normalizeGameTitle(title) {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
+}
+
+function normalizeHltbRawGame(raw, searchTerm = '') {
+  const id = raw?.game_id;
+  const name = raw?.game_name;
+  if (!id || !name) return null;
+  return {
+    id: String(id),
+    name,
+    sourceUrl: `https://howlongtobeat.com/game/${id}`,
+    mainStoryHours: raw.comp_main ? Number((raw.comp_main / 3600).toFixed(1)) : 0,
+    mainExtraHours: raw.comp_plus ? Number((raw.comp_plus / 3600).toFixed(1)) : 0,
+    completionistHours: raw.comp_100 ? Number((raw.comp_100 / 3600).toFixed(1)) : 0,
+    similarity: scoreHowLongToBeatMatch(searchTerm, raw),
+    searchTerm,
+    fetchedAt: new Date().toISOString(),
+    source: 'howlongtobeat-bleed'
+  };
+}
+
+const SEEDED_HLTB_BY_KEY = {
+  cyberpunk: { id: '2127', name: 'Cyberpunk 2077', mainStoryHours: 25, mainExtraHours: 64, completionistHours: 105 },
+  cyberpunk2077: { id: '2127', name: 'Cyberpunk 2077', mainStoryHours: 25, mainExtraHours: 64, completionistHours: 105 },
+  dyinglight: { id: '18336', name: 'Dying Light', mainStoryHours: 17.5, mainExtraHours: 36.5, completionistHours: 58 },
+  eldenring: { id: '68151', name: 'Elden Ring', mainStoryHours: 59, mainExtraHours: 100, completionistHours: 133 },
+  hades: { id: '62941', name: 'Hades', mainStoryHours: 23, mainExtraHours: 49, completionistHours: 95 },
+  portal2: { id: '7231', name: 'Portal 2', mainStoryHours: 8.5, mainExtraHours: 13.5, completionistHours: 21.5 },
+  witcher3: { id: '10270', name: 'The Witcher 3: Wild Hunt', mainStoryHours: 51.5, mainExtraHours: 103, completionistHours: 173 },
+  thewitcher3wildhunt: { id: '10270', name: 'The Witcher 3: Wild Hunt', mainStoryHours: 51.5, mainExtraHours: 103, completionistHours: 173 }
+};
+
+function normalizeSeedKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getSeededHowLongToBeat(game) {
+  const seed = SEEDED_HLTB_BY_KEY[normalizeSeedKey(game?.id)] || SEEDED_HLTB_BY_KEY[normalizeSeedKey(game?.title)];
+  if (!seed) return null;
+  return {
+    ...seed,
+    sourceUrl: `https://howlongtobeat.com/game/${seed.id}`,
+    similarity: 1,
+    searchTerm: game?.title || seed.name,
+    fetchedAt: new Date().toISOString(),
+    source: 'seeded-hltb'
+  };
+}
+
+const HLTB_BASE_URL = 'https://howlongtobeat.com';
+const HLTB_HEADERS = {
+  'Accept': 'application/json',
+  'Origin': HLTB_BASE_URL,
+  'Referer': `${HLTB_BASE_URL}/`,
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+};
+
+async function getHowLongToBeatSecurity(forceRefresh = false) {
+  if (!forceRefresh && hltbSecurity?.token && hltbSecurity.expiresAt > Date.now()) {
+    return hltbSecurity;
+  }
+
+  const security = await fetchJson(`${HLTB_BASE_URL}/api/bleed/init?t=${Date.now()}`, { headers: HLTB_HEADERS });
+  if (!security?.token || !security?.hpKey || !security?.hpVal) {
+    throw new Error('Invalid HowLongToBeat security response');
+  }
+
+  hltbSecurity = {
+    token: security.token,
+    hpKey: security.hpKey,
+    hpVal: security.hpVal,
+    expiresAt: Date.now() + 45 * 60 * 1000
+  };
+  return hltbSecurity;
+}
+
+function createHowLongToBeatSearchPayload(searchTerm, security) {
+  const payload = {
+    searchType: 'games',
+    searchTerms: searchTerm.trim().split(/\s+/),
+    searchPage: 1,
+    size: 20,
+    searchOptions: {
+      games: {
+        userId: 0,
+        platform: '',
+        sortCategory: 'popular',
+        rangeCategory: 'main',
+        rangeTime: { min: 0, max: 0 },
+        gameplay: { perspective: '', flow: '', genre: '', difficulty: '' },
+        rangeYear: { min: '', max: '' },
+        modifier: ''
+      },
+      users: { sortCategory: 'postcount' },
+      lists: { sortCategory: 'follows' },
+      filter: '',
+      sort: 0,
+      randomizer: 0
+    },
+    useCache: true
+  };
+
+  payload[security.hpKey] = security.hpVal;
+  return payload;
+}
+
+async function postHowLongToBeatSearch(searchTerm, forceRefresh = false) {
+  const security = await getHowLongToBeatSecurity(forceRefresh);
+  return await postJson(`${HLTB_BASE_URL}/api/bleed`, createHowLongToBeatSearchPayload(searchTerm, security), {
+    ...HLTB_HEADERS,
+    'x-auth-token': security.token,
+    'x-hp-key': security.hpKey,
+    'x-hp-val': security.hpVal
+  });
+}
+
+function scoreHowLongToBeatMatch(query, raw) {
+  const normalizedQuery = normalizeGameTitle(query);
+  const names = [raw?.game_name, raw?.game_alias]
+    .filter(Boolean)
+    .flatMap(value => String(value).split(','))
+    .map(normalizeGameTitle)
+    .filter(Boolean);
+  if (!normalizedQuery || names.length === 0) return 0;
+
+  let best = 0;
+  for (const normalizedName of names) {
+    if (normalizedName === normalizedQuery) {
+      best = Math.max(best, 1);
+      continue;
+    }
+
+    const queryWords = normalizedQuery.split(' ');
+    const nameSet = new Set(normalizedName.split(' '));
+    const sharedWords = queryWords.filter(word => nameSet.has(word)).length;
+    const coverage = sharedWords / queryWords.length;
+    const containsBoost = normalizedName.includes(normalizedQuery) || normalizedQuery.includes(normalizedName) ? 0.2 : 0;
+    best = Math.max(best, Math.min(0.99, coverage * 0.75 + containsBoost));
+  }
+
+  return Number(best.toFixed(2));
+}
+
+async function searchHowLongToBeatGames(term) {
+  const searchTerm = String(term || '').trim();
+  if (!searchTerm) return [];
+
+  emitDiagnostic('HowLongToBeat', 'info', `Searching HLTB for "${searchTerm}"`);
+  let searchData = await postHowLongToBeatSearch(searchTerm);
+  if (searchData?.error || !Array.isArray(searchData?.data)) {
+    searchData = await postHowLongToBeatSearch(searchTerm, true);
+  }
+  return (Array.isArray(searchData?.data) ? searchData.data : [])
+    .map(result => normalizeHltbRawGame(result, searchTerm))
+    .filter(Boolean)
+    .sort((a, b) => b.similarity - a.similarity);
+}
+
+async function autoFetchHowLongToBeat(game) {
+  if (!game?.title) {
+    return { error: 'Missing game title' };
+  }
+
+  let results = [];
+  try {
+    results = await searchHowLongToBeatGames(game.title);
+  } catch (err) {
+    const seeded = getSeededHowLongToBeat(game);
+    if (seeded) {
+      emitDiagnostic('HowLongToBeat', 'warn', `Live lookup failed for ${game.title}; using seeded HLTB data`, { error: err.message });
+      return seeded;
+    }
+    throw err;
+  }
+
+  if (results.length === 0) {
+    return getSeededHowLongToBeat(game) || { error: `No HowLongToBeat match found for ${game.title}` };
+  }
+
+  const match = results.find(result => result.similarity >= 0.45) || results[0];
+  if (!match || match.similarity < 0.25) {
+    return getSeededHowLongToBeat(game) || { error: `No confident HowLongToBeat match found for ${game.title}` };
+  }
+
+  emitDiagnostic('HowLongToBeat', 'info', `Matched ${game.title} to ${match.name}`, {
+    hltbId: match.id,
+    similarity: match.similarity
+  });
+  return match;
 }
 
 function scoreSteamGridDBMatch(query, result) {
@@ -1020,6 +1254,24 @@ ipcMain.handle('steamgriddb-fetch-artwork', async (event, sgdbId, gameId, gameTi
     return await fetchArtworkForGame(sgdbId, gameId, gameTitle);
   } catch (err) {
     emitDiagnostic('SteamGridDB', 'error', `Artwork fetch failed for ${gameTitle}: ${err.message}`, { sgdbId, gameId });
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('hltb-search', async (event, term) => {
+  try {
+    return await searchHowLongToBeatGames(term);
+  } catch (err) {
+    emitDiagnostic('HowLongToBeat', 'error', `Search failed for "${term}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('hltb-auto-fetch', async (event, game) => {
+  try {
+    return await autoFetchHowLongToBeat(game);
+  } catch (err) {
+    emitDiagnostic('HowLongToBeat', 'error', `Lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
     return { error: err.message };
   }
 });

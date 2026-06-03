@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
+import { Play, Star, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
+import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 export default function GameMainBanner({ 
   game, 
@@ -124,18 +125,6 @@ export default function GameMainBanner({
   const handleFavoriteClick = () => {
     audioEngine.playClickPulse();
     onToggleFavorite(game.id);
-  };
-
-  const handleEditClick = () => {
-    audioEngine.playClickPulse();
-    onEditMetadata(game);
-  };
-
-
-
-  const handleRemoveClick = () => {
-    audioEngine.playClickPulse();
-    onRemoveGame(game.id);
   };
 
   const parallaxClass = bannerAnimation ? ' backdrop-parallax' : '';
@@ -505,19 +494,6 @@ export default function GameMainBanner({
             <span>{isRunning ? 'Running...' : 'Play Game'}</span>
           </button>
 
-
-
-          {/* Edit Metadata */}
-          <button 
-            className="glow-btn action-pill-btn"
-            onClick={handleEditClick}
-            onMouseEnter={audioEngine.playHoverTick}
-            title="Edit Game Metadata"
-          >
-            <Edit size={16} />
-            <span>Metadata</span>
-          </button>
-
           {/* Toggle Favorite Star */}
           <button 
             className={`glow-btn action-pill-btn fav-pill-btn ${game.isFavorite ? 'active-favorite' : ''}`}
@@ -528,15 +504,12 @@ export default function GameMainBanner({
             <Star size={16} fill={game.isFavorite ? 'currentColor' : 'transparent'} />
           </button>
 
-          {/* Remove from Library */}
-          <button 
-            className="glow-btn action-pill-btn remove-pill-btn"
-            onClick={handleRemoveClick}
-            onMouseEnter={audioEngine.playHoverTick}
-            title="Remove from Library"
-          >
-            <Trash2 size={16} />
-          </button>
+          <LibraryOverflowMenu
+            className="banner-library-overflow"
+            triggerClassName="glow-btn action-pill-btn banner-overflow-trigger"
+            onEditMetadata={() => onEditMetadata(game)}
+            onRemove={() => onRemoveGame(game.id)}
+          />
         </div>
       </div>
 
@@ -775,7 +748,7 @@ export default function GameMainBanner({
           border-radius: 50%;
           z-index: 110;
           box-shadow: 0 2px 5px rgba(0,0,0,0.8);
-          transition: transform 0.15s var(--ease-ps5), background 0.15s var(--ease-ps5);
+          transition: transform 0.15s var(--ease-interface), background 0.15s var(--ease-interface);
         }
 
         .resize-handle:hover {
@@ -1169,15 +1142,33 @@ export default function GameMainBanner({
           box-shadow: 0 0 10px rgba(230, 175, 46, 0.2);
         }
 
-        .remove-pill-btn {
-          color: rgba(255, 255, 255, 0.35) !important;
+        .banner-library-overflow {
+          align-self: stretch;
         }
 
-        .remove-pill-btn:hover {
-          color: #ef4444 !important;
-          border-color: rgba(239, 68, 68, 0.3) !important;
-          background: rgba(239, 68, 68, 0.08) !important;
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+        .banner-overflow-trigger {
+          width: 42px !important;
+          height: 100%;
+          min-height: 42px;
+          padding: 0 !important;
+          border-radius: 8px;
+          color: rgba(255, 255, 255, 0.45) !important;
+        }
+
+        .banner-overflow-trigger svg {
+          display: block;
+          width: 18px;
+          height: 18px;
+          flex: 0 0 auto;
+          stroke: currentColor;
+          stroke-width: 2.5;
+        }
+
+        .banner-overflow-trigger:hover,
+        .banner-overflow-trigger[aria-expanded="true"] {
+          color: #fff !important;
+          border-color: rgba(255, 255, 255, 0.16) !important;
+          background: rgba(255, 255, 255, 0.08) !important;
         }
       `}} />
     </div>

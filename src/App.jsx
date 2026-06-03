@@ -466,6 +466,12 @@ export default function App() {
     }
   };
 
+  const handleOpenMetadata = (game = selectedGame) => {
+    if (!game) return;
+    setSelectedGame(game);
+    setIsMetadataOpen(true);
+  };
+
   // --- Action Trigger: Remove Game from Library ---
   const handleRemoveGame = async (gameId) => {
     const gameToRemove = games.find(g => g.id === gameId);
@@ -918,7 +924,7 @@ export default function App() {
               game={selectedGame}
               onLaunch={handleLaunchGame}
               onToggleFavorite={handleToggleFavorite}
-              onEditMetadata={() => setIsMetadataOpen(true)}
+              onEditMetadata={handleOpenMetadata}
               onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
               bannerAnimation={settings.bannerAnimation}
@@ -935,6 +941,7 @@ export default function App() {
               selectedGame={selectedGame}
               onSelectGame={setSelectedGame}
               onLaunchGame={handleLaunchGame}
+              onEditMetadata={handleOpenMetadata}
               onRemoveGame={handleRemoveGame}
               runningGameId={runningGameId}
             />
@@ -971,6 +978,7 @@ export default function App() {
             onMarkOwned={handleMarkOwned}
             onLinkExe={handleLinkExe}
             onLaunch={handleLaunchGame}
+            onEditMetadata={handleOpenMetadata}
             onRemoveGame={handleRemoveGame}
           />
         )}

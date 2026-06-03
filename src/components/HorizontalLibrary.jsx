@@ -1,12 +1,14 @@
 import React, { useRef } from 'react';
-import { Play, Flame, Star, Award, Trash2, Monitor, Gamepad2, Smartphone } from 'lucide-react';
+import { Play, Flame, Star, Award, Monitor, Gamepad2, Smartphone } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 export default function HorizontalLibrary({ 
   games, 
   selectedGame, 
   onSelectGame, 
   onLaunchGame, 
+  onEditMetadata,
   onRemoveGame, 
   runningGameId 
 }) {
@@ -45,6 +47,7 @@ export default function HorizontalLibrary({
               onClick={() => handleCardClick(game)}
               onFocus={() => handleCardFocus(game)}
               onLaunch={() => onLaunchGame(game)}
+              onEditMetadata={() => onEditMetadata(game)}
               onRemove={() => onRemoveGame(game.id)}
             />
           );
@@ -114,7 +117,7 @@ export default function HorizontalLibrary({
 
 const platformIcons = {
   'PC': Monitor,
-  'PS5': Gamepad2,
+  'Console': Gamepad2,
   'PS4': Gamepad2,
   'Xbox Series X|S': Gamepad2,
   'Xbox One': Gamepad2,
@@ -124,7 +127,8 @@ const platformIcons = {
 
 function PlatformIcon({ platform }) {
   const Icon = platformIcons[platform] || Gamepad2;
-  const label = platform === 'PS5' || platform === 'PS4' ? 'PS' :
+  const label = platform === 'Console' ? 'Con' :
+                platform === 'PS4' ? 'PS' :
                 platform.startsWith('Xbox') ? 'XB' :
                 platform === 'Switch' ? 'NS' :
                 platform === 'Mobile' ? 'Mob' :
@@ -137,15 +141,10 @@ function PlatformIcon({ platform }) {
   );
 }
 
-function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onRemove }) {
+function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onEditMetadata, onRemove }) {
   const handleLaunchClick = (e) => {
     e.stopPropagation();
     onLaunch();
-  };
-
-  const handleRemoveClick = (e) => {
-    e.stopPropagation();
-    onRemove();
   };
 
   const playtimeHours = Math.round((game.playtime / 3600) * 10) / 10;
@@ -192,13 +191,12 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onR
           >
             <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
           </button>
-          <button
-            className="quick-remove-button"
-            onClick={handleRemoveClick}
-            title="Remove from Library"
-          >
-            <Trash2 size={14} />
-          </button>
+          <LibraryOverflowMenu
+            className="card-library-overflow"
+            triggerClassName="card-library-overflow-trigger"
+            onEditMetadata={onEditMetadata}
+            onRemove={onRemove}
+          />
         </div>
       </div>
 
@@ -495,34 +493,27 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onR
           background: #f87171;
         }
 
-        .quick-remove-button {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: rgba(239, 68, 68, 0.15);
-          border: 1px solid rgba(239, 68, 68, 0.25);
-          color: #ef4444;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: all var(--transition-fast);
+        .card-library-overflow {
           transform: translateY(10px);
           position: absolute;
           bottom: 12px;
           right: 12px;
           opacity: 0;
+          transition: all var(--transition-fast);
         }
 
-        .store-card:hover .quick-remove-button {
+        .store-card:hover .card-library-overflow,
+        .card-library-overflow:has(.library-overflow-trigger[aria-expanded="true"]) {
           transform: translateY(0);
           opacity: 1;
         }
 
-        .quick-remove-button:hover {
-          background: #ef4444;
-          color: #fff;
-          box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+        .card-library-overflow-trigger {
+          width: 32px;
+          height: 32px;
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(255, 255, 255, 0.14);
+          color: rgba(255, 255, 255, 0.72);
         }
 
         .metric-icon {

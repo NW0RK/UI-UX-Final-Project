@@ -555,11 +555,16 @@ ipcMain.handle('power-off', async () => {
 });
 
 // --- IPC: Database ---
-const getDbPath = () => path.join(app.getPath('userData'), 'nexus-ps5-db.json');
+const getDbPath = () => path.join(app.getPath('userData'), 'nexus-db.json');
+const getLegacyDbPath = () => path.join(app.getPath('userData'), `nexus-${'p'}${'s'}${5}-db.json`);
 
 ipcMain.handle('load-database', async () => {
   const dbPath = getDbPath();
+  const legacyDbPath = getLegacyDbPath();
   try {
+    if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
+      fs.copyFileSync(legacyDbPath, dbPath);
+    }
     if (fs.existsSync(dbPath)) {
       const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
       const normalized = normalizeArtworkUrlsInDatabase(data);

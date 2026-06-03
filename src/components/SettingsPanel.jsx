@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, Sliders, RefreshCw, Layers, Key, Lock, Unlock, Activity, Image, Trash2, BadgeCheck } from 'lucide-react';
+import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -107,7 +107,7 @@ export default function SettingsPanel({
         <div className="settings-header">
           <div className="settings-title-group">
             <Layers size={16} className="title-icon" />
-            <h2 className="settings-title">Nexus Customization Suite</h2>
+            <h2 className="settings-title">Settings</h2>
           </div>
           <button 
             className="settings-close-btn" 
@@ -122,10 +122,10 @@ export default function SettingsPanel({
         {/* Settings Body */}
         <div className="settings-body-scrollable">
           
-          {/* Section 1: Themes */}
+          {/* Appearance */}
           <div className="settings-section">
-            <h3 className="section-label-heading">PS5 Console Telemetry Themes</h3>
-            <p className="section-description">Select your launcher theme profiles. Changes primary glowing vectors, canvas dust tones, and telemetry backdrops.</p>
+            <h3 className="section-label-heading">Appearance</h3>
+            <p className="section-description">Choose the launcher theme and adjust the main visual effects.</p>
             
             <div className="themes-grid-row">
               <button 
@@ -176,12 +176,92 @@ export default function SettingsPanel({
                 </div>
               </button>
             </div>
+
+            <div className="sliders-form-grid settings-subgroup">
+              <div className="slider-input-group">
+                <div className="slider-labels">
+                  <span>Panel Blur</span>
+                  <span>{settings.glassBlur}px</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="5" 
+                  max="40" 
+                  className="settings-slider-bar" 
+                  value={settings.glassBlur}
+                  onChange={(e) => handleSliderChange('glassBlur', parseInt(e.target.value))}
+                />
+              </div>
+
+              <div className="slider-input-group">
+                <div className="slider-labels">
+                  <span>Panel Opacity</span>
+                  <span>{Math.round(settings.glassOpacity * 100)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="10" 
+                  max="90" 
+                  className="settings-slider-bar" 
+                  value={settings.glassOpacity * 100}
+                  onChange={(e) => handleSliderChange('glassOpacity', parseFloat(e.target.value) / 100)}
+                />
+              </div>
+
+              <div className="slider-input-group">
+                <div className="slider-labels">
+                  <span>Particle Density</span>
+                  <span>{settings.particleDensity}x</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0.5" 
+                  max="2.0" 
+                  step="0.1" 
+                  className="settings-slider-bar" 
+                  value={settings.particleDensity}
+                  onChange={(e) => handleSliderChange('particleDensity', parseFloat(e.target.value))}
+                />
+              </div>
+
+              <div className="slider-input-group">
+                <div className="slider-labels">
+                  <span>Particle Speed</span>
+                  <span>{settings.particleSpeed}x</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0.5" 
+                  max="3.0" 
+                  step="0.1" 
+                  className="settings-slider-bar" 
+                  value={settings.particleSpeed}
+                  onChange={(e) => handleSliderChange('particleSpeed', parseFloat(e.target.value))}
+                />
+              </div>
+
+              <div className="slider-input-group">
+                <div className="slider-labels">
+                  <span>Font Size</span>
+                  <span>{Math.round((settings.fontScale || 1.0) * 100)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="80" 
+                  max="150" 
+                  step="5" 
+                  className="settings-slider-bar" 
+                  value={Math.round((settings.fontScale || 1.0) * 100)}
+                  onChange={(e) => handleSliderChange('fontScale', parseFloat(e.target.value) / 100)}
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Section 2: Sound Settings */}
+          {/* Audio */}
           <div className="settings-section">
-            <h3 className="section-label-heading">Acoustic System Settings</h3>
-            <p className="section-description">Toggle synthesized haptics, click ticks, game-specific ambient drones, and orchestral intro swells.</p>
+            <h3 className="section-label-heading">Audio</h3>
+            <p className="section-description">Turn launcher sound effects and ambient audio on or off.</p>
             
             <div
               className="audio-toggle-card"
@@ -194,8 +274,8 @@ export default function SettingsPanel({
               <div className="audio-card-left">
                 {settings.isMuted ? <VolumeX size={20} className="mute-status-icon muted" /> : <Volume2 size={20} className="mute-status-icon active-volume" />}
                 <div className="audio-card-info">
-                  <span className="audio-card-title">Console Synthesized Sounds</span>
-                  <span className="audio-card-desc">{settings.isMuted ? 'All UI ticks, clicks, and game drone swells are currently muted.' : 'UI interactive acoustic sweeps and ambient chord backdrops are active.'}</span>
+                  <span className="audio-card-title">Launcher Sounds</span>
+                  <span className="audio-card-desc">{settings.isMuted ? 'Clicks, UI sounds, and ambient audio are muted.' : 'Clicks, UI sounds, and ambient audio are on.'}</span>
                 </div>
               </div>
               <div className="audio-card-right">
@@ -206,44 +286,13 @@ export default function SettingsPanel({
             </div>
           </div>
 
-          {/* Section 3: System Status Tracking */}
-          <div className="settings-section">
-            <h3 className="section-label-heading flex-center-start">
-              <Activity size={14} className="heading-icon" />
-              <span>System Status Tracking</span>
-            </h3>
-            <p className="section-description">Disable this to stop CPU/RAM status polling and hide System Status readouts across the launcher.</p>
-            
-            <div
-              className="audio-toggle-card"
-              role="switch"
-              tabIndex={0}
-              aria-checked={settings.trackSystemStatus}
-              onClick={handleSystemStatusToggle}
-              onFocus={audioEngine.playHoverTick}
-            >
-              <div className="audio-card-left">
-                <Activity size={20} className={settings.trackSystemStatus ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
-                <div className="audio-card-info">
-                  <span className="audio-card-title">System Status Telemetry</span>
-                  <span className="audio-card-desc">{settings.trackSystemStatus ? 'CPU and RAM status indicators are currently active.' : 'CPU and RAM status tracking is fully disabled.'}</span>
-                </div>
-              </div>
-              <div className="audio-card-right">
-                <div className={`checkbox-toggle-switch ${settings.trackSystemStatus ? 'sw-active' : 'sw-muted'}`}>
-                  <div className="switch-knob" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Banner Animation */}
+          {/* Artwork */}
           <div className="settings-section">
             <h3 className="section-label-heading flex-center-start">
               <Image size={14} className="heading-icon" />
-              <span>Banner Cinematic Zoom</span>
+              <span>Artwork</span>
             </h3>
-            <p className="section-description">Disable this to stop the hero banner background from slowly zooming and panning.</p>
+            <p className="section-description">Manage banner motion, studio logos, and artwork API keys.</p>
             
             <div
               className="audio-toggle-card"
@@ -256,8 +305,8 @@ export default function SettingsPanel({
               <div className="audio-card-left">
                 <Image size={20} className={settings.bannerAnimation ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
                 <div className="audio-card-info">
-                  <span className="audio-card-title">Banner Cinematic Pan Animation</span>
-                  <span className="audio-card-desc">{settings.bannerAnimation ? 'Hero banner background slowly zooms and pans for a cinematic effect.' : 'Hero banner background is static with no zoom animation.'}</span>
+                  <span className="audio-card-title">Banner Motion</span>
+                  <span className="audio-card-desc">{settings.bannerAnimation ? 'Hero banners slowly zoom and pan.' : 'Hero banners stay still.'}</span>
                 </div>
               </div>
               <div className="audio-card-right">
@@ -266,18 +315,9 @@ export default function SettingsPanel({
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Section 4: Studio Logo Source */}
-          <div className="settings-section">
-            <h3 className="section-label-heading flex-center-start">
-              <BadgeCheck size={14} className="heading-icon" />
-              <span>Studio Logo Source</span>
-            </h3>
-            <p className="section-description">When enabled, the banner studio name can display live studio logos from Brandfetch's Logo API. A Brandfetch Client ID is required by the API.</p>
-            
             <div
-              className="audio-toggle-card"
+              className="audio-toggle-card settings-subgroup"
               role="switch"
               tabIndex={0}
               aria-checked={settings.studioLogosEnabled}
@@ -287,8 +327,8 @@ export default function SettingsPanel({
               <div className="audio-card-left">
                 <BadgeCheck size={20} className={settings.studioLogosEnabled ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
                 <div className="audio-card-info">
-                  <span className="audio-card-title">Brandfetch Studio Logos</span>
-                  <span className="audio-card-desc">{settings.studioLogosEnabled ? 'Studio labels will try to load current Brandfetch logos first, then fall back to icons.' : 'Studio labels stay as text only.'}</span>
+                  <span className="audio-card-title">Logo Lookup</span>
+                  <span className="audio-card-desc">{settings.studioLogosEnabled ? 'Use Brandfetch logos when possible.' : 'Show studio names as text.'}</span>
                 </div>
               </div>
               <div className="audio-card-right">
@@ -312,24 +352,11 @@ export default function SettingsPanel({
                 />
               </div>
               <span className="api-key-status-text">
-                Get a free client ID from Brandfetch Developer Portal before deploying.
+                Brandfetch client ID
               </span>
             </div>
-          </div>
 
-          {/* Section 4: SteamGridDB API Key */}
-          <div className="settings-section">
-            <h3 className="section-label-heading flex-center-start">
-              <Key size={14} className="heading-icon" />
-              <span>SteamGridDB API Configuration</span>
-            </h3>
-            <p className="section-description">
-              {apiKeyStatus === 'builtin' 
-                ? 'Using built-in SteamGridDB API key. You can override it with your own key for higher rate limits.'
-                : 'Using your custom SteamGridDB API key.'}
-            </p>
-            
-            <div className="api-key-card">
+            <div className="api-key-card settings-subgroup">
               <div className="api-key-input-row">
                 <div className="api-key-status-icon">
                   {apiKeyStatus === 'custom' ? <Lock size={14} /> : <Unlock size={14} />}
@@ -339,12 +366,12 @@ export default function SettingsPanel({
                   className="glass-input api-key-input" 
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter your SteamGridDB API key..."
+                  placeholder="SteamGridDB API key..."
                 />
               </div>
               <div className="api-key-actions">
                 <span className="api-key-status-text">
-                  {apiKeySaved ? 'Saved!' : apiKeyStatus === 'custom' ? 'Custom key active' : 'Built-in key active'}
+                  {apiKeySaved ? 'Saved!' : apiKeyStatus === 'custom' ? 'Custom SteamGridDB key' : 'Built-in SteamGridDB key'}
                 </span>
                 <div className="api-key-buttons">
                   <button 
@@ -352,7 +379,7 @@ export default function SettingsPanel({
                     onClick={handleResetApiKey}
                     onMouseEnter={audioEngine.playHoverTick}
                   >
-                    Reset to Default
+                    Reset
                   </button>
                   <button 
                     className="glow-btn glow-btn-primary api-key-btn"
@@ -366,101 +393,44 @@ export default function SettingsPanel({
             </div>
           </div>
 
-          {/* Section 6: Fine Sliders Tuning */}
+          {/* System */}
           <div className="settings-section">
             <h3 className="section-label-heading flex-center-start">
-              <Sliders size={14} className="heading-icon" />
-              <span>Glassmorphism & Stardust Tuning</span>
+              <Activity size={14} className="heading-icon" />
+              <span>System</span>
             </h3>
+            <p className="section-description">Control CPU and RAM status readouts.</p>
             
-            <div className="sliders-form-grid">
-              <div className="slider-input-group">
-                <div className="slider-labels">
-                  <span>Glassmorphism Backdrop Blur</span>
-                  <span>{settings.glassBlur}px</span>
+            <div
+              className="audio-toggle-card"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.trackSystemStatus}
+              onClick={handleSystemStatusToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Activity size={20} className={settings.trackSystemStatus ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">System Status</span>
+                  <span className="audio-card-desc">{settings.trackSystemStatus ? 'CPU and RAM indicators are on.' : 'CPU and RAM indicators are off.'}</span>
                 </div>
-                <input 
-                  type="range" 
-                  min="5" 
-                  max="40" 
-                  className="settings-slider-bar" 
-                  value={settings.glassBlur}
-                  onChange={(e) => handleSliderChange('glassBlur', parseInt(e.target.value))}
-                />
               </div>
-
-              <div className="slider-input-group">
-                <div className="slider-labels">
-                  <span>Glass Panel Transparency</span>
-                  <span>{Math.round(settings.glassOpacity * 100)}%</span>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.trackSystemStatus ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
                 </div>
-                <input 
-                  type="range" 
-                  min="10" 
-                  max="90" 
-                  className="settings-slider-bar" 
-                  value={settings.glassOpacity * 100}
-                  onChange={(e) => handleSliderChange('glassOpacity', parseFloat(e.target.value) / 100)}
-                />
-              </div>
-
-              <div className="slider-input-group">
-                <div className="slider-labels">
-                  <span>Stardust Ambient Particle Density</span>
-                  <span>{settings.particleDensity}x</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="0.5" 
-                  max="2.0" 
-                  step="0.1" 
-                  className="settings-slider-bar" 
-                  value={settings.particleDensity}
-                  onChange={(e) => handleSliderChange('particleDensity', parseFloat(e.target.value))}
-                />
-              </div>
-
-              <div className="slider-input-group">
-                <div className="slider-labels">
-                  <span>Stardust Velocity Float Speed</span>
-                  <span>{settings.particleSpeed}x</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="0.5" 
-                  max="3.0" 
-                  step="0.1" 
-                  className="settings-slider-bar" 
-                  value={settings.particleSpeed}
-                  onChange={(e) => handleSliderChange('particleSpeed', parseFloat(e.target.value))}
-                />
-              </div>
-
-              <div className="slider-input-group">
-                <div className="slider-labels">
-                  <span>Global UI Font Scale</span>
-                  <span>{Math.round((settings.fontScale || 1.0) * 100)}%</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="80" 
-                  max="150" 
-                  step="5" 
-                  className="settings-slider-bar" 
-                  value={Math.round((settings.fontScale || 1.0) * 100)}
-                  onChange={(e) => handleSliderChange('fontScale', parseFloat(e.target.value) / 100)}
-                />
               </div>
             </div>
           </div>
 
-          {/* Section 7: System Reset */}
+          {/* Maintenance */}
           <div className="settings-section reset-system-sec">
-            <h3 className="section-label-heading red-heading">Maintenance & Cache</h3>
+            <h3 className="section-label-heading red-heading">Maintenance</h3>
             <div className="maintenance-card">
               <div className="m-left">
-                <span className="m-title">Re-index database catalog</span>
-                <span className="m-desc">Currently managing <strong>{gamesCount} library indices</strong>. Resetting clears custom cover edits and logs.</span>
+                <span className="m-title">Reset Database</span>
+                <span className="m-desc">Currently managing <strong>{gamesCount} games</strong>. Clears scanned paths, default catalog changes, and playtimes.</span>
               </div>
               <button 
                 className="glow-btn reset-db-btn"
@@ -474,8 +444,8 @@ export default function SettingsPanel({
 
             <div className="maintenance-card" style={{ marginTop: '14px' }}>
               <div className="m-left">
-                <span className="m-title">Clear Picture & Artwork Cache</span>
-                <span className="m-desc">Deletes all downloaded vertical grids, hero banners, logos, icons, and cached Brandfetch studio logos. The launcher will automatically re-fetch clean assets.</span>
+                <span className="m-title">Clear Artwork Cache</span>
+                <span className="m-desc">Deletes downloaded grids, banners, logos, icons, and studio logos. The launcher will fetch them again.</span>
               </div>
               <button 
                 className="glow-btn clear-cache-btn"
@@ -497,7 +467,7 @@ export default function SettingsPanel({
             onClick={handleClose}
             onMouseEnter={audioEngine.playHoverTick}
           >
-            Save & Exit Config
+            Done
           </button>
         </div>
       </div>
@@ -524,7 +494,7 @@ export default function SettingsPanel({
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          animation: scale-up-editor 0.4s var(--ease-ps5) forwards;
+          animation: scale-up-editor 0.4s var(--ease-interface) forwards;
         }
 
         .settings-header {
@@ -585,6 +555,10 @@ export default function SettingsPanel({
         .settings-section {
           display: flex;
           flex-direction: column;
+        }
+
+        .settings-subgroup {
+          margin-top: 12px;
         }
 
         .section-label-heading {

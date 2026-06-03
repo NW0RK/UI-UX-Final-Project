@@ -4,7 +4,7 @@ import { audioEngine } from '../utils/audioEngine';
 
 const platformIcons = {
   'PC': Monitor,
-  'PS5': Gamepad2,
+  'Console': Gamepad2,
   'PS4': Gamepad2,
   'Xbox Series X|S': Gamepad2,
   'Xbox One': Gamepad2,
@@ -14,7 +14,8 @@ const platformIcons = {
 
 function PlatformIcon({ platform }) {
   const Icon = platformIcons[platform] || Gamepad2;
-  const label = platform === 'PS5' || platform === 'PS4' ? 'PS' :
+  const label = platform === 'Console' ? 'Con' :
+                platform === 'PS4' ? 'PS' :
                 platform.startsWith('Xbox') ? 'XB' :
                 platform === 'Switch' ? 'NS' :
                 platform === 'Mobile' ? 'Mob' :

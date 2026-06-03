@@ -643,7 +643,7 @@ const roomStyles = `
     flex-shrink: 0;
     overflow: hidden;
     cursor: pointer;
-    transition: all 0.4s var(--ease-ps5);
+    transition: all 0.4s var(--ease-interface);
   }
 
   /* Active Card layout */

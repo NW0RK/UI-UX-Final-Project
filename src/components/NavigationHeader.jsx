@@ -217,7 +217,7 @@ export default function NavigationHeader({
           letter-spacing: 12px;
           color: #FFFFFF;
           cursor: pointer;
-          transition: all 0.3s var(--ease-ps5);
+          transition: all 0.3s var(--ease-interface);
           text-shadow: 0 0 10px rgba(var(--accent-color-rgb), 0.15);
         }
 

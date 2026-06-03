@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Trash2, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 const platformIcons = {
   'PC': Monitor,
-  'PS5': Gamepad2,
+  'Console': Gamepad2,
   'PS4': Gamepad2,
   'Xbox Series X|S': Gamepad2,
   'Xbox One': Gamepad2,
@@ -145,7 +146,7 @@ function getCuratedMockMedia(gameId, title) {
   };
 }
 
-export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch, onRemoveGame }) {
+export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch, onEditMetadata, onRemoveGame }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
   const [media, setMedia] = useState({ screenshots: [], movies: [] });
@@ -520,13 +521,16 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
                 <div className="store-item-divider" />
 
-                <button
-                  className="glow-btn remove-owned-btn"
-                  onClick={() => onRemoveGame(item.id)}
-                >
-                  <Trash2 size={14} />
-                  <span>Remove from Library</span>
-                </button>
+                <div className="owned-overflow-row">
+                  <span className="owned-overflow-label">Library actions</span>
+                  <LibraryOverflowMenu
+                    className="owned-library-overflow"
+                    triggerClassName="owned-overflow-trigger"
+                    menuClassName="owned-overflow-popover"
+                    onEditMetadata={ownedGame ? () => onEditMetadata(ownedGame) : undefined}
+                    onRemove={() => onRemoveGame(item.id)}
+                  />
+                </div>
               </>
             ) : (
               <>
@@ -1152,19 +1156,31 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           margin: 4px 0;
         }
 
-        .remove-owned-btn {
-          width: 100%;
-          padding: 10px;
-          font-size: var(--fs-11);
-          color: rgba(255, 255, 255, 0.4) !important;
-          border-color: rgba(255, 255, 255, 0.06) !important;
+        .owned-overflow-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
         }
 
-        .remove-owned-btn:hover {
-          color: #ef4444 !important;
-          border-color: rgba(239, 68, 68, 0.3) !important;
-          background: rgba(239, 68, 68, 0.08) !important;
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.15) !important;
+        .owned-overflow-label {
+          font-family: var(--font-display);
+          font-size: var(--fs-10);
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.36);
+        }
+
+        .owned-overflow-trigger {
+          width: 38px;
+          height: 38px;
+          border-radius: 8px;
+        }
+
+        .owned-overflow-popover {
+          bottom: auto;
+          top: calc(100% + 10px);
         }
 
         .not-owned-label {

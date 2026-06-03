@@ -560,7 +560,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          animation: scale-up-editor 0.4s var(--ease-ps5) forwards;
+          animation: scale-up-editor 0.4s var(--ease-interface) forwards;
         }
 
         @keyframes scale-up-editor {

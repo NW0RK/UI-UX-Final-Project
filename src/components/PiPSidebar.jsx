@@ -177,7 +177,7 @@ export default function PiPSidebar({
           padding: 20px;
           box-shadow: -10px 0 40px rgba(0, 0, 0, 0.7);
           pointer-events: auto;
-          animation: slide-in-pip 0.5s var(--ease-ps5) forwards;
+          animation: slide-in-pip 0.5s var(--ease-interface) forwards;
         }
 
         @keyframes slide-in-pip {

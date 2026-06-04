@@ -208,8 +208,13 @@ function cleanSteamDescription(value) {
 
 function getThemeValue(name, fallback) {
   if (typeof window === 'undefined') return fallback;
-  const styles = window.getComputedStyle(document.documentElement);
-  return styles.getPropertyValue(name).trim() || fallback;
+  const bodyValue = document.body
+    ? window.getComputedStyle(document.body).getPropertyValue(name).trim()
+    : '';
+  if (bodyValue) return bodyValue;
+
+  const rootValue = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return rootValue || fallback;
 }
 
 function getItadChartTheme() {
@@ -393,7 +398,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       .filter(([time, amount]) => Number.isFinite(time) && Number.isFinite(amount))
       .sort((a, b) => a[0] - b[0]);
 
-    setHighchartsStatus(data.length ? 'Loading Highcharts 12.6.0...' : 'Live ITAD price history requires an API key.');
+    setHighchartsStatus(data.length ? 'Loading price chart...' : 'Live ITAD price history requires an API key.');
 
     loadHighchartsStock()
       .then((Highcharts) => {
@@ -409,14 +414,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               fontFamily: 'var(--font-sans)'
             }
           },
-          credits: {
-            enabled: true,
-            text: `Created with Highcharts ${HIGHCHARTS_VERSION}`,
-            href: undefined,
-            style: {
-              color: 'rgba(255, 255, 255, 0.42)'
-            }
-          },
+          credits: { enabled: false },
           exporting: {
             enabled: true,
             buttons: {
@@ -563,7 +561,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       })
       .catch((error) => {
         console.error('Highcharts load failed:', error);
-        if (active) setHighchartsStatus('Highcharts 12.6.0 could not be loaded.');
+        if (active) setHighchartsStatus('Price chart could not be loaded.');
       });
 
     return () => {
@@ -662,7 +660,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       ]
     };
 
-    setHighchartsStatus('Loading Highcharts 12.6.0...');
+    setHighchartsStatus('Loading price chart...');
 
     loadHighchartsStock()
       .then((Highcharts) => {
@@ -676,9 +674,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               plotBackgroundColor: chartTheme.plotBackground,
               style: { fontFamily: chartTheme.fontSans }
             },
-            credits: {
-              style: { color: chartTheme.faintText }
-            },
+            credits: { enabled: false },
             exporting: {
               buttons: {
                 contextButton: {
@@ -764,12 +760,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             spacing: [16, 16, 10, 16],
             style: { fontFamily: chartTheme.fontSans }
           },
-          credits: {
-            enabled: true,
-            text: `Created with Highcharts ${HIGHCHARTS_VERSION}`,
-            href: undefined,
-            style: { color: chartTheme.faintText }
-          },
+          credits: { enabled: false },
           exporting: {
             enabled: true,
             buttons: {
@@ -880,7 +871,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       })
       .catch((error) => {
         console.error('Highcharts load failed:', error);
-        if (active) setHighchartsStatus('Highcharts 12.6.0 could not be loaded.');
+        if (active) setHighchartsStatus('Price chart could not be loaded.');
       });
 
     return () => { active = false; };

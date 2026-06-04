@@ -206,6 +206,34 @@ function cleanSteamDescription(value) {
   return withLineBreaks.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function getThemeValue(name, fallback) {
+  if (typeof window === 'undefined') return fallback;
+  const styles = window.getComputedStyle(document.documentElement);
+  return styles.getPropertyValue(name).trim() || fallback;
+}
+
+function getItadChartTheme() {
+  const accentRgb = getThemeValue('--accent-color-rgb', '0, 229, 255');
+  const fontSans = getThemeValue('--font-sans', 'Inter, system-ui, sans-serif');
+  const fontDisplay = getThemeValue('--font-display', fontSans);
+
+  return {
+    accent: `rgba(${accentRgb}, 1)`,
+    accentSoft: `rgba(${accentRgb}, 0.14)`,
+    accentFaint: `rgba(${accentRgb}, 0.055)`,
+    accentLine: `rgba(${accentRgb}, 0.48)`,
+    background: 'transparent',
+    plotBackground: `rgba(${accentRgb}, 0.035)`,
+    grid: 'rgba(255, 255, 255, 0.065)',
+    text: '#ffffff',
+    mutedText: 'rgba(255, 255, 255, 0.62)',
+    faintText: 'rgba(255, 255, 255, 0.4)',
+    tooltipBackground: 'rgba(7, 9, 14, 0.94)',
+    fontSans,
+    fontDisplay
+  };
+}
+
 export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch, onEditMetadata, onRemoveGame }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
@@ -230,10 +258,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const [syncingItad, setSyncingItad] = useState(false);
   const [steamDescription, setSteamDescription] = useState('');
   const [itadGameId, setItadGameId] = useState(null);
-  const [chartRange, setChartRange] = useState('1m');
   const [chartPoints, setChartPoints] = useState([]);
-  const [chartLoading, setChartLoading] = useState(false);
   const [highchartsStatus, setHighchartsStatus] = useState('Loading ITAD price history...');
+  const [chartThemeRevision, setChartThemeRevision] = useState(0);
   const highchartsContainerRef = useRef(null);
   const highchartsInstanceRef = useRef(null);
 
@@ -305,6 +332,27 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     loadMedia();
     return () => { active = false; };
   }, [item]);
+
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined') return undefined;
+
+    const updateChartTheme = () => setChartThemeRevision(revision => revision + 1);
+    const observer = new MutationObserver(updateChartTheme);
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    });
+
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style']
+      });
+    }
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (lightboxIndex === -1) return;
@@ -532,7 +580,6 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     highchartsInstanceRef.current?.destroy();
     highchartsInstanceRef.current = null;
     setItadGameId(null);
-    setChartRange('1m');
     setChartPoints([]);
 
     if (!item.steamAppId) {
@@ -565,18 +612,17 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     let active = true;
 
     async function loadChartHistory() {
-      setChartLoading(true);
-      setHighchartsStatus(`Loading ${chartRange} ITAD price history...`);
+      setHighchartsStatus('Loading ITAD price history...');
 
       try {
-        const result = await fetchItadHistory(itadGameId, { range: chartRange, country: 'US' });
+        const result = await fetchItadHistory(itadGameId, { country: 'US' });
         if (!active) return;
 
         if (result.points.length === 0) {
           highchartsInstanceRef.current?.destroy();
           highchartsInstanceRef.current = null;
           setChartPoints([]);
-          setHighchartsStatus(`No valid ITAD price changes found for ${chartRange}.`);
+          setHighchartsStatus('No valid ITAD price changes found.');
           return;
         }
 
@@ -589,14 +635,12 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         highchartsInstanceRef.current = null;
         setChartPoints([]);
         setHighchartsStatus(error.message || 'ITAD price history could not be loaded.');
-      } finally {
-        if (active) setChartLoading(false);
       }
     }
 
     loadChartHistory();
     return () => { active = false; };
-  }, [itadGameId, chartRange]);
+  }, [itadGameId]);
 
   useEffect(() => {
     if (!highchartsContainerRef.current) return;
@@ -609,6 +653,14 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     let active = true;
     const chartLowest = Math.min(...chartPoints.map(([, amount]) => amount));
+    const chartTheme = getItadChartTheme();
+    const historyFill = {
+      linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+      stops: [
+        [0, chartTheme.accentSoft],
+        [1, 'rgba(255, 255, 255, 0.01)']
+      ]
+    };
 
     setHighchartsStatus('Loading Highcharts 12.6.0...');
 
@@ -618,19 +670,84 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         if (highchartsInstanceRef.current) {
           const chart = highchartsInstanceRef.current;
-          chart.yAxis[0].update({
-            plotBands: [{
-              from: 0,
-              to: chartLowest,
-              color: 'rgba(12, 76, 112, 0.34)'
-            }],
-            plotLines: [{
-              value: chartLowest,
-              color: '#049dea',
-              dashStyle: 'Dash',
-              width: 1,
-              zIndex: 3
-            }]
+          chart.update({
+            chart: {
+              backgroundColor: chartTheme.background,
+              plotBackgroundColor: chartTheme.plotBackground,
+              style: { fontFamily: chartTheme.fontSans }
+            },
+            credits: {
+              style: { color: chartTheme.faintText }
+            },
+            exporting: {
+              buttons: {
+                contextButton: {
+                  symbolStroke: chartTheme.mutedText,
+                  theme: {
+                    fill: 'transparent',
+                    stroke: 'transparent',
+                    states: {
+                      hover: { fill: chartTheme.accentFaint },
+                      select: { fill: chartTheme.accentFaint }
+                    }
+                  }
+                }
+              }
+            },
+            title: {
+              style: {
+                color: chartTheme.text,
+                fontFamily: chartTheme.fontDisplay,
+                fontSize: '22px',
+                fontWeight: '800'
+              }
+            },
+            xAxis: {
+              lineColor: chartTheme.accentLine,
+              tickColor: chartTheme.accentLine,
+              labels: {
+                style: {
+                  color: chartTheme.mutedText,
+                  fontSize: '12px',
+                  fontWeight: '700'
+                }
+              }
+            },
+            yAxis: {
+              gridLineColor: chartTheme.grid,
+              labels: {
+                style: {
+                  color: chartTheme.faintText,
+                  fontSize: '12px',
+                  fontWeight: '700'
+                }
+              },
+              plotBands: [{
+                from: 0,
+                to: chartLowest,
+                color: chartTheme.accentFaint
+              }],
+              plotLines: [{
+                value: chartLowest,
+                color: chartTheme.accent,
+                dashStyle: 'Dash',
+                width: 1,
+                zIndex: 3
+              }]
+            },
+            tooltip: {
+              backgroundColor: chartTheme.tooltipBackground,
+              borderColor: chartTheme.accentLine,
+              style: {
+                color: chartTheme.text,
+                fontWeight: '700'
+              }
+            }
+          }, false);
+          chart.series[0].update({
+            color: chartTheme.accent,
+            fillColor: historyFill,
+            threshold: chartLowest
           }, false);
           chart.series[0].setData(chartPoints, false);
           chart.xAxis[0].setExtremes(chartPoints[0][0], chartPoints[chartPoints.length - 1][0], false, false);
@@ -641,28 +758,29 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         highchartsInstanceRef.current = Highcharts.stockChart(highchartsContainerRef.current, {
           chart: {
-            backgroundColor: 'rgba(20, 28, 40, 0.88)',
+            backgroundColor: chartTheme.background,
+            plotBackgroundColor: chartTheme.plotBackground,
             height: 300,
             spacing: [16, 16, 10, 16],
-            style: { fontFamily: 'var(--font-sans)' }
+            style: { fontFamily: chartTheme.fontSans }
           },
           credits: {
             enabled: true,
             text: `Created with Highcharts ${HIGHCHARTS_VERSION}`,
             href: undefined,
-            style: { color: 'rgba(255, 255, 255, 0.42)' }
+            style: { color: chartTheme.faintText }
           },
           exporting: {
             enabled: true,
             buttons: {
               contextButton: {
-                symbolStroke: 'rgba(255, 255, 255, 0.55)',
+                symbolStroke: chartTheme.mutedText,
                 theme: {
                   fill: 'transparent',
                   stroke: 'transparent',
                   states: {
-                    hover: { fill: 'rgba(255, 255, 255, 0.08)' },
-                    select: { fill: 'rgba(255, 255, 255, 0.08)' }
+                    hover: { fill: chartTheme.accentFaint },
+                    select: { fill: chartTheme.accentFaint }
                   }
                 }
               }
@@ -672,9 +790,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             text: 'Price history (AZ)',
             align: 'left',
             style: {
-              color: '#ffffff',
-              fontFamily: 'var(--font-display)',
-              fontSize: '28px',
+              color: chartTheme.text,
+              fontFamily: chartTheme.fontDisplay,
+              fontSize: '22px',
               fontWeight: '800'
             }
           },
@@ -687,11 +805,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           xAxis: {
             type: 'datetime',
             ordinal: false,
-            lineColor: 'rgba(255, 255, 255, 0.18)',
-            tickColor: 'rgba(115, 143, 184, 0.34)',
+            lineColor: chartTheme.accentLine,
+            tickColor: chartTheme.accentLine,
             labels: {
               style: {
-                color: 'rgba(255, 255, 255, 0.86)',
+                color: chartTheme.mutedText,
                 fontSize: '12px',
                 fontWeight: '700'
               }
@@ -701,10 +819,10 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             opposite: true,
             min: 0,
             title: { text: null },
-            gridLineColor: 'rgba(255, 255, 255, 0.08)',
+            gridLineColor: chartTheme.grid,
             labels: {
               style: {
-                color: 'rgba(255, 255, 255, 0.64)',
+                color: chartTheme.faintText,
                 fontSize: '12px',
                 fontWeight: '700'
               }
@@ -712,22 +830,22 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             plotBands: [{
               from: 0,
               to: chartLowest,
-              color: 'rgba(12, 76, 112, 0.34)'
+              color: chartTheme.accentFaint
             }],
             plotLines: [{
               value: chartLowest,
-              color: '#049dea',
+              color: chartTheme.accent,
               dashStyle: 'Dash',
               width: 1,
               zIndex: 3
             }]
           },
           tooltip: {
-            backgroundColor: 'rgba(9, 13, 20, 0.94)',
-            borderColor: 'rgba(88, 166, 255, 0.35)',
+            backgroundColor: chartTheme.tooltipBackground,
+            borderColor: chartTheme.accentLine,
             borderRadius: 8,
             style: {
-              color: '#ffffff',
+              color: chartTheme.text,
               fontWeight: '700'
             },
             xDateFormat: '%B %e, %Y',
@@ -741,11 +859,12 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             }
           },
           series: [{
-            type: 'line',
+            type: 'area',
             name: item.title,
             data: chartPoints,
             step: 'left',
-            color: '#b7ff00',
+            color: chartTheme.accent,
+            fillColor: historyFill,
             lineWidth: 2,
             threshold: chartLowest
           }]
@@ -765,7 +884,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       });
 
     return () => { active = false; };
-  }, [chartPoints, item?.title, itadInsights, loadingItad]);
+  }, [chartPoints, item?.title, itadInsights, loadingItad, chartThemeRevision]);
 
   if (!item) return null;
 
@@ -1060,19 +1179,6 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                 </div>
 
                 <div className="itad-chart" aria-label="ITAD price history chart">
-                  <div className="itad-chart-range-controls" aria-label="ITAD chart range">
-                    {['1m', '1y', 'max'].map(range => (
-                      <button
-                        key={range}
-                        type="button"
-                        className={chartRange === range ? 'active' : ''}
-                        onClick={() => setChartRange(range)}
-                        disabled={chartLoading || !itadGameId}
-                      >
-                        {range}
-                      </button>
-                    ))}
-                  </div>
                   <div ref={highchartsContainerRef} className="itad-highcharts-container" />
                   {highchartsStatus && <div className="itad-highcharts-status">{highchartsStatus}</div>}
                 </div>
@@ -1607,13 +1713,15 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           min-width: 0;
           border-radius: 8px;
           padding: 12px;
-          background: rgba(0, 0, 0, 0.2);
-          border: 1px solid rgba(255, 255, 255, 0.055);
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)), var(--panel-bg);
+          border: 1px solid var(--glass-border);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
         }
 
         .itad-price-stat.highlight {
-          border-color: rgba(var(--accent-color-rgb), 0.26);
-          background: rgba(var(--accent-color-rgb), 0.07);
+          border-color: rgba(var(--accent-color-rgb), 0.32);
+          background: linear-gradient(180deg, rgba(var(--accent-color-rgb), 0.13), rgba(var(--accent-color-rgb), 0.035)), var(--panel-bg);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 0 18px rgba(var(--accent-color-rgb), 0.08);
         }
 
         .itad-price-stat span,
@@ -1638,47 +1746,27 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           position: relative;
           min-height: 300px;
           border-radius: 8px;
-          background: rgba(20, 28, 40, 0.88);
-          border: 1px solid rgba(255, 255, 255, 0.055);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 10px 28px rgba(0, 0, 0, 0.22);
+          background:
+            linear-gradient(180deg, rgba(var(--accent-color-rgb), 0.08), rgba(255, 255, 255, 0.018) 42%, rgba(0, 0, 0, 0.12)),
+            var(--panel-bg);
+          border: 1px solid var(--glass-border);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 32px rgba(0, 0, 0, 0.24), 0 0 24px rgba(var(--accent-color-rgb), 0.06);
           overflow: hidden;
         }
 
-        .itad-chart-range-controls {
+        .itad-chart::before {
+          content: '';
           position: absolute;
-          top: 46px;
-          left: 16px;
-          z-index: 5;
-          display: flex;
-          gap: 7px;
-        }
-
-        .itad-chart-range-controls button {
-          border-radius: 8px;
-          border: 1px solid rgba(115, 143, 184, 0.34);
-          background: rgba(23, 36, 56, 0.78);
-          color: #16c5ff;
-          font-family: var(--font-display);
-          font-size: var(--fs-11);
-          font-weight: 900;
-          padding: 6px 11px;
-          cursor: pointer;
-          transition: all var(--transition-fast);
-        }
-
-        .itad-chart-range-controls button:hover:not(:disabled),
-        .itad-chart-range-controls button.active {
-          color: #fff;
-          border-color: rgba(146, 166, 201, 0.38);
-          background: rgba(105, 130, 166, 0.42);
-        }
-
-        .itad-chart-range-controls button:disabled {
-          cursor: not-allowed;
-          opacity: 0.45;
+          inset: 0;
+          border-radius: inherit;
+          border: 1px solid rgba(var(--accent-color-rgb), 0.12);
+          pointer-events: none;
+          z-index: 1;
         }
 
         .itad-highcharts-container {
+          position: relative;
+          z-index: 0;
           width: 100%;
           min-height: 300px;
         }
@@ -1695,6 +1783,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           font-weight: 700;
           text-align: center;
           pointer-events: none;
+          z-index: 2;
         }
 
         .itad-market-grid {

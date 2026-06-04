@@ -89,18 +89,6 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
-function getSinceForRange(range) {
-  if (range === 'max') return '2000-01-01T00:00:00.000Z';
-
-  const date = new Date();
-  if (range === '1y') {
-    date.setFullYear(date.getFullYear() - 1);
-  } else {
-    date.setMonth(date.getMonth() - 1);
-  }
-  return date.toISOString();
-}
-
 export function normalizeItadHistory(historyLog = []) {
   return historyLog
     .map(entry => {
@@ -144,7 +132,7 @@ export async function lookupItadGameBySteamAppId(steamAppId) {
   return { ...lookup, id: itadId };
 }
 
-export async function fetchItadHistory(itadId, { range = '1m', country = 'US' } = {}) {
+export async function fetchItadHistory(itadId, { country = 'US' } = {}) {
   const apiKey = getStoredApiKey();
   if (!apiKey) throw new Error('Missing ITAD API key.');
   if (!itadId) throw new Error('Missing ITAD game ID.');
@@ -152,13 +140,10 @@ export async function fetchItadHistory(itadId, { range = '1m', country = 'US' } 
   const historyUrl = new URL(`${ITAD_API_BASE}/games/history/v2`);
   historyUrl.searchParams.set('id', itadId);
   historyUrl.searchParams.set('country', country);
-  const since = getSinceForRange(range);
-  if (since) historyUrl.searchParams.set('since', since);
 
   const historyLog = await fetchJson(historyUrl, { headers: authHeaders(apiKey) });
   const history = normalizeItadHistory(historyLog);
   return {
-    range,
     history,
     points: toHighchartsHistoryPoints(history)
   };
@@ -197,7 +182,7 @@ export async function getItadStoreInsights(item) {
     bundlesUrl.searchParams.set('country', 'US');
 
     const [historyResult, bundles] = await Promise.all([
-      fetchItadHistory(itadId, { range: '1m', country: 'US' }),
+      fetchItadHistory(itadId, { country: 'US' }),
       fetchJson(bundlesUrl, { headers: authHeaders(apiKey) })
     ]);
 

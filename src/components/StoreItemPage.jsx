@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon, LineChart, Gift, PackageOpen, KeyRound, RefreshCw, ExternalLink } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
+import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 
 const platformIcons = {
   'PC': Monitor,
@@ -12,6 +13,49 @@ const platformIcons = {
   'Switch': Gamepad2,
   'Mobile': Smartphone
 };
+
+const HIGHCHARTS_VERSION = '12.6.0';
+let highchartsLoaderPromise = null;
+
+function loadScriptOnce(src, globalCheck) {
+  if (globalCheck()) return Promise.resolve();
+
+  const existing = document.querySelector(`script[src="${src}"]`);
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+function loadHighchartsStock() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Highcharts requires a browser runtime.'));
+  if (window.Highcharts?.stockChart) return Promise.resolve(window.Highcharts);
+
+  if (!highchartsLoaderPromise) {
+    highchartsLoaderPromise = loadScriptOnce(
+      `https://code.highcharts.com/stock/${HIGHCHARTS_VERSION}/highstock.js`,
+      () => !!window.Highcharts?.stockChart
+    )
+      .then(() => loadScriptOnce(
+        `https://code.highcharts.com/stock/${HIGHCHARTS_VERSION}/modules/exporting.js`,
+        () => !!window.Highcharts?.Chart?.prototype?.exportChart
+      ))
+      .then(() => window.Highcharts);
+  }
+
+  return highchartsLoaderPromise;
+}
 
 const MOCK_MEDIA_DATABASE = {
   cyberpunk: {
@@ -146,6 +190,22 @@ function getCuratedMockMedia(gameId, title) {
   };
 }
 
+function cleanSteamDescription(value) {
+  if (!value) return '';
+  const withLineBreaks = value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n');
+
+  if (typeof document !== 'undefined') {
+    const node = document.createElement('div');
+    node.innerHTML = withLineBreaks;
+    return node.textContent.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  return withLineBreaks.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch, onEditMetadata, onRemoveGame }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
@@ -154,10 +214,33 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const [selectedMedia, setSelectedMedia] = useState(null);
   const [isMuted, setIsMuted] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [itadInsights, setItadInsights] = useState(null);
+  const [loadingItad, setLoadingItad] = useState(false);
+  const [itadOAuthStatus, setItadOAuthStatus] = useState(getItadOAuthStatus);
+  const [itadSyncMessage, setItadSyncMessage] = useState('');
+  const [itadApiKey, setItadApiKey] = useState(() => {
+    try {
+      return localStorage.getItem('nexus_itad_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [itadApiKeySaved, setItadApiKeySaved] = useState(false);
+  const [itadApiKeyRevision, setItadApiKeyRevision] = useState(0);
+  const [syncingItad, setSyncingItad] = useState(false);
+  const [steamDescription, setSteamDescription] = useState('');
+  const [itadGameId, setItadGameId] = useState(null);
+  const [chartRange, setChartRange] = useState('1m');
+  const [chartPoints, setChartPoints] = useState([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [highchartsStatus, setHighchartsStatus] = useState('Loading ITAD price history...');
+  const highchartsContainerRef = useRef(null);
+  const highchartsInstanceRef = useRef(null);
 
   useEffect(() => {
     if (!item) return;
     let active = true;
+    setSteamDescription(item.description || '');
 
     async function loadMedia() {
       setLoadingMedia(true);
@@ -184,6 +267,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       }
 
       if (!active) return;
+
+      const steamAbout = cleanSteamDescription(
+        fetchedData?.about_the_game || fetchedData?.detailed_description || fetchedData?.short_description
+      );
+      setSteamDescription(steamAbout || item.description || '');
 
       if (fetchedData && (fetchedData.screenshots?.length || fetchedData.movies?.length)) {
         const screenshots = fetchedData.screenshots || [];
@@ -231,6 +319,454 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxIndex, media.screenshots]);
 
+  useEffect(() => {
+    if (!item) return;
+    let active = true;
+
+    async function loadItadInsights() {
+      setLoadingItad(true);
+      const insights = await getItadStoreInsights(item);
+      if (!active) return;
+      setItadInsights(insights);
+      setLoadingItad(false);
+    }
+
+    loadItadInsights();
+    return () => { active = false; };
+  }, [item, itadApiKeyRevision]);
+
+  useEffect(() => {
+    return;
+    if (!itadInsights || loadingItad || !highchartsContainerRef.current) return;
+
+    let active = true;
+    const data = (itadInsights.source === 'IsThereAnyDeal API' ? itadInsights.history : [])
+      .map(point => [Date.parse(point.date), Number(point.amount)])
+      .filter(([time, amount]) => Number.isFinite(time) && Number.isFinite(amount))
+      .sort((a, b) => a[0] - b[0]);
+
+    setHighchartsStatus(data.length ? 'Loading Highcharts 12.6.0...' : 'Live ITAD price history requires an API key.');
+
+    loadHighchartsStock()
+      .then((Highcharts) => {
+        if (!active || !highchartsContainerRef.current) return;
+
+        highchartsInstanceRef.current?.destroy();
+        highchartsInstanceRef.current = Highcharts.stockChart(highchartsContainerRef.current, {
+          chart: {
+            backgroundColor: 'rgba(20, 28, 40, 0.88)',
+            height: 300,
+            spacing: [16, 16, 10, 16],
+            style: {
+              fontFamily: 'var(--font-sans)'
+            }
+          },
+          credits: {
+            enabled: true,
+            text: `Created with Highcharts ${HIGHCHARTS_VERSION}`,
+            href: undefined,
+            style: {
+              color: 'rgba(255, 255, 255, 0.42)'
+            }
+          },
+          exporting: {
+            enabled: true,
+            buttons: {
+              contextButton: {
+                symbolStroke: 'rgba(255, 255, 255, 0.55)',
+                theme: {
+                  fill: 'transparent',
+                  stroke: 'transparent',
+                  states: {
+                    hover: { fill: 'rgba(255, 255, 255, 0.08)' },
+                    select: { fill: 'rgba(255, 255, 255, 0.08)' }
+                  }
+                }
+              }
+            }
+          },
+          title: {
+            text: 'Price history (AZ)',
+            align: 'left',
+            style: {
+              color: '#ffffff',
+              fontFamily: 'var(--font-display)',
+              fontSize: '28px',
+              fontWeight: '800'
+            }
+          },
+          subtitle: {
+            text: data.length ? '' : 'Connect ITAD API credentials to render live price history.',
+            align: 'left',
+            style: {
+              color: 'rgba(255, 255, 255, 0.5)',
+              fontSize: '12px',
+              fontWeight: '700'
+            }
+          },
+          rangeSelector: {
+            selected: 2,
+            inputEnabled: false,
+            labelStyle: {
+              color: 'rgba(255, 255, 255, 0.84)',
+              fontWeight: '700'
+            },
+            buttonTheme: {
+              fill: 'rgba(23, 36, 56, 0.75)',
+              stroke: 'rgba(115, 143, 184, 0.34)',
+              'stroke-width': 1,
+              r: 8,
+              padding: 7,
+              style: {
+                color: '#16c5ff',
+                fontWeight: '900'
+              },
+              states: {
+                hover: {
+                  fill: 'rgba(88, 166, 255, 0.1)',
+                  stroke: 'rgba(88, 166, 255, 0.48)',
+                  style: { color: '#ffffff' }
+                },
+                select: {
+                  fill: 'rgba(105, 130, 166, 0.42)',
+                  stroke: 'rgba(146, 166, 201, 0.34)',
+                  style: { color: '#ffffff' }
+                }
+              }
+            },
+            buttons: [
+              { type: 'month', count: 6, text: '6m' },
+              { type: 'year', count: 1, text: '1y' },
+              { type: 'all', text: 'max' }
+            ]
+          },
+          navigator: { enabled: false },
+          scrollbar: { enabled: false },
+          xAxis: {
+            type: 'datetime',
+            ordinal: false,
+            lineColor: 'rgba(255, 255, 255, 0.18)',
+            tickColor: 'rgba(115, 143, 184, 0.34)',
+            labels: {
+              style: {
+                color: 'rgba(255, 255, 255, 0.86)',
+                fontSize: '12px',
+                fontWeight: '700'
+              }
+            }
+          },
+          yAxis: {
+            opposite: true,
+            min: 0,
+            title: { text: null },
+            gridLineColor: 'rgba(255, 255, 255, 0.08)',
+            labels: {
+              style: {
+                color: 'rgba(255, 255, 255, 0.64)',
+                fontSize: '12px',
+                fontWeight: '700'
+              }
+            },
+            plotBands: [{
+              from: 0,
+              to: itadInsights.lowestEver?.amount || 0,
+              color: 'rgba(12, 76, 112, 0.34)'
+            }],
+            plotLines: itadInsights.lowestEver?.amount ? [{
+              value: itadInsights.lowestEver.amount,
+              color: '#049dea',
+              dashStyle: 'Dash',
+              width: 1,
+              zIndex: 3
+            }] : []
+          },
+          tooltip: {
+            backgroundColor: 'rgba(9, 13, 20, 0.94)',
+            borderColor: 'rgba(88, 166, 255, 0.35)',
+            borderRadius: 8,
+            style: {
+              color: '#ffffff',
+              fontWeight: '700'
+            },
+            xDateFormat: '%B %e, %Y',
+            pointFormat: '<span style="color:{series.color}">●</span> {series.name}: <b>${point.y:.2f}</b><br/>'
+          },
+          plotOptions: {
+            series: {
+              animation: false,
+              marker: { enabled: false },
+              states: {
+                hover: { lineWidthPlus: 0 }
+              }
+            }
+          },
+          series: [{
+            type: 'line',
+            name: item.title,
+            data,
+            step: 'left',
+            color: '#b7ff00',
+            lineWidth: 2,
+            threshold: itadInsights.lowestEver?.amount || null
+          }]
+        });
+
+        setHighchartsStatus('');
+      })
+      .catch((error) => {
+        console.error('Highcharts load failed:', error);
+        if (active) setHighchartsStatus('Highcharts 12.6.0 could not be loaded.');
+      });
+
+    return () => {
+      active = false;
+      highchartsInstanceRef.current?.destroy();
+      highchartsInstanceRef.current = null;
+    };
+  }, [itadInsights, loadingItad, item?.title]);
+
+  useEffect(() => {
+    if (!item) return;
+    let active = true;
+
+    highchartsInstanceRef.current?.destroy();
+    highchartsInstanceRef.current = null;
+    setItadGameId(null);
+    setChartRange('1m');
+    setChartPoints([]);
+
+    if (!item.steamAppId) {
+      setHighchartsStatus('Missing Steam App ID for ITAD price history.');
+      return () => { active = false; };
+    }
+
+    if (!hasItadApiKey()) {
+      setHighchartsStatus('Missing ITAD API key. Add nexus_itad_api_key to load live price history.');
+      return () => { active = false; };
+    }
+
+    setHighchartsStatus('Matching Steam App ID with ITAD...');
+
+    lookupItadGameBySteamAppId(item.steamAppId)
+      .then((lookup) => {
+        if (!active) return;
+        setItadGameId(lookup.id);
+      })
+      .catch((error) => {
+        console.error('ITAD lookup failed:', error);
+        if (active) setHighchartsStatus(error.message || 'ITAD lookup failed for this Steam App ID.');
+      });
+
+    return () => { active = false; };
+  }, [item, itadApiKeyRevision]);
+
+  useEffect(() => {
+    if (!itadGameId) return;
+    let active = true;
+
+    async function loadChartHistory() {
+      setChartLoading(true);
+      setHighchartsStatus(`Loading ${chartRange} ITAD price history...`);
+
+      try {
+        const result = await fetchItadHistory(itadGameId, { range: chartRange, country: 'US' });
+        if (!active) return;
+
+        if (result.points.length === 0) {
+          highchartsInstanceRef.current?.destroy();
+          highchartsInstanceRef.current = null;
+          setChartPoints([]);
+          setHighchartsStatus(`No valid ITAD price changes found for ${chartRange}.`);
+          return;
+        }
+
+        setChartPoints(result.points);
+        setHighchartsStatus('');
+      } catch (error) {
+        console.error('ITAD history fetch failed:', error);
+        if (!active) return;
+        highchartsInstanceRef.current?.destroy();
+        highchartsInstanceRef.current = null;
+        setChartPoints([]);
+        setHighchartsStatus(error.message || 'ITAD price history could not be loaded.');
+      } finally {
+        if (active) setChartLoading(false);
+      }
+    }
+
+    loadChartHistory();
+    return () => { active = false; };
+  }, [itadGameId, chartRange]);
+
+  useEffect(() => {
+    if (!highchartsContainerRef.current) return;
+
+    if (chartPoints.length === 0) {
+      highchartsInstanceRef.current?.destroy();
+      highchartsInstanceRef.current = null;
+      return;
+    }
+
+    let active = true;
+    const chartLowest = Math.min(...chartPoints.map(([, amount]) => amount));
+
+    setHighchartsStatus('Loading Highcharts 12.6.0...');
+
+    loadHighchartsStock()
+      .then((Highcharts) => {
+        if (!active || !highchartsContainerRef.current) return;
+
+        if (highchartsInstanceRef.current) {
+          const chart = highchartsInstanceRef.current;
+          chart.yAxis[0].update({
+            plotBands: [{
+              from: 0,
+              to: chartLowest,
+              color: 'rgba(12, 76, 112, 0.34)'
+            }],
+            plotLines: [{
+              value: chartLowest,
+              color: '#049dea',
+              dashStyle: 'Dash',
+              width: 1,
+              zIndex: 3
+            }]
+          }, false);
+          chart.series[0].setData(chartPoints, false);
+          chart.xAxis[0].setExtremes(chartPoints[0][0], chartPoints[chartPoints.length - 1][0], false, false);
+          chart.redraw();
+          setHighchartsStatus('');
+          return;
+        }
+
+        highchartsInstanceRef.current = Highcharts.stockChart(highchartsContainerRef.current, {
+          chart: {
+            backgroundColor: 'rgba(20, 28, 40, 0.88)',
+            height: 300,
+            spacing: [16, 16, 10, 16],
+            style: { fontFamily: 'var(--font-sans)' }
+          },
+          credits: {
+            enabled: true,
+            text: `Created with Highcharts ${HIGHCHARTS_VERSION}`,
+            href: undefined,
+            style: { color: 'rgba(255, 255, 255, 0.42)' }
+          },
+          exporting: {
+            enabled: true,
+            buttons: {
+              contextButton: {
+                symbolStroke: 'rgba(255, 255, 255, 0.55)',
+                theme: {
+                  fill: 'transparent',
+                  stroke: 'transparent',
+                  states: {
+                    hover: { fill: 'rgba(255, 255, 255, 0.08)' },
+                    select: { fill: 'rgba(255, 255, 255, 0.08)' }
+                  }
+                }
+              }
+            }
+          },
+          title: {
+            text: 'Price history (AZ)',
+            align: 'left',
+            style: {
+              color: '#ffffff',
+              fontFamily: 'var(--font-display)',
+              fontSize: '28px',
+              fontWeight: '800'
+            }
+          },
+          rangeSelector: {
+            enabled: false,
+            inputEnabled: false
+          },
+          navigator: { enabled: false },
+          scrollbar: { enabled: false },
+          xAxis: {
+            type: 'datetime',
+            ordinal: false,
+            lineColor: 'rgba(255, 255, 255, 0.18)',
+            tickColor: 'rgba(115, 143, 184, 0.34)',
+            labels: {
+              style: {
+                color: 'rgba(255, 255, 255, 0.86)',
+                fontSize: '12px',
+                fontWeight: '700'
+              }
+            }
+          },
+          yAxis: {
+            opposite: true,
+            min: 0,
+            title: { text: null },
+            gridLineColor: 'rgba(255, 255, 255, 0.08)',
+            labels: {
+              style: {
+                color: 'rgba(255, 255, 255, 0.64)',
+                fontSize: '12px',
+                fontWeight: '700'
+              }
+            },
+            plotBands: [{
+              from: 0,
+              to: chartLowest,
+              color: 'rgba(12, 76, 112, 0.34)'
+            }],
+            plotLines: [{
+              value: chartLowest,
+              color: '#049dea',
+              dashStyle: 'Dash',
+              width: 1,
+              zIndex: 3
+            }]
+          },
+          tooltip: {
+            backgroundColor: 'rgba(9, 13, 20, 0.94)',
+            borderColor: 'rgba(88, 166, 255, 0.35)',
+            borderRadius: 8,
+            style: {
+              color: '#ffffff',
+              fontWeight: '700'
+            },
+            xDateFormat: '%B %e, %Y',
+            pointFormat: '<span style="color:{series.color}">*</span> {series.name}: <b>${point.y:.2f}</b><br/>'
+          },
+          plotOptions: {
+            series: {
+              animation: false,
+              marker: { enabled: false },
+              states: { hover: { lineWidthPlus: 0 } }
+            }
+          },
+          series: [{
+            type: 'line',
+            name: item.title,
+            data: chartPoints,
+            step: 'left',
+            color: '#b7ff00',
+            lineWidth: 2,
+            threshold: chartLowest
+          }]
+        });
+
+        highchartsInstanceRef.current.xAxis[0].setExtremes(
+          chartPoints[0][0],
+          chartPoints[chartPoints.length - 1][0],
+          true,
+          false
+        );
+        setHighchartsStatus('');
+      })
+      .catch((error) => {
+        console.error('Highcharts load failed:', error);
+        if (active) setHighchartsStatus('Highcharts 12.6.0 could not be loaded.');
+      });
+
+    return () => { active = false; };
+  }, [chartPoints, item?.title, itadInsights, loadingItad]);
+
   if (!item) return null;
 
   const ownedGame = ownedGames.find(g => g.id === item.id);
@@ -277,6 +813,49 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     }
   };
 
+  const handleSaveItadApiKey = () => {
+    audioEngine.playClickPulse();
+
+    try {
+      localStorage.setItem('nexus_itad_api_key', itadApiKey.trim());
+      setItadApiKeySaved(true);
+      setItadSyncMessage(itadApiKey.trim()
+        ? 'ITAD API key saved. Live price history is ready to refresh.'
+        : 'ITAD API key cleared. Price history will use preview data.'
+      );
+      setItadApiKeyRevision(revision => revision + 1);
+      setTimeout(() => setItadApiKeySaved(false), 2000);
+    } catch {
+      setItadSyncMessage('Could not save the ITAD API key in this browser session.');
+    }
+  };
+
+  const handleItadSyncClick = async () => {
+    audioEngine.playClickPulse();
+
+    if (itadOAuthStatus.isConnected) {
+      setSyncingItad(true);
+      const result = await syncItadUserLibrary();
+      setSyncingItad(false);
+      setItadSyncMessage(result.ok
+        ? `${result.waitlistCount} waitlist and ${result.collectionCount} collection items ready.`
+        : result.message
+      );
+      return;
+    }
+
+    const url = getItadOAuthUrl();
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url);
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    setItadSyncMessage(itadOAuthStatus.hasClientId ? 'OAuth opened. Sync will unlock after authorization completes.' : 'ITAD app setup opened. OAuth credentials are required before sync can run.');
+    setItadOAuthStatus(getItadOAuthStatus());
+  };
+
+  const aboutText = steamDescription || item.description;
+
   return (
     <div className="store-item-viewport">
       {/* Back button */}
@@ -320,100 +899,186 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       <div className="store-item-body">
         <div className="store-item-left">
           <h3 className="store-item-section-title">About This Game</h3>
-          <p className="store-item-description">{item.description}</p>
-          <h3 className="store-item-section-title">Platforms</h3>
-          <div className="store-item-platforms">
-            {item.platforms.map(p => {
-              const Icon = platformIcons[p] || Gamepad2;
-              return (
-                <div key={p} className="store-item-platform-badge">
-                  <Icon size={16} />
-                  <span>{p}</span>
-                </div>
-              );
-            })}
+          <p className="store-item-description">{aboutText}</p>
+
+          <div className="store-item-showcase-row">
+            <div className="store-item-screenshots-panel">
+              <h3 className="store-item-section-title">
+                <ImageIcon size={16} />
+                <span>Screenshots & Gallery</span>
+              </h3>
+
+              {(() => {
+                const combinedMedia = [];
+                if (media.screenshots) {
+                  media.screenshots.forEach((s, idx) => {
+                    combinedMedia.push({
+                      type: 'image',
+                      id: `screenshot-${s.id || idx}`,
+                      url: s.path_full || s.url,
+                      thumbnail: s.path_thumbnail || s.path_full || s.url
+                    });
+                  });
+                }
+
+                return loadingMedia ? (
+                  <div className="store-item-media-loading">
+                    <div className="media-spinner" />
+                    <span>Fetching visual logs from Steam...</span>
+                  </div>
+                ) : combinedMedia.length > 0 ? (
+                  <div className="store-item-media-grid">
+                    {combinedMedia.slice(0, 4).map((med, index) => {
+                      const isLastSlot = index === 3 && combinedMedia.length >= 4;
+                      const remainingCount = combinedMedia.length - 3;
+
+                      if (isLastSlot) {
+                        return (
+                          <div
+                            key="more-card"
+                            className="media-grid-card more-card"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Open ${remainingCount} more screenshots`}
+                            onClick={() => {
+                              const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
+                              setLightboxIndex(screenshotIdx !== -1 ? screenshotIdx : 0);
+                            }}
+                            onFocus={audioEngine.playHoverTick}
+                          >
+                            <img src={med.thumbnail} alt="More media" className="grid-card-img" />
+                            <div className="more-card-overlay">
+                              <span>+ {remainingCount} {remainingCount === 1 ? 'PHOTO' : 'PHOTOS'}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={med.id}
+                          className="media-grid-card"
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Open gameplay screenshot ${index + 1}`}
+                          onClick={() => {
+                            const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
+                            if (screenshotIdx !== -1) {
+                              setLightboxIndex(screenshotIdx);
+                            } else if (media.screenshots.length > 0) {
+                              setLightboxIndex(0);
+                            }
+                          }}
+                          onFocus={audioEngine.playHoverTick}
+                        >
+                          <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="store-item-media-empty">
+                    <span>No gameplay media available.</span>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="itad-market-stack">
+              <div className="itad-market-section">
+                <h3 className="store-item-section-title">
+                  <PackageOpen size={16} />
+                  <span>Bundles</span>
+                </h3>
+                {(itadInsights?.bundles || []).map(bundle => (
+                  <div key={bundle.id} className="itad-market-row">
+                    <div>
+                      <strong>{bundle.title}</strong>
+                      <span>{bundle.shop} - {bundle.expiry}</span>
+                    </div>
+                    <em>{bundle.price}</em>
+                  </div>
+                ))}
+              </div>
+
+              <div className="itad-market-section">
+                <h3 className="store-item-section-title">
+                  <Gift size={16} />
+                  <span>Giveaways</span>
+                </h3>
+                {(itadInsights?.giveaways || []).map(giveaway => (
+                  <div key={giveaway.id} className="itad-market-row">
+                    <div>
+                      <strong>{giveaway.title}</strong>
+                      <span>{giveaway.shop}</span>
+                    </div>
+                    <em>{giveaway.status}</em>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Screenshots Section */}
-          <h3 className="store-item-section-title" style={{ marginTop: '40px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ImageIcon size={16} />
-            <span>Screenshots & Gallery</span>
-          </h3>
-
-          {(() => {
-            const combinedMedia = [];
-            if (media.screenshots) {
-              media.screenshots.forEach((s, idx) => {
-                combinedMedia.push({
-                  type: 'image',
-                  id: `screenshot-${s.id || idx}`,
-                  url: s.path_full || s.url,
-                  thumbnail: s.path_thumbnail || s.path_full || s.url
-                });
-              });
-            }
-
-            return loadingMedia ? (
-              <div className="store-item-media-loading">
-                <div className="media-spinner" />
-                <span>Fetching visual logs from Steam...</span>
+          <div className="itad-panel">
+            <div className="itad-panel-header">
+              <div>
+                <h3 className="store-item-section-title">
+                  <LineChart size={16} />
+                  <span>ITAD Price Intelligence</span>
+                </h3>
+                <p className="itad-source">{loadingItad ? 'Checking IsThereAnyDeal...' : itadInsights?.source}</p>
               </div>
-            ) : combinedMedia.length > 0 ? (
-              <div className="store-item-media-grid">
-                {combinedMedia.slice(0, 4).map((med, index) => {
-                  const isLastSlot = index === 3 && combinedMedia.length >= 4;
-                  const remainingCount = combinedMedia.length - 3;
+              <div className="itad-appid-pill">
+                <span>Steam App ID</span>
+                <strong>{item.steamAppId || 'Unavailable'}</strong>
+              </div>
+            </div>
 
-                  if (isLastSlot) {
-                    return (
-                      <div
-                        key="more-card"
-                        className="media-grid-card more-card"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Open ${remainingCount} more screenshots`}
-                        onClick={() => {
-                          const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
-                          setLightboxIndex(screenshotIdx !== -1 ? screenshotIdx : 0);
-                        }}
-                        onFocus={audioEngine.playHoverTick}
-                      >
-                        <img src={med.thumbnail} alt="More media" className="grid-card-img" />
-                        <div className="more-card-overlay">
-                          <span>+ {remainingCount} {remainingCount === 1 ? 'PHOTO' : 'PHOTOS'}</span>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={med.id}
-                      className="media-grid-card"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Open gameplay screenshot ${index + 1}`}
-                      onClick={() => {
-                        const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
-                        if (screenshotIdx !== -1) {
-                          setLightboxIndex(screenshotIdx);
-                        } else if (media.screenshots.length > 0) {
-                          setLightboxIndex(0);
-                        }
-                      }}
-                      onFocus={audioEngine.playHoverTick}
-                    >
-                      <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
-                    </div>
-                  );
-                })}
+            {loadingItad || !itadInsights ? (
+              <div className="itad-loading">
+                <div className="media-spinner" />
+                <span>Loading price history</span>
               </div>
             ) : (
-              <div className="store-item-media-empty">
-                <span>No gameplay media available.</span>
-              </div>
-            );
-          })()}
+              <>
+                <div className="itad-price-row">
+                  <div className="itad-price-stat">
+                    <span>Current low</span>
+                    <strong>{itadInsights.current.formatted}</strong>
+                    <small>{itadInsights.current.shop}</small>
+                  </div>
+                  <div className="itad-price-stat highlight">
+                    <span>Lowest ever</span>
+                    <strong>{itadInsights.lowestEver.formatted}</strong>
+                    <small>{itadInsights.lowestEver.date} on {itadInsights.lowestEver.shop}</small>
+                  </div>
+                  <div className="itad-price-stat">
+                    <span>Regular</span>
+                    <strong>{itadInsights.regular.formatted}</strong>
+                    <small>Baseline price</small>
+                  </div>
+                </div>
+
+                <div className="itad-chart" aria-label="ITAD price history chart">
+                  <div className="itad-chart-range-controls" aria-label="ITAD chart range">
+                    {['1m', '1y', 'max'].map(range => (
+                      <button
+                        key={range}
+                        type="button"
+                        className={chartRange === range ? 'active' : ''}
+                        onClick={() => setChartRange(range)}
+                        disabled={chartLoading || !itadGameId}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                  <div ref={highchartsContainerRef} className="itad-highcharts-container" />
+                  {highchartsStatus && <div className="itad-highcharts-status">{highchartsStatus}</div>}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Fullscreen Lightbox Modal */}
           {lightboxIndex !== -1 && media.screenshots && media.screenshots[lightboxIndex] && (
@@ -546,6 +1211,36 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                 </div>
               </>
             )}
+          </div>
+
+          <div className="itad-sync-card">
+            <div className="itad-sync-title">
+              <KeyRound size={16} />
+              <span>ITAD Sync</span>
+            </div>
+            <p>{itadOAuthStatus.isConnected ? 'Waitlist and collection sync can pull directly from IsThereAnyDeal.' : 'Connect IsThereAnyDeal OAuth to sync waitlists and collections into Nexus.'}</p>
+            <div className="itad-api-key-row">
+              <input
+                type="password"
+                className="glass-input itad-api-key-input"
+                value={itadApiKey}
+                onChange={(e) => {
+                  setItadApiKey(e.target.value);
+                  setItadApiKeySaved(false);
+                }}
+                placeholder="ITAD API key..."
+                autoComplete="off"
+              />
+              <button className="glow-btn itad-api-key-save-btn" onClick={handleSaveItadApiKey}>
+                <KeyRound size={14} />
+                <span>{itadApiKeySaved ? 'Saved' : 'Save'}</span>
+              </button>
+            </div>
+            {itadSyncMessage && <div className="itad-sync-message">{itadSyncMessage}</div>}
+            <button className="glow-btn" onClick={handleItadSyncClick} disabled={syncingItad}>
+              {itadOAuthStatus.isConnected ? <RefreshCw size={14} /> : <ExternalLink size={14} />}
+              <span>{syncingItad ? 'Syncing...' : itadOAuthStatus.isConnected ? 'Sync Now' : itadOAuthStatus.hasClientId ? 'Start OAuth' : 'Register App'}</span>
+            </button>
           </div>
 
           {/* Platforms section moved to right column */}
@@ -731,7 +1426,26 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           display: flex;
           flex-direction: column;
           min-height: 0;
-          overflow: hidden;
+          overflow-y: auto;
+          padding-right: 8px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+        }
+
+        .store-item-left::-webkit-scrollbar,
+        .store-item-right::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .store-item-left::-webkit-scrollbar-track,
+        .store-item-right::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .store-item-left::-webkit-scrollbar-thumb,
+        .store-item-right::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.12);
+          border-radius: 4px;
         }
 
         .store-item-section-title {
@@ -752,7 +1466,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           line-height: 1.8;
           color: #a2b8cc;
           font-weight: 400;
-          margin-bottom: 20px;
+          margin-bottom: 22px;
           letter-spacing: 0.3px;
           white-space: pre-line;
           overflow-y: auto;
@@ -806,13 +1520,257 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           filter: drop-shadow(0 0 5px rgba(var(--accent-color-rgb), 0.4));
         }
 
+        .store-item-showcase-row {
+          display: grid;
+          grid-template-columns: minmax(300px, 1.08fr) minmax(240px, 0.92fr);
+          gap: 18px;
+          align-items: stretch;
+          margin-bottom: 22px;
+        }
+
+        .store-item-screenshots-panel,
+        .itad-market-stack {
+          min-width: 0;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .itad-panel {
+          background: rgba(255, 255, 255, 0.025);
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-radius: 12px;
+          padding: 16px;
+          margin: 0 0 22px 0;
+        }
+
+        .itad-panel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+          margin-bottom: 14px;
+        }
+
+        .itad-source {
+          margin: -6px 0 0 24px;
+          color: rgba(255, 255, 255, 0.38);
+          font-size: var(--fs-11);
+          font-weight: 600;
+        }
+
+        .itad-appid-pill {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 3px;
+          min-width: 112px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: rgba(0, 0, 0, 0.22);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .itad-appid-pill span {
+          color: rgba(255, 255, 255, 0.34);
+          font-size: var(--fs-9);
+          font-family: var(--font-display);
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+        }
+
+        .itad-appid-pill strong {
+          color: #fff;
+          font-size: var(--fs-13);
+          font-family: var(--font-display);
+        }
+
+        .itad-loading {
+          min-height: 130px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          color: rgba(255, 255, 255, 0.44);
+          font-size: var(--fs-12);
+        }
+
+        .itad-price-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .itad-price-stat {
+          min-width: 0;
+          border-radius: 8px;
+          padding: 12px;
+          background: rgba(0, 0, 0, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.055);
+        }
+
+        .itad-price-stat.highlight {
+          border-color: rgba(var(--accent-color-rgb), 0.26);
+          background: rgba(var(--accent-color-rgb), 0.07);
+        }
+
+        .itad-price-stat span,
+        .itad-price-stat small {
+          display: block;
+          color: rgba(255, 255, 255, 0.44);
+          font-size: var(--fs-10);
+          font-weight: 700;
+          line-height: 1.35;
+        }
+
+        .itad-price-stat strong {
+          display: block;
+          color: #fff;
+          font-family: var(--font-display);
+          font-size: var(--fs-20);
+          font-weight: 900;
+          margin: 4px 0;
+        }
+
+        .itad-chart {
+          position: relative;
+          min-height: 300px;
+          border-radius: 8px;
+          background: rgba(20, 28, 40, 0.88);
+          border: 1px solid rgba(255, 255, 255, 0.055);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 10px 28px rgba(0, 0, 0, 0.22);
+          overflow: hidden;
+        }
+
+        .itad-chart-range-controls {
+          position: absolute;
+          top: 46px;
+          left: 16px;
+          z-index: 5;
+          display: flex;
+          gap: 7px;
+        }
+
+        .itad-chart-range-controls button {
+          border-radius: 8px;
+          border: 1px solid rgba(115, 143, 184, 0.34);
+          background: rgba(23, 36, 56, 0.78);
+          color: #16c5ff;
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 900;
+          padding: 6px 11px;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+        }
+
+        .itad-chart-range-controls button:hover:not(:disabled),
+        .itad-chart-range-controls button.active {
+          color: #fff;
+          border-color: rgba(146, 166, 201, 0.38);
+          background: rgba(105, 130, 166, 0.42);
+        }
+
+        .itad-chart-range-controls button:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+
+        .itad-highcharts-container {
+          width: 100%;
+          min-height: 300px;
+        }
+
+        .itad-highcharts-status {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-12);
+          font-weight: 700;
+          text-align: center;
+          pointer-events: none;
+        }
+
+        .itad-market-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 14px;
+          margin-bottom: 22px;
+        }
+
+        .itad-market-stack {
+          gap: 12px;
+        }
+
+        .itad-market-section {
+          min-width: 0;
+          border-radius: 12px;
+          padding: 14px;
+          background: rgba(255, 255, 255, 0.018);
+          border: 1px solid rgba(255, 255, 255, 0.055);
+        }
+
+        .itad-market-stack .itad-market-section {
+          flex: 1;
+          overflow: hidden;
+        }
+
+        .itad-market-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.045);
+        }
+
+        .itad-market-row div {
+          min-width: 0;
+        }
+
+        .itad-market-row strong,
+        .itad-market-row span {
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .itad-market-row strong {
+          color: rgba(255, 255, 255, 0.84);
+          font-size: var(--fs-12);
+          font-weight: 800;
+        }
+
+        .itad-market-row span {
+          color: rgba(255, 255, 255, 0.36);
+          font-size: var(--fs-10);
+          margin-top: 3px;
+        }
+
+        .itad-market-row em {
+          flex: 0 0 auto;
+          color: var(--accent-color);
+          font-size: var(--fs-11);
+          font-style: normal;
+          font-family: var(--font-display);
+          font-weight: 900;
+        }
+
         /* --- Media Grid Section --- */
         .store-item-media-loading {
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          min-height: 220px;
+          min-height: 300px;
           background: rgba(255, 255, 255, 0.02);
           border: 1px dashed rgba(255, 255, 255, 0.06);
           border-radius: 16px;
@@ -838,9 +1796,10 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-media-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-top: 16px;
-          max-width: 480px;
+          gap: 12px;
+          margin-top: 0;
+          max-width: none;
+          flex: 1;
         }
 
         .media-grid-card {
@@ -948,10 +1907,14 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           background: rgba(255, 255, 255, 0.01);
           border: 1px solid rgba(255, 255, 255, 0.04);
           border-radius: 16px;
+          min-height: 300px;
           padding: 40px;
           text-align: center;
           color: rgba(255, 255, 255, 0.3);
           font-size: var(--fs-13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         /* --- Fullscreen Lightbox Modal --- */
@@ -1068,6 +2031,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-right {
           display: flex;
           flex-direction: column;
+          min-height: 0;
+          overflow-y: auto;
+          padding-right: 4px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
         }
 
         .store-item-ownership-card {
@@ -1201,6 +2169,118 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           color: rgba(255, 255, 255, 0.25);
           text-align: center;
           line-height: 1.5;
+        }
+
+        .itad-sync-card {
+          margin-top: 20px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .itad-sync-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: rgba(255, 255, 255, 0.86);
+          font-family: var(--font-display);
+          font-size: var(--fs-12);
+          font-weight: 900;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+        }
+
+        .itad-sync-title svg {
+          color: var(--accent-color);
+        }
+
+        .itad-sync-card p {
+          margin: 0;
+          color: rgba(255, 255, 255, 0.38);
+          font-size: var(--fs-11);
+          line-height: 1.55;
+        }
+
+        .itad-sync-message {
+          border-radius: 8px;
+          background: rgba(var(--accent-color-rgb), 0.07);
+          border: 1px solid rgba(var(--accent-color-rgb), 0.16);
+          color: rgba(255, 255, 255, 0.68);
+          font-size: var(--fs-10);
+          line-height: 1.45;
+          padding: 8px 10px;
+        }
+
+        .itad-api-key-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .itad-api-key-input {
+          min-width: 0;
+          height: 36px;
+          font-size: var(--fs-11);
+        }
+
+        .itad-sync-card .glow-btn {
+          width: 100%;
+          font-size: var(--fs-11);
+          padding: 10px 12px;
+        }
+
+        .itad-sync-card .glow-btn.itad-api-key-save-btn {
+          width: auto;
+          height: 36px;
+          padding: 0 10px;
+          white-space: nowrap;
+        }
+
+        @media (max-width: 980px) {
+          .store-item-body {
+            grid-template-columns: 1fr;
+            overflow-y: auto;
+          }
+
+          .store-item-left,
+          .store-item-right {
+            overflow: visible;
+          }
+
+          .store-item-showcase-row,
+          .itad-market-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .itad-market-stack .itad-market-section {
+            flex: none;
+          }
+        }
+
+        @media (max-width: 680px) {
+          .store-item-banner {
+            height: 220px;
+          }
+
+          .store-item-title {
+            font-size: var(--fs-30);
+          }
+
+          .itad-panel-header,
+          .itad-price-row {
+            grid-template-columns: 1fr;
+            flex-direction: column;
+          }
+
+          .itad-appid-pill {
+            align-items: flex-start;
+            width: 100%;
+          }
         }
       `}} />
     </div>

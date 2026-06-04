@@ -1490,6 +1490,57 @@ ipcMain.handle('fetch-steam-details', async (event, steamAppId) => {
   }
 });
 
+ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey) => {
+  try {
+    const target = new URL(requestUrl);
+    if (target.protocol !== 'https:' || target.hostname !== 'api.isthereanydeal.com') {
+      return { error: 'Blocked non-ITAD request.' };
+    }
+
+    const trimmedKey = String(apiKey || '').trim();
+    if (!trimmedKey) {
+      return { error: 'Missing ITAD API key.' };
+    }
+
+    const res = await httpsGet(target.href, {
+      headers: {
+        'Accept': 'application/json',
+        'ITAD-API-Key': trimmedKey,
+        'User-Agent': 'NexusLauncher/1.0'
+      }
+    });
+
+    return await new Promise((resolve, reject) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Invalid ITAD JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve({
+            error: parsed?.message || parsed?.reason_phrase || `ITAD HTTP ${res.statusCode}`,
+            statusCode: res.statusCode
+          });
+          return;
+        }
+
+        resolve({ data: parsed });
+      });
+      res.on('error', reject);
+    });
+  } catch (err) {
+    emitDiagnostic('ITAD', 'error', `ITAD request failed: ${err.message}`, { requestUrl });
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('save-api-key', async (event, key) => {
   try {
     const configPath = getConfigPath();

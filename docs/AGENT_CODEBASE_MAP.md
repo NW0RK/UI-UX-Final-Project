@@ -50,6 +50,7 @@ npm run build
 | `src/utils/steamgriddb.js` | Renderer-side helpers for applying and checking artwork state. | Artwork field mapping or fetch eligibility changes. |
 | `src/utils/hltb.js` | Renderer-side seeded HowLongToBeat data and formatting helpers. | HLTB data shape, stale rules, display text. |
 | `src/utils/itad.js` | Renderer-side IsThereAnyDeal helpers, local API key reads, API normalization, seeded fallback history. | Store price insights, ITAD auth/storage, history formatting. |
+| `src/utils/rawg.js` | Renderer-side RAWG helpers, browser fallback fetches, game/screenshot normalization. | RAWG feed, search, detail, screenshot, or browser fallback behavior changes. |
 | `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
@@ -65,8 +66,9 @@ npm run build
 | `GameMainBanner.jsx` | Primary selected-game hero, launch/favorite/edit/remove actions, banner positioning. | Uses HLTB and Brandfetch helpers; includes `LibraryOverflowMenu`. |
 | `HorizontalLibrary.jsx` | Horizontal library cards for the main library view. | Uses `data-controller-*` selection attributes. |
 | `FavouritesTrophyRoom.jsx` | Favorites view with trophy-room style cards. | Uses `data-controller-*` selection attributes and local injected styles. |
-| `StoreGrid.jsx` | Store catalog grid and owned-state presentation. | Receives synced catalog from `App.jsx`. |
-| `StoreItemPage.jsx` | Store detail view, Steam media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam details IPC, and executable picker. |
+| `StoreGrid.jsx` | Store landing view with RAWG popular games, ITAD best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
+| `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and RAWG discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
+| `StoreItemPage.jsx` | Store detail view, Steam/RAWG media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and RAWG detail/media IPC, and executable picker. |
 | `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
 | `SettingsPanel.jsx` | Theme/accessibility/system/artwork/API settings. | Reads and saves SteamGridDB API key through Electron APIs. |
 | `MetadataEditor.jsx` | Edit selected-game metadata and artwork, manual SGDB search/fetch, HLTB refresh. | Calls image picker, SGDB IPC, auto artwork IPC, HLTB IPC. |
@@ -79,11 +81,13 @@ npm run build
 
 - `src/main.jsx` mounts `App` and imports `src/index.css`.
 - `App.jsx` owns high-level state: `games`, `selectedGame`, `searchQuery`, `activeView`, overlays, settings, diagnostics, profile data, running session state, artwork cache version.
-- Active views are currently `library`, `favourites`, `store`, and `store-item`.
+- Active views are currently `library`, `favourites`, `store`, `search`, and `store-item`.
 - `NavigationHeader` changes top-level views and search text.
 - `GameMainBanner` plus `HorizontalLibrary` render the library view.
 - `FavouritesTrophyRoom` renders favorite games.
-- `StoreGrid` renders the catalog, and `StoreItemPage` renders one catalog detail.
+- `StoreGrid` renders the split RAWG popular-games and ITAD best-deals store landing view.
+- `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and RAWG discovery matches.
+- `StoreItemPage` renders one store or search item detail.
 - `ControlCenter`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
 
 ## Electron Boundary
@@ -99,7 +103,7 @@ Current IPC groups:
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam details/reviews handlers, RAWG search/details handlers, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgPopularGames`, `fetchRawgScreenshots`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam details/reviews handlers, RAWG search/popular/screenshots/details handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | Settings/API key | `saveApiKey`, `getApiKey`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
@@ -153,11 +157,12 @@ HowLongToBeat:
 
 Store and pricing:
 
-- Store inventory starts in `storeCatalog`.
+- Store search/detail fallback data starts in `storeCatalog`; the default store landing view is hydrated from RAWG popular games and ITAD best deals.
 - `App.jsx` merges owned status from the saved library.
-- Top-bar Store searches can append RAWG discovery results through `searchRawgGames`; selecting one opens `StoreItemPage` without saving until the user marks it owned.
+- Store landing uses `fetchRawgPopularGames` or `src/utils/rawg.js` browser fallbacks for the left popular-games feed and `src/utils/itad.js` for the right best-deals feed.
+- Top-bar searches route to the dedicated `search` view, combining local library/store matches with RAWG discovery results from `searchRawgGames`; selecting a store/RAWG result opens `StoreItemPage` without saving until the user marks it owned.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews`.
-- `StoreItemPage.jsx` fetches Steam details through Electron and ITAD insights through `src/utils/itad.js`.
+- `StoreItemPage.jsx` fetches Steam details through Electron, automatically looks up RAWG screenshots by RAWG ID or title when entering a game detail page through IPC or `src/utils/rawg.js`, and loads ITAD insights through `src/utils/itad.js`.
 - `StoreItemPage.jsx` fetches RAWG details for RAWG-backed items through `fetchRawgGameDetails` and displays RAWG attribution.
 
 Import and launch:

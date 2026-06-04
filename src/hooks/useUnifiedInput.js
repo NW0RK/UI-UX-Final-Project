@@ -39,7 +39,6 @@ const KEY_ACTIONS = {
   NumpadEnter: 'confirm',
   ' ': 'confirm',
   Escape: 'back',
-  Backspace: 'back',
   q: 'shoulderLeft',
   Q: 'shoulderLeft',
   e: 'shoulderRight',

@@ -79,7 +79,10 @@ async function fetchJson(url, options = {}) {
   const apiKey = options.headers?.['ITAD-API-Key'];
 
   if (typeof window !== 'undefined' && window.electronAPI?.fetchItadJson && apiKey) {
-    const result = await window.electronAPI.fetchItadJson(requestUrl, apiKey);
+    const result = await window.electronAPI.fetchItadJson(requestUrl, apiKey, {
+      method: options.method || 'GET',
+      body: options.body || null
+    });
     if (result?.error) throw new Error(result.error);
     return result?.data ?? null;
   }
@@ -87,6 +90,84 @@ async function fetchJson(url, options = {}) {
   const response = await fetch(requestUrl, options);
   if (!response.ok) throw new Error(`ITAD request failed: ${response.status}`);
   return response.json();
+}
+
+function normalizeItadDeal(item) {
+  if (!item?.id || !item?.title || item.type === 'dlc') return null;
+
+  const deal = item.deal || {};
+  const price = deal.price || {};
+  const regular = deal.regular || {};
+  const cut = Number(deal.cut || 0);
+  const currencyCode = price.currency || regular.currency || 'USD';
+  const priceAmount = Number(price.amount);
+  const regularAmount = Number(regular.amount);
+  const image = item.assets?.boxart || item.assets?.banner600 || item.assets?.banner400 || item.assets?.banner300 || null;
+  const shop = deal.shop?.name || 'Tracked shop';
+  const expiry = deal.expiry ? new Date(deal.expiry).toLocaleDateString() : null;
+
+  return {
+    id: `itad-${item.id}`,
+    itadId: item.id,
+    itadSlug: item.slug || null,
+    title: item.title,
+    developer: shop,
+    publisher: shop,
+    genre: 'Store Deal',
+    rating: 0,
+    ageRating: item.mature ? 'Mature' : 'Unrated',
+    releaseDate: 'Tracked by ITAD',
+    description: `${item.title} is currently discounted through ${shop}${Number.isFinite(cut) && cut > 0 ? ` with ${cut}% off` : ''}. Price and availability are provided by IsThereAnyDeal.`,
+    playtime: 0,
+    lastPlayed: 'Never',
+    progress: 0,
+    timeToComplete: '--',
+    nextAchievement: 'Locked (0% complete)',
+    coverUrl: image,
+    bannerUrl: item.assets?.banner600 || item.assets?.banner400 || image,
+    logoUrl: null,
+    iconUrl: null,
+    soundType: 'synth',
+    exePath: '',
+    isFavorite: false,
+    owned: false,
+    tags: [
+      Number.isFinite(cut) && cut > 0 ? `${cut}% off` : 'Deal',
+      shop,
+      'ITAD'
+    ],
+    steamAppId: null,
+    artworkFetched: false,
+    source: 'itad',
+    itadUrl: deal.url || null,
+    itadDeal: {
+      shop,
+      cut,
+      price: Number.isFinite(priceAmount) ? currency(priceAmount, currencyCode) : 'See ITAD',
+      regular: Number.isFinite(regularAmount) ? currency(regularAmount, regular.currency || currencyCode) : null,
+      expiry: expiry ? `Ends ${expiry}` : 'Tracked by ITAD',
+      url: deal.url || null
+    }
+  };
+}
+
+export async function fetchItadBestDeals({ country = 'US', limit = 10 } = {}) {
+  const apiKey = getStoredApiKey();
+  if (!apiKey) throw new Error('Missing ITAD API key.');
+
+  const dealsUrl = new URL(`${ITAD_API_BASE}/deals/v2`);
+  dealsUrl.searchParams.set('country', country);
+  dealsUrl.searchParams.set('offset', '0');
+  dealsUrl.searchParams.set('limit', String(limit));
+  dealsUrl.searchParams.set('sort', '-cut');
+  dealsUrl.searchParams.set('nondeals', 'false');
+  dealsUrl.searchParams.set('mature', 'false');
+
+  const data = await fetchJson(dealsUrl, { headers: authHeaders(apiKey) });
+  return (Array.isArray(data?.list) ? data.list : [])
+    .map(normalizeItadDeal)
+    .filter(Boolean)
+    .slice(0, limit);
 }
 
 export function normalizeItadHistory(historyLog = []) {

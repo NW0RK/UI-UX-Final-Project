@@ -366,6 +366,53 @@ async function searchRawgGames(term) {
     .filter(Boolean);
 }
 
+async function fetchPopularRawgGames() {
+  const data = await rawgFetchJson('/games', {
+    page_size: 12,
+    ordering: '-added',
+    metacritic: '75,100'
+  });
+
+  return (Array.isArray(data?.results) ? data.results : [])
+    .map(result => normalizeRawgGame(result))
+    .filter(Boolean)
+    .map(game => ({
+      ...game,
+      discoverySource: 'RAWG Popular'
+    }));
+}
+
+function normalizeRawgScreenshots(results = []) {
+  return results
+    .map((shot, index) => {
+      const image = shot?.image || shot?.path_full || shot?.url;
+      if (!image) return null;
+      return {
+        id: shot.id || `rawg-${index}`,
+        path_full: image,
+        path_thumbnail: image
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchRawgScreenshots(game) {
+  let rawgId = String(game?.rawgId || '').trim();
+
+  if (!rawgId && game?.title) {
+    const matches = await searchRawgGames(game.title);
+    rawgId = matches[0]?.rawgId || '';
+  }
+
+  if (!rawgId) return [];
+
+  const data = await rawgFetchJson(`/games/${encodeURIComponent(rawgId)}/screenshots`, {
+    page_size: 8
+  });
+
+  return normalizeRawgScreenshots(Array.isArray(data?.results) ? data.results : []);
+}
+
 async function fetchRawgGameDetails(rawgId) {
   const id = String(rawgId || '').trim();
   if (!id) return { error: 'Missing RAWG game id' };
@@ -1192,6 +1239,28 @@ ipcMain.handle('rawg-search-games', async (event, term) => {
   }
 });
 
+ipcMain.handle('rawg-popular-games', async () => {
+  try {
+    const results = await fetchPopularRawgGames();
+    emitDiagnostic('RAWG', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
+    return results;
+  } catch (err) {
+    emitDiagnostic('RAWG', 'error', `Popular feed failed: ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-fetch-screenshots', async (event, game) => {
+  try {
+    const screenshots = await fetchRawgScreenshots(game);
+    emitDiagnostic('RAWG', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.rawgId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
+    return screenshots;
+  } catch (err) {
+    emitDiagnostic('RAWG', 'error', `Screenshot lookup failed for "${game?.title || game?.rawgId || 'unknown'}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('rawg-fetch-game-details', async (event, rawgId) => {
   try {
     return await fetchRawgGameDetails(rawgId);
@@ -1455,7 +1524,7 @@ ipcMain.handle('fetch-steam-reviews', async (event, steamAppId) => {
   }
 });
 
-ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey) => {
+ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}) => {
   try {
     const target = new URL(requestUrl);
     if (target.protocol !== 'https:' || target.hostname !== 'api.isthereanydeal.com') {
@@ -1465,6 +1534,20 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey) => {
     const trimmedKey = String(apiKey || '').trim();
     if (!trimmedKey) {
       return { error: 'Missing ITAD API key.' };
+    }
+
+    const method = String(options?.method || 'GET').toUpperCase();
+    if (method === 'POST') {
+      const data = await postJson(target.href, options?.body ?? {}, {
+        'Accept': 'application/json',
+        'ITAD-API-Key': trimmedKey,
+        'User-Agent': 'NexusLauncher/1.0'
+      });
+      return { data };
+    }
+
+    if (method !== 'GET') {
+      return { error: 'Unsupported ITAD request method.' };
     }
 
     const res = await httpsGet(target.href, {

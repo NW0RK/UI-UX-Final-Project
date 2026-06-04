@@ -8,6 +8,7 @@ import SettingsPanel from './components/SettingsPanel';
 import MetadataEditor from './components/MetadataEditor';
 import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
+import SearchResultsPage from './components/SearchResultsPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import ProfileOverlay from './components/ProfileOverlay';
 import ControllerHintOverlay from './components/ControllerHintOverlay';
@@ -15,6 +16,8 @@ import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
+import { fetchItadBestDeals } from './utils/itad';
+import { fetchRawgPopularGamesBrowser, searchRawgGamesBrowser } from './utils/rawg';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -37,6 +40,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeView, setActiveView] = useState('library');
   const [selectedStoreItem, setSelectedStoreItem] = useState(null);
+  const [storeReturnView, setStoreReturnView] = useState('store');
   
   // --- Active Gameplay Session Tracking ---
   const [runningGameId, setRunningGameId] = useState(null);
@@ -69,6 +73,12 @@ export default function App() {
   const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
   const [storeReviewScores, setStoreReviewScores] = useState({});
+  const [popularStoreGames, setPopularStoreGames] = useState([]);
+  const [popularStoreStatus, setPopularStoreStatus] = useState('idle');
+  const [popularStoreError, setPopularStoreError] = useState(null);
+  const [itadDealGames, setItadDealGames] = useState([]);
+  const [itadDealsStatus, setItadDealsStatus] = useState('idle');
+  const [itadDealsError, setItadDealsError] = useState(null);
   const [rawgSearchResults, setRawgSearchResults] = useState([]);
   const [rawgSearchStatus, setRawgSearchStatus] = useState('idle');
   const [rawgSearchError, setRawgSearchError] = useState(null);
@@ -76,6 +86,8 @@ export default function App() {
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
   const storeReviewsHydratedRef = useRef(false);
+  const popularStoreHydratedRef = useRef(false);
+  const itadDealsHydratedRef = useRef(false);
   const hltbLookupAttemptedRef = useRef(new Set());
 
   const addDiagnostic = (area, level, message, details = null) => {
@@ -182,16 +194,9 @@ export default function App() {
 
   useEffect(() => {
     const term = searchQuery.trim();
-    if (term.length < 3 || (activeView !== 'store' && activeView !== 'store-item')) {
+    if (term.length < 3 || (activeView !== 'search' && activeView !== 'store-item')) {
       setRawgSearchResults([]);
       setRawgSearchStatus('idle');
-      setRawgSearchError(null);
-      return;
-    }
-
-    if (!window.electronAPI?.searchRawgGames) {
-      setRawgSearchResults([]);
-      setRawgSearchStatus('unavailable');
       setRawgSearchError(null);
       return;
     }
@@ -202,7 +207,9 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const results = await window.electronAPI.searchRawgGames(term);
+        const results = window.electronAPI?.searchRawgGames
+          ? await window.electronAPI.searchRawgGames(term)
+          : await searchRawgGamesBrowser(term);
         if (cancelled) return;
 
         if (results?.error) {
@@ -229,6 +236,80 @@ export default function App() {
       clearTimeout(timer);
     };
   }, [searchQuery, activeView]);
+
+  useEffect(() => {
+    if (popularStoreHydratedRef.current) return;
+    if (activeView !== 'store' && activeView !== 'store-item') return;
+
+    let cancelled = false;
+    popularStoreHydratedRef.current = true;
+    setPopularStoreStatus('loading');
+    setPopularStoreError(null);
+
+    async function hydratePopularGames() {
+      try {
+        const results = window.electronAPI?.fetchRawgPopularGames
+          ? await window.electronAPI.fetchRawgPopularGames()
+          : await fetchRawgPopularGamesBrowser();
+        if (cancelled) return;
+
+        if (results?.error) {
+          setPopularStoreGames([]);
+          setPopularStoreStatus('error');
+          setPopularStoreError(results.error);
+          addDiagnostic('RAWG', 'warn', `Popular store feed failed: ${results.error}`);
+          return;
+        }
+
+        setPopularStoreGames(Array.isArray(results) ? results.map(applySeededHltbToGame) : []);
+        setPopularStoreStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setPopularStoreGames([]);
+        setPopularStoreStatus('error');
+        setPopularStoreError(error.message);
+        addDiagnostic('RAWG', 'warn', `Popular store feed failed: ${error.message}`);
+      }
+    }
+
+    hydratePopularGames();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
+
+  useEffect(() => {
+    if (itadDealsHydratedRef.current) return;
+    if (activeView !== 'store' && activeView !== 'store-item') return;
+
+    let cancelled = false;
+    itadDealsHydratedRef.current = true;
+    setItadDealsStatus('loading');
+    setItadDealsError(null);
+
+    async function hydrateItadDeals() {
+      try {
+        const deals = await fetchItadBestDeals({ country: 'US', limit: 10 });
+        if (cancelled) return;
+
+        setItadDealGames(deals.map(applySeededHltbToGame));
+        setItadDealsStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setItadDealGames([]);
+        setItadDealsStatus(error.message === 'Missing ITAD API key.' ? 'missing-key' : 'error');
+        setItadDealsError(error.message);
+        addDiagnostic('ITAD', 'warn', `Best deals feed unavailable: ${error.message}`);
+      }
+    }
+
+    hydrateItadDeals();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
 
   // --- 1b. Hydrate library and store art from SteamGridDB when desktop APIs exist ---
   useEffect(() => {
@@ -843,23 +924,44 @@ export default function App() {
     setActiveView(view);
     if (view === 'store') {
       setSelectedStoreItem(null);
+      setStoreReturnView('store');
     }
   };
 
-  const handleSelectStoreItem = (item) => {
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    if (value.trim()) {
+      setActiveView('search');
+      return;
+    }
+
+    if (activeView === 'search') {
+      setActiveView('library');
+    }
+  };
+
+  const handleSelectStoreItem = (item, returnView = activeView) => {
     setSelectedStoreItem(item);
+    setStoreReturnView(returnView === 'search' ? 'search' : 'store');
     setActiveView('store-item');
   };
 
   const handleBackToStore = () => {
-    setActiveView('store');
+    setActiveView(storeReturnView === 'search' && searchQuery.trim() ? 'search' : 'store');
     setSelectedStoreItem(null);
+  };
+
+  const handleSelectSearchLibraryGame = (game) => {
+    setSelectedGame(game);
+    setActiveView('library');
   };
 
   // --- Store: Mark as Owned ---
   const handleMarkOwned = async (storeItem) => {
     const existing = games.find(g =>
-      g.id === storeItem.id || (storeItem.rawgId && g.rawgId === storeItem.rawgId)
+      g.id === storeItem.id ||
+      (storeItem.rawgId && g.rawgId === storeItem.rawgId) ||
+      (storeItem.itadId && g.itadId === storeItem.itadId)
     );
     if (existing) {
       const updatedList = games.map(g =>
@@ -972,25 +1074,45 @@ export default function App() {
     steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
     owned: games.some(g => g.id === item.id && g.owned)
   }));
-  const normalizedCatalogTitles = new Set(
-    syncedCatalog.map(item => item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
-  );
   const ownedRawgIds = new Set(games.map(game => game.rawgId).filter(Boolean));
+  const ownedItadIds = new Set(games.map(game => game.itadId).filter(Boolean));
+  const isOwnedStoreItem = (item) => (
+    games.some(game => game.id === item.id) ||
+    (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
+    (item.itadId && ownedItadIds.has(item.itadId))
+  );
+  const syncedPopularGames = popularStoreGames.map(item => ({
+    ...item,
+    owned: isOwnedStoreItem(item)
+  }));
+  const syncedItadDeals = itadDealGames.map(item => ({
+    ...item,
+    owned: isOwnedStoreItem(item)
+  }));
   const mergedStoreCatalog = [
-    ...syncedCatalog,
-    ...rawgSearchResults
-      .filter(item => {
-        const normalizedTitle = item.title?.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return item.source === 'rawg'
-          && item.rawgId
-          && !normalizedCatalogTitles.has(normalizedTitle)
-          && !syncedCatalog.some(catalogItem => catalogItem.rawgId === item.rawgId);
-      })
-      .map(item => ({
-        ...item,
-        owned: ownedRawgIds.has(item.rawgId) || games.some(game => game.id === item.id)
-      }))
+    ...syncedPopularGames,
+    ...syncedItadDeals,
+    ...syncedCatalog
   ];
+  const normalizedSearchTitles = new Set();
+  const searchResults = [
+    ...getFilteredGames().map(item => ({ ...item, resultType: 'library', owned: true })),
+    ...syncedCatalog
+      .filter(item => (
+        item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.genre?.toLowerCase().includes(searchQuery.toLowerCase())
+      ))
+      .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
+    ...rawgSearchResults
+      .filter(item => item.source === 'rawg' && item.rawgId)
+      .map(item => ({ ...item, resultType: 'rawg', owned: isOwnedStoreItem(item) }))
+  ].filter(item => {
+    const key = item.rawgId ? `rawg:${item.rawgId}` : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    if (!key || normalizedSearchTitles.has(key)) return false;
+    normalizedSearchTitles.add(key);
+    return true;
+  });
   const activeStoreItem = selectedStoreItem
     ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
     : null;
@@ -1099,7 +1221,7 @@ export default function App() {
       {/* 2. Top-level Floating Navigation Bar */}
       <NavigationHeader 
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={handleSearchChange}
         onOpenSettings={() => { audioEngine.playClickPulse(); setIsSettingsOpen(true); }}
         cpuUsage={cpuUsage}
         ramUsage={ramUsage}
@@ -1160,11 +1282,28 @@ export default function App() {
         {activeView === 'store' && (
           <StoreGrid 
             catalog={mergedStoreCatalog}
+            popularGames={syncedPopularGames}
+            dealGames={syncedItadDeals}
             ownedGames={games}
             onSelectItem={handleSelectStoreItem}
-            searchQuery={searchQuery}
+            searchQuery=""
+            popularStatus={popularStoreStatus}
+            popularError={popularStoreError}
+            dealsStatus={itadDealsStatus}
+            dealsError={itadDealsError}
+          />
+        )}
+
+        {activeView === 'search' && (
+          <SearchResultsPage
+            query={searchQuery}
+            results={searchResults}
+            ownedGames={games}
             rawgSearchStatus={rawgSearchStatus}
             rawgSearchError={rawgSearchError}
+            onSelectItem={(item) => handleSelectStoreItem(item, 'search')}
+            onSelectLibraryGame={handleSelectSearchLibraryGame}
+            onLaunchGame={handleLaunchGame}
           />
         )}
 

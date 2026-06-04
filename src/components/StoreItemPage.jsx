@@ -4,6 +4,7 @@ import { audioEngine } from '../utils/audioEngine';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 import { getSteamReviewScore } from '../utils/steamReviews';
+import { fetchRawgGameDetailsBrowser, fetchRawgScreenshotsBrowser } from '../utils/rawg';
 
 const HIGHCHARTS_VERSION = '12.6.0';
 let highchartsLoaderPromise = null;
@@ -266,7 +267,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const isRawgItem = activeItem?.source === 'rawg';
 
   useEffect(() => {
-    if (!item?.rawgId || item.source !== 'rawg' || !window.electronAPI?.fetchRawgGameDetails) {
+    if (!item?.rawgId || item.source !== 'rawg') {
       setRawgDetails(null);
       setRawgDetailsError(null);
       setLoadingRawgDetails(false);
@@ -278,7 +279,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     setRawgDetailsError(null);
     setLoadingRawgDetails(true);
 
-    window.electronAPI.fetchRawgGameDetails(item.rawgId)
+    const detailsPromise = window.electronAPI?.fetchRawgGameDetails
+      ? window.electronAPI.fetchRawgGameDetails(item.rawgId)
+      : fetchRawgGameDetailsBrowser(item.rawgId);
+
+    detailsPromise
       .then((details) => {
         if (!active) return;
         if (details?.error) {
@@ -302,17 +307,45 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     let active = true;
     setSteamDescription(activeItem.description || '');
 
+    async function fetchRawgScreenshotFallback() {
+      try {
+        const payload = {
+          rawgId: activeItem.rawgId,
+          title: activeItem.title
+        };
+        const screenshots = window.electronAPI?.fetchRawgScreenshots
+          ? await window.electronAPI.fetchRawgScreenshots(payload)
+          : await fetchRawgScreenshotsBrowser(payload);
+        if (screenshots?.error) {
+          console.warn('RAWG screenshot lookup failed:', screenshots.error);
+          return [];
+        }
+        return Array.isArray(screenshots) ? screenshots : [];
+      } catch (error) {
+        console.warn('RAWG screenshot lookup failed:', error);
+        return [];
+      }
+    }
+
     async function loadMedia() {
+      setLoadingMedia(true);
+
       if (activeItem.source === 'rawg') {
         const rawgImage = activeItem.bannerUrl || activeItem.coverUrl;
-        const screenshots = rawgImage ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }] : [];
+        const rawgScreenshots = await fetchRawgScreenshotFallback();
+        if (!active) return;
+
+        const screenshots = rawgScreenshots.length
+          ? rawgScreenshots
+          : rawgImage
+            ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+            : [];
         setMedia({ screenshots, movies: [] });
-        setSelectedMedia(rawgImage ? { type: 'image', url: rawgImage } : null);
+        setSelectedMedia(screenshots.length ? { type: 'image', url: screenshots[0].path_full || screenshots[0].url } : null);
         setLoadingMedia(false);
         return;
       }
 
-      setLoadingMedia(true);
       let fetchedData = null;
 
       if (activeItem.steamAppId) {
@@ -358,6 +391,16 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           setSelectedMedia(null);
         }
       } else {
+        const rawgScreenshots = await fetchRawgScreenshotFallback();
+        if (!active) return;
+
+        if (rawgScreenshots.length > 0) {
+          setMedia({ screenshots: rawgScreenshots, movies: [] });
+          setSelectedMedia({ type: 'image', url: rawgScreenshots[0].path_full || rawgScreenshots[0].url });
+          setLoadingMedia(false);
+          return;
+        }
+
         const fallback = getCuratedMockMedia(activeItem.id, activeItem.title);
         setMedia(fallback);
         if (fallback.movies?.length > 0) {
@@ -373,7 +416,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     loadMedia();
     return () => { active = false; };
-  }, [activeItem?.id, activeItem?.source, activeItem?.steamAppId, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl]);
+  }, [activeItem?.id, activeItem?.source, activeItem?.steamAppId, activeItem?.rawgId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl]);
 
   useEffect(() => {
     if (typeof MutationObserver === 'undefined') return undefined;
@@ -735,7 +778,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   if (!item) return null;
 
   const ownedGame = ownedGames.find(g =>
-    g.id === activeItem.id || (activeItem.rawgId && g.rawgId === activeItem.rawgId)
+    g.id === activeItem.id ||
+    (activeItem.rawgId && g.rawgId === activeItem.rawgId) ||
+    (activeItem.itadId && g.itadId === activeItem.itadId)
   );
   const isOwned = !!ownedGame;
   const hasExe = isOwned && ownedGame.exePath;
@@ -913,7 +958,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                 return loadingMedia ? (
                   <div className="store-item-media-loading">
                     <div className="media-spinner" />
-                    <span>Fetching visual logs from Steam...</span>
+                    <span>Searching gameplay screenshots...</span>
                   </div>
                 ) : combinedMedia.length > 0 ? (
                   <div className="store-item-media-grid">

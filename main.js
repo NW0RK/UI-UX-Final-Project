@@ -47,7 +47,9 @@ function emitDiagnostic(area, level, message, details = null) {
 
 // --- SteamGridDB Configuration ---
 const BUILTIN_API_KEY = '2c62a4e1707f21a61e1bd30f4eafd6dc';
+const BUILTIN_RAWG_API_KEY = '10149f0743744f2c82250660ee23bfe2';
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
+const RAWG_BASE_URL = 'https://api.rawg.io/api';
 const REQUEST_TIMEOUT_MS = 15000;
 const getConfigPath = () => path.join(app.getPath('userData'), 'nexus-config.json');
 const getArtworkCacheDir = () => {
@@ -69,6 +71,21 @@ function getApiKeyFromConfig() {
     }
   } catch (e) { /* ignore */ }
   return BUILTIN_API_KEY;
+}
+
+function getRawgApiKeyFromConfig() {
+  if (process.env.RAWG_API_KEY?.trim()) {
+    return process.env.RAWG_API_KEY.trim();
+  }
+
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.rawgApiKey?.trim()) return config.rawgApiKey.trim();
+    }
+  } catch (e) { /* ignore */ }
+  return BUILTIN_RAWG_API_KEY;
 }
 
 function toFileUrl(filePath) {
@@ -221,6 +238,140 @@ function postJson(url, payload, headers = {}) {
     req.write(body);
     req.end();
   });
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&rsquo;/g, "'")
+    .replace(/&lsquo;/g, "'")
+    .replace(/&rdquo;/g, '"')
+    .replace(/&ldquo;/g, '"')
+    .replace(/&mdash;/g, '-')
+    .replace(/&ndash;/g, '-')
+    .replace(/&hellip;/g, '...');
+}
+
+function stripHtml(value) {
+  if (!value) return '';
+  return decodeHtmlEntities(String(value)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim());
+}
+
+function sanitizeGameId(value) {
+  return String(value || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
+}
+
+async function rawgFetchJson(endpoint, params = {}) {
+  const apiKey = getRawgApiKeyFromConfig();
+  if (!apiKey) throw new Error('RAWG API key is not configured');
+
+  const url = new URL(`${RAWG_BASE_URL}${endpoint}`);
+  url.searchParams.set('key', apiKey);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  emitDiagnostic('RAWG', 'info', `Requesting ${endpoint}`);
+  const data = await fetchJson(url.href, {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  });
+
+  if (data?.detail || data?.error) {
+    throw new Error(data.detail || data.error);
+  }
+
+  return data;
+}
+
+function normalizeRawgGame(raw, { includeDescription = false } = {}) {
+  if (!raw?.id || !raw?.name) return null;
+
+  const rawgId = String(raw.id);
+  const slug = raw.slug || sanitizeGameId(raw.name);
+  const developers = Array.isArray(raw.developers) ? raw.developers.map(item => item?.name).filter(Boolean) : [];
+  const publishers = Array.isArray(raw.publishers) ? raw.publishers.map(item => item?.name).filter(Boolean) : [];
+  const genres = Array.isArray(raw.genres) ? raw.genres.map(item => item?.name).filter(Boolean) : [];
+  const tags = Array.isArray(raw.tags)
+    ? raw.tags
+      .filter(item => !item.language || item.language === 'eng')
+      .map(item => item?.name)
+      .filter(Boolean)
+      .slice(0, 6)
+    : [];
+  const image = raw.background_image || raw.background_image_additional || raw.short_screenshots?.[0]?.image || null;
+  const description = includeDescription
+    ? stripHtml(raw.description || raw.description_raw || '')
+    : stripHtml(raw.description_raw || '');
+
+  return {
+    id: `rawg-${rawgId}`,
+    rawgId,
+    rawgSlug: slug,
+    title: raw.name,
+    developer: developers.join(', ') || 'Unknown Developer',
+    publisher: publishers.join(', ') || developers.join(', ') || 'Unknown Publisher',
+    genre: genres.join(', ') || 'Game',
+    rating: Number(raw.rating || 0) || 0,
+    ageRating: raw.esrb_rating?.name || 'Unrated',
+    releaseDate: raw.released || 'TBA',
+    description: description || `RAWG metadata for ${raw.name}. Open details to load the full game profile.`,
+    playtime: 0,
+    lastPlayed: 'Never',
+    progress: 0,
+    timeToComplete: '--',
+    nextAchievement: 'Locked (0% complete)',
+    coverUrl: image,
+    bannerUrl: image,
+    logoUrl: null,
+    iconUrl: null,
+    soundType: 'synth',
+    exePath: '',
+    isFavorite: false,
+    owned: false,
+    tags,
+    steamAppId: null,
+    artworkFetched: false,
+    source: 'rawg',
+    rawgUrl: `https://rawg.io/games/${slug}`
+  };
+}
+
+async function searchRawgGames(term) {
+  const searchTerm = String(term || '').trim();
+  if (searchTerm.length < 3) return [];
+
+  const data = await rawgFetchJson('/games', {
+    search: searchTerm,
+    page_size: 12
+  });
+
+  return (Array.isArray(data?.results) ? data.results : [])
+    .map(result => normalizeRawgGame(result))
+    .filter(Boolean);
+}
+
+async function fetchRawgGameDetails(rawgId) {
+  const id = String(rawgId || '').trim();
+  if (!id) return { error: 'Missing RAWG game id' };
+
+  const data = await rawgFetchJson(`/games/${encodeURIComponent(id)}`);
+  return normalizeRawgGame(data, { includeDescription: true });
 }
 
 async function steamgriddbFetch(endpoint) {
@@ -964,254 +1115,6 @@ ipcMain.handle('scan-executables', async (event, dirPath) => {
   return { files, diagnostics, manifestCount: manifests.length };
 });
 
-// --- System Platform Discovery Scanners ---
-function queryRegistry(key, value) {
-  return new Promise((resolve) => {
-    exec(`reg query "${key}" /v "${value}"`, (error, stdout) => {
-      if (error) return resolve(null);
-      const lines = stdout.split('\n');
-      for (const line of lines) {
-        if (line.includes(value)) {
-          const parts = line.trim().split(/\s{2,}/);
-          if (parts.length >= 3) {
-            return resolve(parts[2].trim());
-          }
-        }
-      }
-      resolve(null);
-    });
-  });
-}
-
-function findPrimaryExecutable(folderPath) {
-  const filesList = [];
-  const diagnostics = [];
-  scanDirDepth(folderPath, 1, 2, filesList, diagnostics);
-  if (filesList.length === 0) return null;
-
-  // Try to find one matching the folder name
-  const folderName = path.basename(folderPath).toLowerCase();
-  const exactMatch = filesList.find(f => path.basename(f.name, '.exe').toLowerCase() === folderName);
-  if (exactMatch) return exactMatch.path;
-
-  // Fallback: Pick largest executable (usually the game binary)
-  try {
-    const scoredList = filesList.map(file => {
-      try {
-        return { ...file, size: fs.statSync(file.path).size };
-      } catch (e) {
-        return { ...file, size: 0 };
-      }
-    });
-    scoredList.sort((a, b) => b.size - a.size);
-    return scoredList[0]?.path || null;
-  } catch (e) {
-    return filesList[0]?.path || null;
-  }
-}
-
-async function scanSteamGames(diagnostics) {
-  const gamesList = [];
-  try {
-    let steamPath = await queryRegistry('HKCU\\Software\\Valve\\Steam', 'SteamPath');
-    if (!steamPath) {
-      steamPath = await queryRegistry('HKLM\\SOFTWARE\\Wow6432Node\\Valve\\Steam', 'InstallPath');
-    }
-    if (!steamPath) {
-      const paths = ['C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam'];
-      for (const p of paths) {
-        if (fs.existsSync(p)) {
-          steamPath = p;
-          break;
-        }
-      }
-    }
-
-    if (!steamPath || !fs.existsSync(steamPath)) {
-      diagnostics.push({ level: 'info', message: 'Steam installation not found on this system.' });
-      return [];
-    }
-
-    diagnostics.push({ level: 'info', message: `Steam found: ${steamPath}` });
-    const candidates = new Set();
-    const primarySteamapps = path.join(steamPath, 'steamapps');
-    if (fs.existsSync(primarySteamapps)) {
-      candidates.add(primarySteamapps);
-
-      const vdfPath = path.join(primarySteamapps, 'libraryfolders.vdf');
-      if (fs.existsSync(vdfPath)) {
-        try {
-          const content = fs.readFileSync(vdfPath, 'utf-8');
-          const matches = [...content.matchAll(/"path"\s+"([^"]+)"/g)];
-          for (const m of matches) {
-            const extraPath = path.join(m[1].replace(/\\\\/g, '\\'), 'steamapps');
-            if (fs.existsSync(extraPath)) {
-              candidates.add(extraPath);
-            }
-          }
-        } catch (e) {
-          diagnostics.push({ level: 'warn', message: `Could not parse Steam libraryfolders.vdf: ${e.message}` });
-        }
-      }
-    }
-
-    for (const steamappsDir of candidates) {
-      try {
-        const files = fs.readdirSync(steamappsDir).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
-        for (const file of files) {
-          const manifestPath = path.join(steamappsDir, file);
-          const manifest = parseSteamAppManifest(manifestPath, steamappsDir);
-          if (manifest && manifest.installPath && fs.existsSync(manifest.installPath)) {
-            const primaryExe = findPrimaryExecutable(manifest.installPath);
-            if (primaryExe) {
-              gamesList.push({
-                name: manifest.name,
-                path: primaryExe,
-                steamAppId: manifest.appid,
-                platform: 'Steam'
-              });
-              diagnostics.push({ level: 'info', message: `Steam: Discovered game ${manifest.name}` });
-            }
-          }
-        }
-      } catch (err) {
-        diagnostics.push({ level: 'warn', message: `Could not read Steam library ${steamappsDir}: ${err.message}` });
-      }
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `Steam scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-async function scanEpicGames(diagnostics) {
-  const gamesList = [];
-  try {
-    const manifestsDir = 'C:\\ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests';
-    if (!fs.existsSync(manifestsDir)) {
-      diagnostics.push({ level: 'info', message: 'Epic Games manifests directory not found.' });
-      return [];
-    }
-
-    const files = fs.readdirSync(manifestsDir).filter(file => file.endsWith('.item'));
-    for (const file of files) {
-      try {
-        const content = JSON.parse(fs.readFileSync(path.join(manifestsDir, file), 'utf-8'));
-        const name = content.DisplayName;
-        const installDir = content.InstallLocation;
-        const launchExe = content.LaunchExecutable;
-        if (name && installDir && launchExe) {
-          const fullPath = path.join(installDir, launchExe);
-          if (fs.existsSync(fullPath)) {
-            gamesList.push({
-              name: name,
-              path: fullPath,
-              epicItemId: content.CatalogItemId,
-              platform: 'Epic Games'
-            });
-            diagnostics.push({ level: 'info', message: `Epic Games: Discovered game ${name}` });
-          }
-        }
-      } catch (e) { /* ignore */ }
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `Epic scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-async function scanGogGames(diagnostics) {
-  const gamesList = [];
-  try {
-    const commonPaths = ['C:\\GOG Games', 'C:\\Program Files (x86)\\GOG Galaxy\\Games'];
-    let gogFound = false;
-
-    for (const root of commonPaths) {
-      if (fs.existsSync(root)) {
-        gogFound = true;
-        const folders = fs.readdirSync(root, { withFileTypes: true });
-        for (const folder of folders) {
-          if (folder.isDirectory()) {
-            const folderPath = path.join(root, folder.name);
-            const primaryExe = findPrimaryExecutable(folderPath);
-            if (primaryExe) {
-              gamesList.push({
-                name: folder.name,
-                path: primaryExe,
-                platform: 'GOG Galaxy'
-              });
-              diagnostics.push({ level: 'info', message: `GOG: Discovered game ${folder.name}` });
-            }
-          }
-        }
-      }
-    }
-
-    if (!gogFound) {
-      diagnostics.push({ level: 'info', message: 'GOG Galaxy games directory not found.' });
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `GOG scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-async function scanXboxGames(diagnostics) {
-  const gamesList = [];
-  try {
-    const xboxPath = 'C:\\XboxGames';
-    if (fs.existsSync(xboxPath)) {
-      const folders = fs.readdirSync(xboxPath, { withFileTypes: true });
-      for (const folder of folders) {
-        if (folder.isDirectory()) {
-          const folderPath = path.join(xboxPath, folder.name);
-          const primaryExe = findPrimaryExecutable(folderPath);
-          if (primaryExe) {
-            gamesList.push({
-              name: folder.name,
-              path: primaryExe,
-              platform: 'Xbox'
-            });
-            diagnostics.push({ level: 'info', message: `Xbox: Discovered game ${folder.name}` });
-          }
-        }
-      }
-    } else {
-      diagnostics.push({ level: 'info', message: 'Xbox Games directory not found.' });
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `Xbox scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-ipcMain.handle('scan-platforms', async (event) => {
-  const diagnostics = [];
-  emitDiagnostic('Scanner', 'info', 'Starting parallel system-wide platform scan');
-
-  try {
-    const [steamGames, epicGames, gogGames, xboxGames] = await Promise.all([
-      scanSteamGames(diagnostics),
-      scanEpicGames(diagnostics),
-      scanGogGames(diagnostics),
-      scanXboxGames(diagnostics)
-    ]);
-
-    const allGames = [...steamGames, ...epicGames, ...gogGames, ...xboxGames];
-    emitDiagnostic('Scanner', 'info', `System-wide scan completed! Discovered ${allGames.length} game(s) total.`, {
-      steam: steamGames.length,
-      epic: epicGames.length,
-      gog: gogGames.length,
-      xbox: xboxGames.length
-    });
-
-    return { files: allGames, diagnostics };
-  } catch (err) {
-    emitDiagnostic('Scanner', 'error', `Platform discovery failed: ${err.message}`);
-    return { files: [], diagnostics: [{ level: 'error', message: err.message }] };
-  }
-});
-
 
 // --- IPC: Game Launcher ---
 ipcMain.handle('launch-game', (event, gameId, exePath) => {
@@ -1272,6 +1175,28 @@ ipcMain.handle('hltb-auto-fetch', async (event, game) => {
     return await autoFetchHowLongToBeat(game);
   } catch (err) {
     emitDiagnostic('HowLongToBeat', 'error', `Lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-search-games', async (event, term) => {
+  try {
+    const results = await searchRawgGames(term);
+    emitDiagnostic('RAWG', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
+      topMatch: results[0] ? { id: results[0].rawgId, name: results[0].title } : null
+    });
+    return results;
+  } catch (err) {
+    emitDiagnostic('RAWG', 'error', `Search failed for "${term}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-fetch-game-details', async (event, rawgId) => {
+  try {
+    return await fetchRawgGameDetails(rawgId);
+  } catch (err) {
+    emitDiagnostic('RAWG', 'error', `Details lookup failed for RAWG id ${rawgId}: ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1486,6 +1411,46 @@ ipcMain.handle('fetch-steam-details', async (event, steamAppId) => {
     return null;
   } catch (err) {
     emitDiagnostic('SteamDetails', 'error', `Failed to fetch Steam details for AppId ${steamAppId}: ${err.message}`);
+    return null;
+  }
+});
+
+function normalizeSteamReviewSummary(steamAppId, summary) {
+  if (!summary || typeof summary !== 'object') return null;
+
+  const totalReviews = Number(summary.total_reviews || 0);
+  const totalPositive = Number(summary.total_positive || 0);
+  const label = String(summary.review_score_desc || '').trim();
+
+  if (!label || totalReviews === 0) return null;
+
+  return {
+    steamAppId: String(steamAppId),
+    label,
+    totalReviews,
+    totalPositive,
+    reviewScore: Number(summary.review_score || 0),
+    positivePercent: Math.round((totalPositive / totalReviews) * 100),
+    source: 'steam'
+  };
+}
+
+ipcMain.handle('fetch-steam-reviews', async (event, steamAppId) => {
+  const appId = String(steamAppId || '').trim();
+  if (!/^\d+$/.test(appId)) return null;
+
+  try {
+    const url = `https://store.steampowered.com/appreviews/${appId}?json=1&language=all&purchase_type=all&num_per_page=0`;
+    const data = await fetchJson(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'NexusLauncher/1.0'
+      }
+    });
+
+    return normalizeSteamReviewSummary(appId, data?.query_summary);
+  } catch (err) {
+    emitDiagnostic('SteamReviews', 'error', `Failed to fetch Steam reviews for AppId ${appId}: ${err.message}`);
     return null;
   }
 });

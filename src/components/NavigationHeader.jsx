@@ -96,7 +96,7 @@ export default function NavigationHeader({
           <input 
             ref={searchInputRef}
             type="text" 
-            placeholder="Search games, activities..." 
+            placeholder="Search games..." 
             className="search-input"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}

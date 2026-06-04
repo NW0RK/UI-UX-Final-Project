@@ -1,41 +1,19 @@
 import React from 'react';
-import { ShoppingCart, Monitor, Gamepad2, Smartphone, Check, Star } from 'lucide-react';
+import { ShoppingCart, Check, ExternalLink } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { getSteamReviewScore } from '../utils/steamReviews';
 
-const platformIcons = {
-  'PC': Monitor,
-  'Console': Gamepad2,
-  'PS4': Gamepad2,
-  'Xbox Series X|S': Gamepad2,
-  'Xbox One': Gamepad2,
-  'Switch': Gamepad2,
-  'Mobile': Smartphone
-};
-
-function PlatformIcon({ platform }) {
-  const Icon = platformIcons[platform] || Gamepad2;
-  const label = platform === 'Console' ? 'Con' :
-                platform === 'PS4' ? 'PS' :
-                platform.startsWith('Xbox') ? 'XB' :
-                platform === 'Switch' ? 'NS' :
-                platform === 'Mobile' ? 'Mob' :
-                platform === 'PC' ? 'PC' : platform.slice(0, 2);
-  return (
-    <div className="platform-icon-badge" title={platform}>
-      <Icon size={10} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQuery }) {
+export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQuery, rawgSearchStatus = 'idle', rawgSearchError = null }) {
+  const normalizedQuery = searchQuery.toLowerCase();
   const filtered = catalog.filter(g =>
-    g.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    g.developer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    g.genre.toLowerCase().includes(searchQuery.toLowerCase())
+    g.title?.toLowerCase().includes(normalizedQuery) ||
+    g.developer?.toLowerCase().includes(normalizedQuery) ||
+    g.genre?.toLowerCase().includes(normalizedQuery)
   );
 
   const ownedIds = new Set(ownedGames.map(g => g.id));
+  const ownedRawgIds = new Set(ownedGames.map(g => g.rawgId).filter(Boolean));
+  const isSearchingRawg = rawgSearchStatus === 'loading' && searchQuery.trim().length >= 3;
 
   const handleItemClick = (item) => {
     audioEngine.playClickPulse();
@@ -49,22 +27,32 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           <ShoppingCart size={20} className="store-header-icon" />
           <h1 className="store-title">Nexus Store</h1>
         </div>
-        <span className="store-count">{filtered.length} titles available</span>
+        <span className="store-count">
+          {filtered.length} titles available{isSearchingRawg ? ' - searching RAWG' : ''}
+        </span>
       </div>
 
       {filtered.length === 0 && (
         <div className="store-empty">
-          <span>No titles match your search.</span>
+          <span>{isSearchingRawg ? 'Searching RAWG...' : 'No titles match your search.'}</span>
+        </div>
+      )}
+
+      {rawgSearchError && (
+        <div className="store-search-note">
+          RAWG search unavailable: {rawgSearchError}
         </div>
       )}
 
       <div className="store-grid">
         {filtered.map((item, index) => {
-          const isOwned = ownedIds.has(item.id);
+          const isRawg = item.source === 'rawg';
+          const isOwned = ownedIds.has(item.id) || (item.rawgId && ownedRawgIds.has(item.rawgId));
+          const reviewScore = getSteamReviewScore(item.steamReviewScore || item.rating);
           return (
             <div
               key={item.id}
-              className={`store-card ${isOwned ? 'owned' : ''}`}
+              className={`store-card ${isOwned ? 'owned' : ''} ${isRawg ? 'external-source' : ''}`}
               role="button"
               tabIndex={0}
               data-controller-confirm-label={`View ${item.title}`}
@@ -86,6 +74,12 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
                     <span>Owned</span>
                   </div>
                 )}
+                {isRawg && !isOwned && (
+                  <div className="store-source-badge">
+                    <ExternalLink size={11} />
+                    <span>RAWG</span>
+                  </div>
+                )}
                 <div className="store-card-hover">
                   <span className="store-card-view-btn">View Game</span>
                 </div>
@@ -93,14 +87,15 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
               <div className="store-card-info">
                 <div className="store-card-title">{item.title}</div>
                 <div className="store-card-developer">{item.developer}</div>
-                <div className="store-card-platforms">
-                  {item.platforms.map(p => (
-                    <PlatformIcon key={p} platform={p} />
-                  ))}
-                </div>
-                <div className="store-card-rating">
-                  <Star size={10} fill="currentColor" />
-                  <span>{item.rating}</span>
+                <div className="store-card-review-score">
+                  <span>{isRawg ? 'RAWG Rating' : 'Steam Reviews'}</span>
+                  <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
+                  {reviewScore.source === 'steam' && reviewScore.totalReviews > 0 && (
+                    <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} reviews</small>
+                  )}
+                  {isRawg && item.ageRating && (
+                    <small>{item.ageRating}</small>
+                  )}
                 </div>
               </div>
             </div>
@@ -162,6 +157,13 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           font-size: var(--fs-14);
         }
 
+        .store-search-note {
+          margin: -16px 0 20px;
+          color: rgba(255, 255, 255, 0.42);
+          font-size: var(--fs-11);
+          font-weight: 600;
+        }
+
         .store-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
@@ -192,6 +194,10 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
 
         .store-card.owned:hover {
           border-color: rgba(var(--accent-color-rgb), 0.3);
+        }
+
+        .store-card.external-source {
+          border-color: rgba(var(--accent-color-rgb), 0.12);
         }
 
         .store-card-image-wrapper {
@@ -244,6 +250,26 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           font-family: var(--font-display);
           letter-spacing: 0.5px;
           box-shadow: 0 0 10px rgba(var(--accent-color-rgb), 0.4);
+          z-index: 5;
+        }
+
+        .store-source-badge {
+          position: absolute;
+          top: 10px;
+          left: 10px;
+          background: rgba(7, 7, 10, 0.82);
+          color: rgba(255, 255, 255, 0.86);
+          padding: 4px 8px;
+          border-radius: 8px;
+          border: 1px solid rgba(var(--accent-color-rgb), 0.28);
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: var(--fs-9);
+          font-weight: 800;
+          font-family: var(--font-display);
+          letter-spacing: 0.8px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
           z-index: 5;
         }
 
@@ -312,35 +338,59 @@ export default function StoreGrid({ catalog, ownedGames, onSelectItem, searchQue
           text-overflow: ellipsis;
         }
 
-        .store-card-platforms {
+        .store-card-review-score {
           display: flex;
-          gap: 4px;
-          flex-wrap: wrap;
-          margin-top: 2px;
-        }
-
-        .platform-icon-badge {
-          display: flex;
-          align-items: center;
+          flex-direction: column;
+          align-items: flex-start;
           gap: 3px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 4px;
-          padding: 2px 5px;
-          font-size: var(--fs-8);
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          letter-spacing: 0.3px;
+          margin-top: auto;
+          min-width: 0;
         }
 
-        .store-card-rating {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: var(--fs-11);
+        .store-card-review-score span {
+          color: rgba(255, 255, 255, 0.32);
+          font-family: var(--font-display);
+          font-size: var(--fs-8);
+          font-weight: 800;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+        }
+
+        .store-card-review-score small {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: rgba(255, 255, 255, 0.36);
+          font-size: var(--fs-9);
           font-weight: 600;
-          color: #e6af2e;
-          margin-top: auto;
+        }
+
+        .steam-review-score {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: var(--fs-11);
+          font-weight: 800;
+          letter-spacing: 0.3px;
+          text-transform: uppercase;
+        }
+
+        .steam-review-score.overwhelmingly-positive,
+        .steam-review-score.very-positive,
+        .steam-review-score.mostly-positive {
+          color: #66c0f4;
+        }
+
+        .steam-review-score.mixed {
+          color: #b8b22a;
+        }
+
+        .steam-review-score.mostly-negative,
+        .steam-review-score.very-negative,
+        .steam-review-score.overwhelmingly-negative {
+          color: #ef4444;
         }
       `}} />
     </div>

@@ -68,9 +68,14 @@ export default function App() {
   const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
   const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
+  const [storeReviewScores, setStoreReviewScores] = useState({});
+  const [rawgSearchResults, setRawgSearchResults] = useState([]);
+  const [rawgSearchStatus, setRawgSearchStatus] = useState('idle');
+  const [rawgSearchError, setRawgSearchError] = useState(null);
   const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
+  const storeReviewsHydratedRef = useRef(false);
   const hltbLookupAttemptedRef = useRef(new Set());
 
   const addDiagnostic = (area, level, message, details = null) => {
@@ -175,6 +180,56 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 3 || (activeView !== 'store' && activeView !== 'store-item')) {
+      setRawgSearchResults([]);
+      setRawgSearchStatus('idle');
+      setRawgSearchError(null);
+      return;
+    }
+
+    if (!window.electronAPI?.searchRawgGames) {
+      setRawgSearchResults([]);
+      setRawgSearchStatus('unavailable');
+      setRawgSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRawgSearchStatus('loading');
+    setRawgSearchError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await window.electronAPI.searchRawgGames(term);
+        if (cancelled) return;
+
+        if (results?.error) {
+          setRawgSearchResults([]);
+          setRawgSearchStatus('error');
+          setRawgSearchError(results.error);
+          addDiagnostic('RAWG', 'warn', `RAWG search failed for ${term}: ${results.error}`);
+          return;
+        }
+
+        setRawgSearchResults(Array.isArray(results) ? results : []);
+        setRawgSearchStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setRawgSearchResults([]);
+        setRawgSearchStatus('error');
+        setRawgSearchError(error.message);
+        addDiagnostic('RAWG', 'warn', `RAWG search failed for ${term}: ${error.message}`);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, activeView]);
+
   // --- 1b. Hydrate library and store art from SteamGridDB when desktop APIs exist ---
   useEffect(() => {
     if (!window.electronAPI?.autoFetchArtwork || libraryArtworkHydratedRef.current || games.length === 0) return;
@@ -232,6 +287,56 @@ export default function App() {
 
     hydrateStoreArtwork();
   }, [cacheVersion]);
+
+  useEffect(() => {
+    if (storeReviewsHydratedRef.current) return;
+
+    const candidates = storeCatalog.filter(item => item.steamAppId);
+    if (candidates.length === 0) return;
+
+    storeReviewsHydratedRef.current = true;
+
+    async function hydrateStoreReviews() {
+      const fetchedScores = {};
+
+      for (const item of candidates) {
+        try {
+          let reviewScore = null;
+
+          if (window.electronAPI?.fetchSteamReviews) {
+            reviewScore = await window.electronAPI.fetchSteamReviews(item.steamAppId);
+          } else {
+            const res = await fetch(`https://store.steampowered.com/appreviews/${item.steamAppId}?json=1&language=all&purchase_type=all&num_per_page=0`);
+            const data = await res.json();
+            const summary = data?.query_summary;
+            if (summary?.review_score_desc && summary.total_reviews > 0) {
+              reviewScore = {
+                steamAppId: String(item.steamAppId),
+                label: summary.review_score_desc,
+                totalReviews: Number(summary.total_reviews || 0),
+                totalPositive: Number(summary.total_positive || 0),
+                reviewScore: Number(summary.review_score || 0),
+                positivePercent: Math.round((Number(summary.total_positive || 0) / Number(summary.total_reviews || 1)) * 100),
+                source: 'steam'
+              };
+            }
+          }
+
+          if (reviewScore?.label) {
+            fetchedScores[item.id] = reviewScore;
+          }
+        } catch (error) {
+          addDiagnostic('SteamReviews', 'warn', `Review score skipped ${item.title}: ${error.message}`);
+        }
+      }
+
+      if (Object.keys(fetchedScores).length > 0) {
+        setStoreReviewScores(fetchedScores);
+      }
+    }
+
+    hydrateStoreReviews();
+  }, []);
 
   useEffect(() => {
     if (!window.electronAPI?.autoFetchHowLongToBeat || games.length === 0) return;
@@ -571,14 +676,12 @@ export default function App() {
         addedList.push(applySeededHltbToGame({
           ...metadata,
           steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
-          platforms: scannedFile.platform ? [scannedFile.platform] : (metadata.platforms || ["PC"]),
           id: cleanId
         }));
         newGameIds.push(cleanId);
         addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
           exePath: scannedFile.path,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
-          platform: scannedFile.platform || 'Custom'
+          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null
         });
       } else {
         duplicateCount += 1;
@@ -725,7 +828,9 @@ export default function App() {
       // Reset hydration refs
       libraryArtworkHydratedRef.current = false;
       storeArtworkHydratedRef.current = false;
+      storeReviewsHydratedRef.current = false;
       setStoreArtwork({});
+      setStoreReviewScores({});
       setCacheVersion(v => v + 1);
       
       alert("Cache cleared successfully (sandbox mock)!");
@@ -753,12 +858,15 @@ export default function App() {
 
   // --- Store: Mark as Owned ---
   const handleMarkOwned = async (storeItem) => {
-    const existing = games.find(g => g.id === storeItem.id);
+    const existing = games.find(g =>
+      g.id === storeItem.id || (storeItem.rawgId && g.rawgId === storeItem.rawgId)
+    );
     if (existing) {
       const updatedList = games.map(g =>
-        g.id === storeItem.id ? { ...g, owned: true } : g
+        g.id === existing.id ? { ...g, ...storeItem, id: existing.id, owned: true } : g
       );
       setGames(updatedList);
+      setSelectedGame(updatedList.find(g => g.id === existing.id) || existing);
       if (window.electronAPI) {
         await window.electronAPI.saveDatabase(updatedList);
       } else {
@@ -766,9 +874,6 @@ export default function App() {
       }
       return;
     }
-
-    // Sync the store catalog ownership
-    storeItem.owned = true;
 
     const newGame = applySeededHltbToGame({
       ...storeItem,
@@ -812,9 +917,9 @@ export default function App() {
   // --- Filter Catalog Search ---
   const getFilteredGames = () => {
     return games.filter(g => 
-      g.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.developer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.genre.toLowerCase().includes(searchQuery.toLowerCase())
+      g.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      g.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      g.genre?.toLowerCase().includes(searchQuery.toLowerCase())
     );
   };
 
@@ -864,8 +969,31 @@ export default function App() {
   const syncedCatalog = storeCatalog.map(item => applySeededHltbToGame({
     ...item,
     ...storeArtwork[item.id],
+    steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
     owned: games.some(g => g.id === item.id && g.owned)
   }));
+  const normalizedCatalogTitles = new Set(
+    syncedCatalog.map(item => item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
+  );
+  const ownedRawgIds = new Set(games.map(game => game.rawgId).filter(Boolean));
+  const mergedStoreCatalog = [
+    ...syncedCatalog,
+    ...rawgSearchResults
+      .filter(item => {
+        const normalizedTitle = item.title?.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return item.source === 'rawg'
+          && item.rawgId
+          && !normalizedCatalogTitles.has(normalizedTitle)
+          && !syncedCatalog.some(catalogItem => catalogItem.rawgId === item.rawgId);
+      })
+      .map(item => ({
+        ...item,
+        owned: ownedRawgIds.has(item.rawgId) || games.some(game => game.id === item.id)
+      }))
+  ];
+  const activeStoreItem = selectedStoreItem
+    ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
+    : null;
 
   const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode;
   const primaryViews = ['store', 'library', 'favourites'];
@@ -950,6 +1078,7 @@ export default function App() {
       selectedStoreItem?.id,
       searchQuery,
       games.length,
+      rawgSearchResults.length,
       isCcOpen,
       isSettingsOpen,
       isMetadataOpen,
@@ -1030,16 +1159,18 @@ export default function App() {
 
         {activeView === 'store' && (
           <StoreGrid 
-            catalog={syncedCatalog}
+            catalog={mergedStoreCatalog}
             ownedGames={games}
             onSelectItem={handleSelectStoreItem}
             searchQuery={searchQuery}
+            rawgSearchStatus={rawgSearchStatus}
+            rawgSearchError={rawgSearchError}
           />
         )}
 
         {activeView === 'store-item' && (
           <StoreItemPage 
-            item={selectedStoreItem}
+            item={activeStoreItem}
             ownedGames={games}
             onBack={handleBackToStore}
             onMarkOwned={handleMarkOwned}

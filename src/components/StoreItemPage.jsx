@@ -1,18 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon, LineChart, Gift, PackageOpen, KeyRound, RefreshCw, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Check, Plus, Link, FolderOpen, Play, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon, LineChart, Gift, PackageOpen, KeyRound, RefreshCw, ExternalLink } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
-
-const platformIcons = {
-  'PC': Monitor,
-  'Console': Gamepad2,
-  'PS4': Gamepad2,
-  'Xbox Series X|S': Gamepad2,
-  'Xbox One': Gamepad2,
-  'Switch': Gamepad2,
-  'Mobile': Smartphone
-};
+import { getSteamReviewScore } from '../utils/steamReviews';
 
 const HIGHCHARTS_VERSION = '12.6.0';
 let highchartsLoaderPromise = null;
@@ -262,35 +253,81 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const [itadApiKeyRevision, setItadApiKeyRevision] = useState(0);
   const [syncingItad, setSyncingItad] = useState(false);
   const [steamDescription, setSteamDescription] = useState('');
+  const [rawgDetails, setRawgDetails] = useState(null);
+  const [loadingRawgDetails, setLoadingRawgDetails] = useState(false);
+  const [rawgDetailsError, setRawgDetailsError] = useState(null);
   const [itadGameId, setItadGameId] = useState(null);
   const [chartPoints, setChartPoints] = useState([]);
   const [highchartsStatus, setHighchartsStatus] = useState('Loading ITAD price history...');
   const [chartThemeRevision, setChartThemeRevision] = useState(0);
   const highchartsContainerRef = useRef(null);
   const highchartsInstanceRef = useRef(null);
+  const activeItem = rawgDetails ? { ...item, ...rawgDetails, owned: item?.owned || rawgDetails.owned } : item;
+  const isRawgItem = activeItem?.source === 'rawg';
 
   useEffect(() => {
-    if (!item) return;
+    if (!item?.rawgId || item.source !== 'rawg' || !window.electronAPI?.fetchRawgGameDetails) {
+      setRawgDetails(null);
+      setRawgDetailsError(null);
+      setLoadingRawgDetails(false);
+      return;
+    }
+
     let active = true;
-    setSteamDescription(item.description || '');
+    setRawgDetails(null);
+    setRawgDetailsError(null);
+    setLoadingRawgDetails(true);
+
+    window.electronAPI.fetchRawgGameDetails(item.rawgId)
+      .then((details) => {
+        if (!active) return;
+        if (details?.error) {
+          setRawgDetailsError(details.error);
+        } else {
+          setRawgDetails(details);
+        }
+      })
+      .catch((error) => {
+        if (active) setRawgDetailsError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingRawgDetails(false);
+      });
+
+    return () => { active = false; };
+  }, [item?.id, item?.rawgId, item?.source]);
+
+  useEffect(() => {
+    if (!activeItem) return;
+    let active = true;
+    setSteamDescription(activeItem.description || '');
 
     async function loadMedia() {
+      if (activeItem.source === 'rawg') {
+        const rawgImage = activeItem.bannerUrl || activeItem.coverUrl;
+        const screenshots = rawgImage ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }] : [];
+        setMedia({ screenshots, movies: [] });
+        setSelectedMedia(rawgImage ? { type: 'image', url: rawgImage } : null);
+        setLoadingMedia(false);
+        return;
+      }
+
       setLoadingMedia(true);
       let fetchedData = null;
 
-      if (item.steamAppId) {
+      if (activeItem.steamAppId) {
         if (window.electronAPI?.fetchSteamDetails) {
           try {
-            fetchedData = await window.electronAPI.fetchSteamDetails(item.steamAppId);
+            fetchedData = await window.electronAPI.fetchSteamDetails(activeItem.steamAppId);
           } catch (e) {
             console.error("Failed to fetch steam details via IPC:", e);
           }
         } else {
           try {
-            const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${item.steamAppId}`);
+            const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${activeItem.steamAppId}`);
             const json = await res.json();
-            if (json && json[item.steamAppId]?.success) {
-              fetchedData = json[item.steamAppId].data;
+            if (json && json[activeItem.steamAppId]?.success) {
+              fetchedData = json[activeItem.steamAppId].data;
             }
           } catch (e) {
             console.error("CORS or network error fetching steam details in browser sandbox:", e);
@@ -303,7 +340,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       const steamAbout = cleanSteamDescription(
         fetchedData?.about_the_game || fetchedData?.detailed_description || fetchedData?.short_description
       );
-      setSteamDescription(steamAbout || item.description || '');
+      setSteamDescription(steamAbout || activeItem.description || '');
 
       if (fetchedData && (fetchedData.screenshots?.length || fetchedData.movies?.length)) {
         const screenshots = fetchedData.screenshots || [];
@@ -321,7 +358,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           setSelectedMedia(null);
         }
       } else {
-        const fallback = getCuratedMockMedia(item.id, item.title);
+        const fallback = getCuratedMockMedia(activeItem.id, activeItem.title);
         setMedia(fallback);
         if (fallback.movies?.length > 0) {
           setSelectedMedia({ type: 'video', url: fallback.movies[0].mp4?.max || fallback.movies[0].url, thumbnail: fallback.movies[0].thumbnail });
@@ -336,7 +373,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     loadMedia();
     return () => { active = false; };
-  }, [item]);
+  }, [activeItem?.id, activeItem?.source, activeItem?.steamAppId, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl]);
 
   useEffect(() => {
     if (typeof MutationObserver === 'undefined') return undefined;
@@ -373,12 +410,12 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   }, [lightboxIndex, media.screenshots]);
 
   useEffect(() => {
-    if (!item) return;
+    if (!activeItem || isRawgItem) return;
     let active = true;
 
     async function loadItadInsights() {
       setLoadingItad(true);
-      const insights = await getItadStoreInsights(item);
+      const insights = await getItadStoreInsights(activeItem);
       if (!active) return;
       setItadInsights(insights);
       setLoadingItad(false);
@@ -386,11 +423,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     loadItadInsights();
     return () => { active = false; };
-  }, [item, itadApiKeyRevision]);
+  }, [activeItem?.id, activeItem?.steamAppId, isRawgItem, itadApiKeyRevision]);
 
 
   useEffect(() => {
-    if (!item) return;
+    if (!activeItem || isRawgItem) return;
     let active = true;
 
     highchartsInstanceRef.current?.destroy();
@@ -398,7 +435,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     setItadGameId(null);
     setChartPoints([]);
 
-    if (!item.steamAppId) {
+    if (!activeItem.steamAppId) {
       setHighchartsStatus('Missing Steam App ID for ITAD price history.');
       return () => { active = false; };
     }
@@ -410,7 +447,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     setHighchartsStatus('Matching Steam App ID with ITAD...');
 
-    lookupItadGameBySteamAppId(item.steamAppId)
+    lookupItadGameBySteamAppId(activeItem.steamAppId)
       .then((lookup) => {
         if (!active) return;
         setItadGameId(lookup.id);
@@ -421,7 +458,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       });
 
     return () => { active = false; };
-  }, [item, itadApiKeyRevision]);
+  }, [activeItem?.id, activeItem?.steamAppId, isRawgItem, itadApiKeyRevision]);
 
   useEffect(() => {
     if (!itadGameId) return;
@@ -669,7 +706,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           },
           series: [{
             type: 'area',
-            name: item.title,
+            name: activeItem.title,
             data: chartPoints,
             step: 'left',
             color: chartTheme.accent,
@@ -693,17 +730,20 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       });
 
     return () => { active = false; };
-  }, [chartPoints, item?.title, itadInsights, loadingItad, chartThemeRevision]);
+  }, [chartPoints, activeItem?.title, itadInsights, loadingItad, chartThemeRevision]);
 
   if (!item) return null;
 
-  const ownedGame = ownedGames.find(g => g.id === item.id);
+  const ownedGame = ownedGames.find(g =>
+    g.id === activeItem.id || (activeItem.rawgId && g.rawgId === activeItem.rawgId)
+  );
   const isOwned = !!ownedGame;
   const hasExe = isOwned && ownedGame.exePath;
+  const reviewScore = getSteamReviewScore(activeItem.steamReviewScore || activeItem.rating);
 
   const handleMarkOwnedClick = () => {
     audioEngine.playClickPulse();
-    onMarkOwned(item);
+    onMarkOwned(activeItem);
   };
 
   const handleBrowseExe = () => {
@@ -712,15 +752,15 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       window.electronAPI.selectExecutable().then(path => {
         if (path) {
           setExeInput(path);
-          onLinkExe(item.id, path);
+          onLinkExe(activeItem.id, path);
           setShowExeInput(false);
         }
       });
     } else {
-      const path = prompt('Enter the full path to the .exe file:', 'C:\\Games\\' + item.title + '\\game.exe');
+      const path = prompt('Enter the full path to the .exe file:', 'C:\\Games\\' + activeItem.title + '\\game.exe');
       if (path) {
         setExeInput(path);
-        onLinkExe(item.id, path);
+        onLinkExe(activeItem.id, path);
         setShowExeInput(false);
       }
     }
@@ -729,7 +769,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const handleLinkExeClick = () => {
     audioEngine.playClickPulse();
     if (exeInput) {
-      onLinkExe(item.id, exeInput);
+      onLinkExe(activeItem.id, exeInput);
       setShowExeInput(false);
     }
   };
@@ -782,7 +822,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     setItadOAuthStatus(getItadOAuthStatus());
   };
 
-  const aboutText = steamDescription || item.description;
+  const aboutText = steamDescription || activeItem.description;
 
   return (
     <div className="store-item-viewport">
@@ -794,8 +834,8 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
       {/* Banner Section */}
       <div className="store-item-banner">
-        {item.bannerUrl ? (
-          <img src={item.bannerUrl} alt={item.title} className="store-item-banner-img" />
+        {activeItem.bannerUrl ? (
+          <img src={activeItem.bannerUrl} alt={activeItem.title} className="store-item-banner-img" />
         ) : (
           <div className="store-item-banner-img store-item-banner-placeholder">
             <span>SteamGridDB artwork pending</span>
@@ -804,21 +844,30 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         <div className="store-item-banner-overlay" />
         <div className="store-item-banner-content">
           <div className="store-item-banner-tags">
-            {item.tags?.map((tag, idx) => (
+            {activeItem.tags?.map((tag, idx) => (
               <span key={idx} className="store-item-tag">{tag}</span>
             ))}
           </div>
-          <h1 className="store-item-title">{item.title}</h1>
+          <h1 className="store-item-title">{activeItem.title}</h1>
           <div className="store-item-meta">
-            <span>{item.developer}</span>
+            <span>{activeItem.developer}</span>
             <span className="store-item-dot" />
-            <span>{item.publisher}</span>
+            <span>{activeItem.publisher}</span>
             <span className="store-item-dot" />
-            <span>{item.releaseDate}</span>
+            <span>{activeItem.releaseDate}</span>
+            {activeItem.ageRating && (
+              <>
+                <span className="store-item-dot" />
+                <span>{activeItem.ageRating}</span>
+              </>
+            )}
           </div>
-          <div className="store-item-rating">
-            <Star size={14} fill="currentColor" />
-            <span>{item.rating}</span>
+          <div className="store-item-review-score">
+            <span>{isRawgItem ? 'RAWG Rating' : 'Steam Reviews'}</span>
+            <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
+            {reviewScore.source === 'steam' && reviewScore.totalReviews > 0 && (
+              <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} user reviews</small>
+            )}
           </div>
         </div>
       </div>
@@ -827,7 +876,19 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       <div className="store-item-body">
         <div className="store-item-left">
           <h3 className="store-item-section-title">About This Game</h3>
+          {loadingRawgDetails && <div className="rawg-status-line">Loading RAWG game profile...</div>}
+          {rawgDetailsError && <div className="rawg-status-line error">RAWG details unavailable: {rawgDetailsError}</div>}
           <p className="store-item-description">{aboutText}</p>
+          {isRawgItem && (
+            <a
+              className="rawg-attribution"
+              href={activeItem.rawgUrl || 'https://rawg.io/'}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Game metadata provided by RAWG
+            </a>
+          )}
 
           <div className="store-item-showcase-row">
             <div className="store-item-screenshots-panel">
@@ -947,6 +1008,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             </div>
           </div>
 
+          {!isRawgItem && (
           <div className="itad-panel">
             <div className="itad-panel-header">
               <div>
@@ -958,7 +1020,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               </div>
               <div className="itad-appid-pill">
                 <span>Steam App ID</span>
-                <strong>{item.steamAppId || 'Unavailable'}</strong>
+                <strong>{activeItem.steamAppId || 'Unavailable'}</strong>
               </div>
             </div>
 
@@ -994,6 +1056,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               </>
             )}
           </div>
+          )}
 
           {/* Fullscreen Lightbox Modal */}
           {lightboxIndex !== -1 && media.screenshots && media.screenshots[lightboxIndex] && (
@@ -1108,7 +1171,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                     triggerClassName="owned-overflow-trigger"
                     menuClassName="owned-overflow-popover"
                     onEditMetadata={ownedGame ? () => onEditMetadata(ownedGame) : undefined}
-                    onRemove={() => onRemoveGame(item.id)}
+                    onRemove={() => onRemoveGame(ownedGame?.id || activeItem.id)}
                   />
                 </div>
               </>
@@ -1128,6 +1191,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             )}
           </div>
 
+          {!isRawgItem && (
           <div className="itad-sync-card">
             <div className="itad-sync-title">
               <KeyRound size={16} />
@@ -1155,25 +1219,10 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             <button className="glow-btn" onClick={handleItadSyncClick} disabled={syncingItad}>
               {itadOAuthStatus.isConnected ? <RefreshCw size={14} /> : <ExternalLink size={14} />}
               <span>{syncingItad ? 'Syncing...' : itadOAuthStatus.isConnected ? 'Sync Now' : itadOAuthStatus.hasClientId ? 'Start OAuth' : 'Register App'}</span>
-            </button>
-          </div>
-
-          {/* Platforms section moved to right column */}
-          <div className="store-item-platforms-container" style={{ marginTop: '20px' }}>
-            <h3 className="store-item-section-title">Platforms</h3>
-            <div className="store-item-platforms">
-              {item.platforms.map(p => {
-                const Icon = platformIcons[p] || Gamepad2;
-                return (
-                  <div key={p} className="store-item-platform-badge">
-                    <Icon size={16} />
-                    <span>{p}</span>
-                  </div>
-                );
-              })}
+              </button>
             </div>
+          )}
           </div>
-        </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -1308,24 +1357,67 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
         }
 
-        .store-item-rating {
+        .store-item-review-score {
           display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-size: var(--fs-14-5);
-          font-weight: 800;
-          color: #ffc83b;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 4px;
           margin-top: 8px;
           background: rgba(0, 0, 0, 0.4);
-          padding: 4px 10px;
-          border-radius: 30px;
+          padding: 7px 12px;
+          border-radius: 8px;
           backdrop-filter: blur(10px);
           border: 1px solid rgba(255, 255, 255, 0.08);
           box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+          min-width: 0;
         }
 
-        .store-item-rating svg {
-          filter: drop-shadow(0 0 6px rgba(255, 200, 59, 0.6));
+        .store-item-review-score span {
+          color: rgba(255, 255, 255, 0.38);
+          font-family: var(--font-display);
+          font-size: var(--fs-9);
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+        }
+
+        .store-item-review-score small {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-10);
+          font-weight: 700;
+        }
+
+        .store-item-review-score .steam-review-score {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: var(--font-display);
+          font-size: var(--fs-14-5);
+          font-weight: 900;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          text-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .steam-review-score.overwhelmingly-positive,
+        .steam-review-score.very-positive,
+        .steam-review-score.mostly-positive {
+          color: #66c0f4;
+        }
+
+        .steam-review-score.mixed {
+          color: #b8b22a;
+        }
+
+        .steam-review-score.mostly-negative,
+        .steam-review-score.very-negative,
+        .steam-review-score.overwhelmingly-negative {
+          color: #ef4444;
         }
 
         .store-item-body {
@@ -1391,6 +1483,33 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           scrollbar-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0);
         }
 
+        .rawg-status-line {
+          margin-bottom: 10px;
+          color: rgba(255, 255, 255, 0.42);
+          font-size: var(--fs-11);
+          font-weight: 700;
+        }
+
+        .rawg-status-line.error {
+          color: #ef4444;
+        }
+
+        .rawg-attribution {
+          display: inline-flex;
+          width: fit-content;
+          margin: 10px 0 22px;
+          color: var(--accent-color);
+          font-size: var(--fs-11);
+          font-weight: 800;
+          text-decoration: none;
+          letter-spacing: 0.4px;
+        }
+
+        .rawg-attribution:hover,
+        .rawg-attribution:focus-visible {
+          text-decoration: underline;
+        }
+
         .store-item-description::-webkit-scrollbar {
           width: 4px;
         }
@@ -1402,37 +1521,6 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-description::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.1);
           border-radius: 4px;
-        }
-
-        .store-item-platforms {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .store-item-platform-badge {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
-          padding: 6px 12px;
-          font-size: var(--fs-11);
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.7);
-          transition: all var(--transition-fast);
-        }
-
-        .store-item-platform-badge:hover {
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(255, 255, 255, 0.15);
-          color: #fff;
-        }
-
-        .store-item-platform-badge svg {
-          color: var(--accent-color);
-          filter: drop-shadow(0 0 5px rgba(var(--accent-color-rgb), 0.4));
         }
 
         .store-item-showcase-row {

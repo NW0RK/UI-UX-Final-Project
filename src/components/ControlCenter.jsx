@@ -97,51 +97,6 @@ export default function ControlCenter({
     }
   };
 
-  const handleAutoDetectPlatforms = async () => {
-    audioEngine.playClickPulse();
-    setIsScanning(true);
-    setScannedFiles([]);
-
-    try {
-      if (window.electronAPI?.scanPlatforms) {
-        const scanResult = await window.electronAPI.scanPlatforms();
-        const results = Array.isArray(scanResult) ? scanResult : (scanResult?.files || []);
-        if (results.length === 0) {
-          alert('Auto-detect completed, but no games were discovered. Ensure Steam, Epic, GOG, or Xbox games are installed.');
-        }
-        setTimeout(() => {
-          setScannedFiles(results);
-          setIsScanning(false);
-          const initialSelection = {};
-          results.forEach(file => {
-            initialSelection[file.path] = true;
-          });
-          setSelectedScans(initialSelection);
-        }, 1500);
-      } else {
-        // Browser Mock Results for Platform Scanning
-        setTimeout(() => {
-          const mockResults = [
-            { name: 'Portal 2', path: 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Portal 2\\portal2.exe', steamAppId: '620', platform: 'Steam' },
-            { name: 'Cyberpunk 2077', path: 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Cyberpunk 2077\\bin\\x64\\Cyberpunk2077.exe', steamAppId: '1091500', platform: 'Steam' },
-            { name: 'Fortnite', path: 'C:\\Program Files\\Epic Games\\Fortnite\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe', platform: 'Epic Games' },
-            { name: 'The Witcher 3: Wild Hunt', path: 'C:\\GOG Games\\The Witcher 3 Wild Hunt\\bin\\x64\\witcher3.exe', platform: 'GOG Galaxy' }
-          ];
-          setScannedFiles(mockResults);
-          setIsScanning(false);
-          const initialSelection = {};
-          mockResults.forEach(file => {
-            initialSelection[file.path] = true;
-          });
-          setSelectedScans(initialSelection);
-        }, 1800);
-      }
-    } catch (e) {
-      setIsScanning(false);
-      alert(`Platform discovery failed: ${e.message}`);
-    }
-  };
-
   const handleToggleSelectFile = (filePath) => {
     audioEngine.playHoverTick();
     setSelectedScans(prev => ({
@@ -345,14 +300,6 @@ export default function ControlCenter({
                   >
                     {isScanning ? 'Scanning...' : 'Scan Directory'}
                   </button>
-                  <button
-                    className="glow-btn scan-action-btn auto-detect-platforms-btn"
-                    onClick={handleAutoDetectPlatforms}
-                    disabled={isScanning}
-                    onMouseEnter={audioEngine.playHoverTick}
-                  >
-                    Auto-Detect
-                  </button>
                 </div>
               </div>
 
@@ -361,7 +308,7 @@ export default function ControlCenter({
                   <div className="scanning-radar-state">
                     <div className="radar-sweep-effect" />
                     <span className="radar-text">
-                      {scanPath ? 'Analyzing executables, scanning depth 3...' : 'Probing Steam, Epic, GOG, and Xbox installations...'}
+                      Analyzing executables, scanning depth 3...
                     </span>
                   </div>
                 )}
@@ -369,7 +316,7 @@ export default function ControlCenter({
                 {!isScanning && scannedFiles.length === 0 && (
                   <div className="scanner-empty-state">
                     <FolderSearch size={24} className="empty-icon" />
-                    <span>Select a path, auto-detect platforms, or manually import one executable.</span>
+                    <span>Select a path or manually import one executable.</span>
                   </div>
                 )}
 
@@ -800,17 +747,6 @@ export default function ControlCenter({
           flex-shrink: 0;
           font-size: var(--fs-11);
           padding: 8px 20px;
-        }
-
-        .auto-detect-platforms-btn {
-          background: rgba(0, 242, 254, 0.12);
-          border: 1px solid rgba(0, 242, 254, 0.3);
-          color: #00f2fe;
-        }
-
-        .auto-detect-platforms-btn:hover {
-          background: rgba(0, 242, 254, 0.2);
-          border-color: rgba(0, 242, 254, 0.5);
         }
 
         .scanner-output-box {

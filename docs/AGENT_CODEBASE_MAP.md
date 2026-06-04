@@ -39,7 +39,7 @@ npm run build
 
 | Path | Purpose | Update when |
 | --- | --- | --- |
-| `main.js` | Electron main process: window creation, custom artwork protocol, native dialogs, filesystem persistence, executable/platform scanning, process launch, external service calls, diagnostics, settings, cache clearing. | Native behavior, IPC, storage paths, scanners, artwork, HLTB, ITAD, or launch behavior changes. |
+| `main.js` | Electron main process: window creation, custom artwork protocol, native dialogs, filesystem persistence, executable scanning, process launch, external service calls, diagnostics, settings, cache clearing. | Native behavior, IPC, storage paths, scanners, artwork, HLTB, ITAD, RAWG, or launch behavior changes. |
 | `preload.js` | Context-isolated bridge exposing `window.electronAPI` to React. | Any IPC method is added, removed, renamed, or has signature changes. |
 | `src/main.jsx` | React root mount and global CSS import. | App bootstrap changes. |
 | `src/App.jsx` | Renderer state hub, view routing, settings sync, database hydration, artwork and HLTB hydration, import/edit/remove/launch handlers, controller callbacks. | Most app flows, game data mutations, settings, views, and modal wiring. |
@@ -50,6 +50,7 @@ npm run build
 | `src/utils/steamgriddb.js` | Renderer-side helpers for applying and checking artwork state. | Artwork field mapping or fetch eligibility changes. |
 | `src/utils/hltb.js` | Renderer-side seeded HowLongToBeat data and formatting helpers. | HLTB data shape, stale rules, display text. |
 | `src/utils/itad.js` | Renderer-side IsThereAnyDeal helpers, local API key reads, API normalization, seeded fallback history. | Store price insights, ITAD auth/storage, history formatting. |
+| `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
 | `deprecated_features/` | Archived image trimming code and notes. | Only when restoring or documenting deprecated trimming behavior. |
@@ -66,7 +67,7 @@ npm run build
 | `FavouritesTrophyRoom.jsx` | Favorites view with trophy-room style cards. | Uses `data-controller-*` selection attributes and local injected styles. |
 | `StoreGrid.jsx` | Store catalog grid and owned-state presentation. | Receives synced catalog from `App.jsx`. |
 | `StoreItemPage.jsx` | Store detail view, Steam media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam details IPC, and executable picker. |
-| `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, platform scan, shutdown, import callbacks. |
+| `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
 | `SettingsPanel.jsx` | Theme/accessibility/system/artwork/API settings. | Reads and saves SteamGridDB API key through Electron APIs. |
 | `MetadataEditor.jsx` | Edit selected-game metadata and artwork, manual SGDB search/fetch, HLTB refresh. | Calls image picker, SGDB IPC, auto artwork IPC, HLTB IPC. |
 | `ProfileOverlay.jsx` | Profile name and avatar editing. | Persists values in `localStorage` through `App.jsx`. |
@@ -95,10 +96,10 @@ Current IPC groups:
 | --- | --- | --- |
 | Window controls | `windowMinimize`, `windowMaximize`, `windowClose` | `window-minimize`, `window-maximize`, `window-close` |
 | Database | `loadDatabase`, `saveDatabase` | `load-database`, `save-database` |
-| File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables`, `scanPlatforms` | `select-directory`, `select-executable`, `select-image`, `scan-executables`, `scan-platforms` |
+| File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `fetchSteamDetails` | SGDB search/fetch/auto/cache handlers, `fetch-steam-details`, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam details/reviews handlers, RAWG search/details handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | Settings/API key | `saveApiKey`, `getApiKey`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
@@ -118,10 +119,10 @@ Primary game records come from `src/utils/mockDatabase.js` and are later persist
 
 Common fields include:
 
-- Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `releaseDate`, `description`, `platforms`, `tags`.
+- Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`.
 - Library state: `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `timeToComplete`, `nextAchievement`, `exePath`.
 - Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`.
-- Integrations: `hltb` for HowLongToBeat data.
+- Integrations: `hltb` for HowLongToBeat data; `rawgId`, `rawgSlug`, `rawgUrl`, and `source: 'rawg'` for RAWG-backed discovery/library records; transient store items can include `steamReviewScore` from Steam review summaries.
 
 Persistence locations:
 
@@ -154,12 +155,15 @@ Store and pricing:
 
 - Store inventory starts in `storeCatalog`.
 - `App.jsx` merges owned status from the saved library.
+- Top-bar Store searches can append RAWG discovery results through `searchRawgGames`; selecting one opens `StoreItemPage` without saving until the user marks it owned.
+- `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews`.
 - `StoreItemPage.jsx` fetches Steam details through Electron and ITAD insights through `src/utils/itad.js`.
+- `StoreItemPage.jsx` fetches RAWG details for RAWG-backed items through `fetchRawgGameDetails` and displays RAWG attribution.
 
 Import and launch:
 
-- `ControlCenter.jsx` triggers manual import, folder scan, or platform scan.
-- `main.js` scans directories/platforms and attaches Steam App IDs when it can.
+- `ControlCenter.jsx` triggers manual import or folder scan.
+- `main.js` scans directories and attaches Steam App IDs when it can.
 - `App.jsx` converts scan results to game records with `matchGameMetadata`.
 - `main.js` launches executables with `spawn` and emits `game-status-changed`; `App.jsx` updates session time and persisted playtime.
 

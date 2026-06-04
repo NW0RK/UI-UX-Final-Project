@@ -15,7 +15,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectExecutable: () => ipcRenderer.invoke('select-executable'),
   selectImage: () => ipcRenderer.invoke('select-image'),
   scanExecutables: (dirPath) => ipcRenderer.invoke('scan-executables', dirPath),
-  scanPlatforms: () => ipcRenderer.invoke('scan-platforms'),
 
   // Launch processes
   launchGame: (gameId, exePath) => ipcRenderer.invoke('launch-game', gameId, exePath),
@@ -31,9 +30,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getCachedArtwork: (gameId) => ipcRenderer.invoke('get-cached-artwork', gameId),
   clearArtworkCache: () => ipcRenderer.invoke('clear-artwork-cache'),
   fetchSteamDetails: (steamAppId) => ipcRenderer.invoke('fetch-steam-details', steamAppId),
+  fetchSteamReviews: (steamAppId) => ipcRenderer.invoke('fetch-steam-reviews', steamAppId),
   fetchItadJson: (url, apiKey) => ipcRenderer.invoke('itad-fetch-json', url, apiKey),
   searchHowLongToBeat: (term) => ipcRenderer.invoke('hltb-search', term),
   autoFetchHowLongToBeat: (game) => ipcRenderer.invoke('hltb-auto-fetch', game),
+  searchRawgGames: (term) => ipcRenderer.invoke('rawg-search-games', term),
+  fetchRawgGameDetails: (rawgId) => ipcRenderer.invoke('rawg-fetch-game-details', rawgId),
   saveApiKey: (key) => ipcRenderer.invoke('save-api-key', key),
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),

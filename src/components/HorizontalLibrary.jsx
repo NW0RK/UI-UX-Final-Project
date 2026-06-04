@@ -1,15 +1,12 @@
 import React, { useRef } from 'react';
 import { Play, Star } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
-import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 export default function HorizontalLibrary({ 
   games, 
   selectedGame, 
   onSelectGame, 
   onLaunchGame, 
-  onEditMetadata,
-  onRemoveGame, 
   runningGameId 
 }) {
   const shelfRef = useRef(null);
@@ -47,8 +44,6 @@ export default function HorizontalLibrary({
               onClick={() => handleCardClick(game)}
               onFocus={() => handleCardFocus(game)}
               onLaunch={() => onLaunchGame(game)}
-              onEditMetadata={() => onEditMetadata(game)}
-              onRemove={() => onRemoveGame(game.id)}
             />
           );
         })}
@@ -115,7 +110,7 @@ export default function HorizontalLibrary({
   );
 }
 
-function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onEditMetadata, onRemove }) {
+function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
   const handleLaunchClick = (e) => {
     e.stopPropagation();
     onLaunch();
@@ -163,12 +158,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
           >
             <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
           </button>
-          <LibraryOverflowMenu
-            className="card-library-overflow"
-            triggerClassName="card-library-overflow-trigger"
-            onEditMetadata={onEditMetadata}
-            onRemove={onRemove}
-          />
         </div>
       </div>
 
@@ -401,29 +390,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onE
 
         .quick-play-button.running-btn:hover {
           background: #f87171;
-        }
-
-        .card-library-overflow {
-          transform: translateY(10px);
-          position: absolute;
-          bottom: 12px;
-          right: 12px;
-          opacity: 0;
-          transition: all var(--transition-fast);
-        }
-
-        .store-card:hover .card-library-overflow,
-        .card-library-overflow:has(.library-overflow-trigger[aria-expanded="true"]) {
-          transform: translateY(0);
-          opacity: 1;
-        }
-
-        .card-library-overflow-trigger {
-          width: 32px;
-          height: 32px;
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(255, 255, 255, 0.14);
-          color: rgba(255, 255, 255, 0.72);
         }
 
       `}} />

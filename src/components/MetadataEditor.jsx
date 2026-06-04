@@ -9,8 +9,6 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
   const [title, setTitle] = useState(game.title);
   const [developer, setDeveloper] = useState(game.developer);
   const [genre, setGenre] = useState(game.genre);
-  const [rating, setRating] = useState(game.rating);
-  const [releaseDate, setReleaseDate] = useState(game.releaseDate);
   const [hltb, setHltb] = useState(game.hltb || null);
   const [playtimeHours, setPlaytimeHours] = useState(Math.round((game.playtime / 3600) * 10) / 10);
   const [description, setDescription] = useState(game.description);
@@ -62,8 +60,6 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
       title,
       developer,
       genre,
-      rating: parseFloat(rating) || 4.0,
-      releaseDate,
       hltb,
       playtime: Math.round(parseFloat(playtimeHours) * 3600) || 0,
       description,
@@ -254,30 +250,6 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
                     className="glass-input editor-input" 
                     value={genre} 
                     onChange={(e) => setGenre(e.target.value)} 
-                  />
-                </div>
-              </div>
-
-              <div className="form-group-row">
-                <div className="form-group flex-1">
-                  <label className="form-label">Rating (0-5)</label>
-                  <input 
-                    type="number" 
-                    step="0.1" 
-                    min="0" 
-                    max="5"
-                    className="glass-input editor-input" 
-                    value={rating} 
-                    onChange={(e) => setRating(e.target.value)} 
-                  />
-                </div>
-                <div className="form-group flex-1">
-                  <label className="form-label">Release Date</label>
-                  <input 
-                    type="date" 
-                    className="glass-input editor-input" 
-                    value={releaseDate} 
-                    onChange={(e) => setReleaseDate(e.target.value)} 
                   />
                 </div>
               </div>

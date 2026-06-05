@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Settings, FolderSearch, PlusCircle, Power, User, ShieldCheck, ChevronUp, ChevronDown, CheckSquare, Square, Search, Cloud, Download } from 'lucide-react';
+import { Activity, ClipboardList, Settings, FolderSearch, PlusCircle, Power, ChevronUp, ChevronDown, CheckSquare, Square, Cloud, Download } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { useSystemStatus } from '../hooks/useSystemStatus';
 
 export default function ControlCenter({ 
   isOpen, 
@@ -10,17 +11,26 @@ export default function ControlCenter({
   onImportScannedGames,
   onBatchFetchArtwork,
   isBatchFetchingArtwork = false,
-  cpuUsage,
-  ramUsage,
   games,
   systemStatusTracking = true,
   diagnostics = [],
   onClearDiagnostics
 }) {
+  const [activeMode, setActiveMode] = useState('quick');
   const [scanPath, setScanPath] = useState('');
+
+  const { cpuUsage, ramUsage } = useSystemStatus(systemStatusTracking);
   const [isScanning, setIsScanning] = useState(false);
   const [scannedFiles, setScannedFiles] = useState([]);
   const [selectedScans, setSelectedScans] = useState({});
+
+  const selectedScanCount = Object.values(selectedScans).filter(Boolean).length;
+
+  const modes = [
+    { id: 'quick', label: 'Quick', icon: Activity },
+    { id: 'import', label: 'Import', icon: FolderSearch },
+    { id: 'diagnostics', label: 'Diagnostics', icon: ClipboardList, count: diagnostics.length }
+  ];
 
   const handleToggleClick = () => {
     audioEngine.playClickPulse();
@@ -88,57 +98,17 @@ export default function ControlCenter({
     }
   };
 
-  const handleAutoDetectPlatforms = async () => {
-    audioEngine.playClickPulse();
-    setIsScanning(true);
-    setScannedFiles([]);
-
-    try {
-      if (window.electronAPI?.scanPlatforms) {
-        const scanResult = await window.electronAPI.scanPlatforms();
-        const results = Array.isArray(scanResult) ? scanResult : (scanResult?.files || []);
-        if (results.length === 0) {
-          alert('Auto-detect completed, but no games were discovered. Ensure Steam, Epic, GOG, or Xbox games are installed.');
-        }
-        setTimeout(() => {
-          setScannedFiles(results);
-          setIsScanning(false);
-          const initialSelection = {};
-          results.forEach(file => {
-            initialSelection[file.path] = true;
-          });
-          setSelectedScans(initialSelection);
-        }, 1500);
-      } else {
-        // Browser Mock Results for Platform Scanning
-        setTimeout(() => {
-          const mockResults = [
-            { name: 'Portal 2', path: 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Portal 2\\portal2.exe', steamAppId: '620', platform: 'Steam' },
-            { name: 'Cyberpunk 2077', path: 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Cyberpunk 2077\\bin\\x64\\Cyberpunk2077.exe', steamAppId: '1091500', platform: 'Steam' },
-            { name: 'Fortnite', path: 'C:\\Program Files\\Epic Games\\Fortnite\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe', platform: 'Epic Games' },
-            { name: 'The Witcher 3: Wild Hunt', path: 'C:\\GOG Games\\The Witcher 3 Wild Hunt\\bin\\x64\\witcher3.exe', platform: 'GOG Galaxy' }
-          ];
-          setScannedFiles(mockResults);
-          setIsScanning(false);
-          const initialSelection = {};
-          mockResults.forEach(file => {
-            initialSelection[file.path] = true;
-          });
-          setSelectedScans(initialSelection);
-        }, 1800);
-      }
-    } catch (e) {
-      setIsScanning(false);
-      alert(`Platform discovery failed: ${e.message}`);
-    }
-  };
-
   const handleToggleSelectFile = (filePath) => {
     audioEngine.playHoverTick();
     setSelectedScans(prev => ({
       ...prev,
       [filePath]: !prev[filePath]
     }));
+  };
+
+  const handleModeChange = (modeId) => {
+    audioEngine.playClickPulse();
+    setActiveMode(modeId);
   };
 
   const handleImportSelected = () => {
@@ -182,189 +152,243 @@ export default function ControlCenter({
 
       {/* Floating System Dock Layer */}
       <div className="drawer-panel-grid glass-panel-heavy">
-        {/* Left Side: System Telemetry and Quick Actions */}
-        <div className="cc-section cc-telemetry-panel">
-          <h3 className="cc-section-title">{systemStatusTracking ? 'System Status' : 'Quick Actions'}</h3>
-          
-          {/* Progress Indicators */}
-          {systemStatusTracking && (
-            <>
-              <div className="telemetry-bar-item">
-                <div className="bar-labels">
-                  <span>CPU Core Load</span>
-                  <span>{cpuUsage}%</span>
-                </div>
-                <div className="bar-container">
-                  <div className="bar-fill" style={{ width: `${cpuUsage}%` }} />
-                </div>
-              </div>
-
-              <div className="telemetry-bar-item">
-                <div className="bar-labels">
-                  <span>RAM Allocation</span>
-                  <span>{ramUsage}%</span>
-                </div>
-                <div className="bar-container">
-                  <div className="bar-fill" style={{ width: `${ramUsage}%` }} />
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Quick utility controls */}
-          <div className="quick-action-buttons-grid">
-            <button 
-              className="quick-btn-icon-label" 
-              onClick={onManualImport}
-              onMouseEnter={audioEngine.playHoverTick}
-            >
-              <PlusCircle size={18} />
-              <span>Import EXE</span>
-            </button>
-            <button 
-              className="quick-btn-icon-label artwork-btn" 
-              onClick={onBatchFetchArtwork}
-              disabled={!onBatchFetchArtwork || isBatchFetchingArtwork}
-              onMouseEnter={audioEngine.playHoverTick}
-              title="Fetch artwork for all games via SteamGridDB"
-            >
-              {isBatchFetchingArtwork ? <Download size={18} /> : <Cloud size={18} />}
-              <span>{isBatchFetchingArtwork ? 'Fetching' : 'Fetch Art'}</span>
-            </button>
-            <button 
-              className="quick-btn-icon-label" 
-              onClick={onOpenSettings}
-              onMouseEnter={audioEngine.playHoverTick}
-            >
-              <Settings size={18} />
-              <span>Settings</span>
-            </button>
-            <button 
-              className="quick-btn-icon-label shutdown-btn" 
-              onClick={handleExitApp}
-              onMouseEnter={audioEngine.playHoverTick}
-            >
-              <Power size={18} />
-              <span>Power Off</span>
-            </button>
-          </div>
+        <div className="cc-mode-rail" role="tablist" aria-label="Control Center modes">
+          {modes.map(mode => {
+            const Icon = mode.icon;
+            const isActive = activeMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                className={`cc-mode-tab ${isActive ? 'mode-active' : ''}`}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`cc-panel-${mode.id}`}
+                onClick={() => handleModeChange(mode.id)}
+                onMouseEnter={audioEngine.playHoverTick}
+              >
+                <Icon size={18} />
+                <span>{mode.label}</span>
+                {typeof mode.count === 'number' && mode.count > 0 && (
+                  <span className="mode-count">{mode.count}</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Right Side: Deep Library Scanner Suite */}
-        <div className="cc-section cc-scanner-panel">
-          <div className="scanner-title-row">
-            <h3 className="cc-section-title">Batch Library Scanner</h3>
-            {onClearDiagnostics && diagnostics.length > 0 && (
-              <button className="diagnostics-clear-btn" onClick={onClearDiagnostics}>Clear Diagnostics</button>
-            )}
-          </div>
-          
-          <div className="scanner-input-row">
-            <button 
-              className="glow-btn browser-directory-btn"
-              onClick={handleSelectDirectory}
-              onMouseEnter={audioEngine.playHoverTick}
-            >
-              Browse Path
-            </button>
-            <div className="directory-path-display" title={scanPath || 'No directory selected'}>
-              {scanPath || 'Click Browse to select scanning directory...'}
+        <div className="cc-mode-content">
+          {activeMode === 'quick' && (
+            <div id="cc-panel-quick" className="cc-panel" role="tabpanel">
+              <div className="cc-panel-header">
+                <div>
+                  <h3 className="cc-section-title">Quick</h3>
+                  <p className="cc-panel-kicker">Telemetry, artwork, settings, and power controls.</p>
+                </div>
+                <span className="cc-library-count">{games?.length || 0} games</span>
+              </div>
+
+              <div className="quick-mode-grid">
+                {systemStatusTracking && (
+                  <div className="cc-section telemetry-card">
+                    <h4 className="cc-subsection-title">System Status</h4>
+                    <div className="telemetry-bar-item">
+                      <div className="bar-labels">
+                        <span>CPU Core Load</span>
+                        <span>{cpuUsage}%</span>
+                      </div>
+                      <div className="bar-container">
+                        <div className="bar-fill" style={{ width: `${cpuUsage}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="telemetry-bar-item">
+                      <div className="bar-labels">
+                        <span>RAM Allocation</span>
+                        <span>{ramUsage}%</span>
+                      </div>
+                      <div className="bar-container">
+                        <div className="bar-fill" style={{ width: `${ramUsage}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="cc-section quick-actions-card">
+                  <h4 className="cc-subsection-title">Actions</h4>
+                  <div className="quick-action-buttons-grid">
+                    <button
+                      className="quick-btn-icon-label"
+                      onClick={onManualImport}
+                      onMouseEnter={audioEngine.playHoverTick}
+                      title="Import executable"
+                    >
+                      <PlusCircle size={20} />
+                      <span>Import EXE</span>
+                    </button>
+                    <button
+                      className="quick-btn-icon-label artwork-btn"
+                      onClick={onBatchFetchArtwork}
+                      disabled={!onBatchFetchArtwork || isBatchFetchingArtwork}
+                      onMouseEnter={audioEngine.playHoverTick}
+                      title="Fetch artwork for all games via SteamGridDB"
+                    >
+                      {isBatchFetchingArtwork ? <Download size={20} /> : <Cloud size={20} />}
+                      <span>{isBatchFetchingArtwork ? 'Fetching' : 'Fetch Art'}</span>
+                    </button>
+                    <button
+                      className="quick-btn-icon-label"
+                      onClick={onOpenSettings}
+                      onMouseEnter={audioEngine.playHoverTick}
+                      title="Open settings"
+                    >
+                      <Settings size={20} />
+                      <span>Settings</span>
+                    </button>
+                    <button
+                      className="quick-btn-icon-label shutdown-btn"
+                      onClick={handleExitApp}
+                      onMouseEnter={audioEngine.playHoverTick}
+                      title="Power off Windows"
+                    >
+                      <Power size={20} />
+                      <span>Power Off</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <button 
-              className="glow-btn glow-btn-primary scan-action-btn"
-              onClick={handleRunScan}
-              disabled={!scanPath || isScanning}
-              onMouseEnter={audioEngine.playHoverTick}
-            >
-              {isScanning ? 'Scanning...' : 'Scan Directory'}
-            </button>
-            <button 
-              className="glow-btn scan-action-btn auto-detect-platforms-btn"
-              onClick={handleAutoDetectPlatforms}
-              disabled={isScanning}
-              onMouseEnter={audioEngine.playHoverTick}
-              style={{
-                background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.15) 0%, rgba(79, 172, 254, 0.15) 100%)',
-                border: '1px solid rgba(0, 242, 254, 0.3)',
-                color: '#00f2fe'
-              }}
-            >
-              Auto-Detect
-            </button>
-          </div>
+          )}
 
-          {/* Scanner Output Box */}
-          <div className="scanner-output-box">
-            {isScanning && (
-              <div className="scanning-radar-state">
-                <div className="radar-sweep-effect" />
-                <span className="radar-text">
-                  {scanPath ? 'Analyzing executables, scanning depth 3...' : 'Probing Steam, Epic, GOG, and Xbox installations...'}
-                </span>
-              </div>
-            )}
-
-            {!isScanning && scannedFiles.length === 0 && (
-              <div className="scanner-empty-state">
-                <FolderSearch size={24} className="empty-icon" />
-                <span>Select a path and click Scan to match executables against PS5 cover database</span>
-              </div>
-            )}
-
-            {!isScanning && scannedFiles.length > 0 && (
-              <div className="scanner-results-list">
-                <div className="results-header">
-                  <span>Found {scannedFiles.length} matched games:</span>
+          {activeMode === 'import' && (
+            <div id="cc-panel-import" className="cc-panel" role="tabpanel">
+              <div className="cc-panel-header">
+                <div>
+                  <h3 className="cc-section-title">Import</h3>
+                  <p className="cc-panel-kicker">Manual executable import and batch library scanning.</p>
+                </div>
+                {scannedFiles.length > 0 && (
                   <button className="import-submit-badge-btn" onClick={handleImportSelected}>
-                    Import Selected ({Object.values(selectedScans).filter(Boolean).length})
+                    Import Selected ({selectedScanCount})
+                  </button>
+                )}
+              </div>
+
+              <div className="import-toolbar">
+                <button
+                  className="quick-btn-icon-label import-manual-btn"
+                  onClick={onManualImport}
+                  onMouseEnter={audioEngine.playHoverTick}
+                >
+                  <PlusCircle size={20} />
+                  <span>Manual EXE</span>
+                </button>
+                <div className="scanner-input-row">
+                  <button
+                    className="glow-btn browser-directory-btn"
+                    onClick={handleSelectDirectory}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    Browse Path
+                  </button>
+                  <div className="directory-path-display" title={scanPath || 'No directory selected'}>
+                    {scanPath || 'Click Browse to select scanning directory...'}
+                  </div>
+                  <button
+                    className="glow-btn glow-btn-primary scan-action-btn"
+                    onClick={handleRunScan}
+                    disabled={!scanPath || isScanning}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    {isScanning ? 'Scanning...' : 'Scan Directory'}
                   </button>
                 </div>
-                <div className="results-grid">
-                  {scannedFiles.map((file, idx) => {
-                    const isSelected = selectedScans[file.path];
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`result-item-row ${isSelected ? 'row-active' : ''}`}
-                        role="checkbox"
-                        tabIndex={0}
-                        aria-checked={isSelected}
-                        onClick={() => handleToggleSelectFile(file.path)}
-                        onFocus={audioEngine.playHoverTick}
-                      >
-                        {isSelected ? <CheckSquare size={14} className="checkbox-icon" /> : <Square size={14} className="checkbox-icon" />}
-                        <div className="result-info">
-                          <span className="result-name">{file.name}</span>
-                          {file.steamAppId && <span className="result-path">Steam AppID: {file.steamAppId}</span>}
-                          <span className="result-path">{file.path}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+              </div>
+
+              <div className="scanner-output-box">
+                {isScanning && (
+                  <div className="scanning-radar-state">
+                    <div className="radar-sweep-effect" />
+                    <span className="radar-text">
+                      Analyzing executables, scanning depth 3...
+                    </span>
+                  </div>
+                )}
+
+                {!isScanning && scannedFiles.length === 0 && (
+                  <div className="scanner-empty-state">
+                    <FolderSearch size={24} className="empty-icon" />
+                    <span>Select a path or manually import one executable.</span>
+                  </div>
+                )}
+
+                {!isScanning && scannedFiles.length > 0 && (
+                  <div className="scanner-results-list">
+                    <div className="results-header">
+                      <span>Found {scannedFiles.length} matched games</span>
+                      <span>{selectedScanCount} selected</span>
+                    </div>
+                    <div className="results-grid">
+                      {scannedFiles.map((file, idx) => {
+                        const isSelected = selectedScans[file.path];
+                        return (
+                          <div
+                            key={idx}
+                            className={`result-item-row ${isSelected ? 'row-active' : ''}`}
+                            role="checkbox"
+                            tabIndex={0}
+                            aria-checked={isSelected}
+                            onClick={() => handleToggleSelectFile(file.path)}
+                            onFocus={audioEngine.playHoverTick}
+                          >
+                            {isSelected ? <CheckSquare size={14} className="checkbox-icon" /> : <Square size={14} className="checkbox-icon" />}
+                            <div className="result-info">
+                              <span className="result-name">{file.name}</span>
+                              {file.steamAppId && <span className="result-path">Steam AppID: {file.steamAppId}</span>}
+                              <span className="result-path">{file.path}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeMode === 'diagnostics' && (
+            <div id="cc-panel-diagnostics" className="cc-panel" role="tabpanel">
+              <div className="cc-panel-header">
+                <div>
+                  <h3 className="cc-section-title">Diagnostics</h3>
+                  <p className="cc-panel-kicker">Import, scanner, and artwork events.</p>
+                </div>
+                {onClearDiagnostics && diagnostics.length > 0 && (
+                  <button className="diagnostics-clear-btn" onClick={onClearDiagnostics}>Clear Diagnostics</button>
+                )}
+              </div>
+
+              <div className="diagnostics-panel diagnostics-panel-full">
+                <div className="diagnostics-header">
+                  <span>Event Log</span>
+                  <span>{diagnostics.length} event{diagnostics.length === 1 ? '' : 's'}</span>
+                </div>
+                <div className="diagnostics-list">
+                  {diagnostics.length === 0 ? (
+                    <div className="diagnostics-empty">Scan/import/SteamGridDB events will appear here.</div>
+                  ) : diagnostics.slice(0, 24).map((event, idx) => (
+                    <div key={`${event.timestamp || idx}-${idx}`} className={`diagnostic-row diagnostic-${event.level || 'info'}`}>
+                      <span className="diagnostic-meta">{event.area || 'App'} - {event.level || 'info'}</span>
+                      <span className="diagnostic-message">{event.message}</span>
+                      {event.details && (
+                        <span className="diagnostic-details" title={JSON.stringify(event.details)}>{JSON.stringify(event.details)}</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
-            )}
-          </div>
-
-          <div className="diagnostics-panel">
-            <div className="diagnostics-header">
-              <span>Diagnostics</span>
-              <span>{diagnostics.length} event{diagnostics.length === 1 ? '' : 's'}</span>
             </div>
-            <div className="diagnostics-list">
-              {diagnostics.length === 0 ? (
-                <div className="diagnostics-empty">Scan/import/SteamGridDB events will appear here.</div>
-              ) : diagnostics.slice(0, 12).map((event, idx) => (
-                <div key={`${event.timestamp || idx}-${idx}`} className={`diagnostic-row diagnostic-${event.level || 'info'}`}>
-                  <span className="diagnostic-meta">{event.area || 'App'} - {event.level || 'info'}</span>
-                  <span className="diagnostic-message">{event.message}</span>
-                  {event.details && (
-                    <span className="diagnostic-details" title={JSON.stringify(event.details)}>{JSON.stringify(event.details)}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -378,7 +402,7 @@ export default function ControlCenter({
           display: flex;
           flex-direction: column;
           align-items: center;
-          transition: bottom 0.6s var(--ease-ps5);
+          transition: bottom 0.6s var(--ease-interface);
           pointer-events: none;
         }
 
@@ -425,11 +449,108 @@ export default function ControlCenter({
           margin-bottom: 20px;
           border-radius: 20px;
           display: grid;
-          grid-template-columns: minmax(280px, 350px) 1fr;
-          padding: 24px;
-          gap: 24px;
+          grid-template-columns: 180px minmax(0, 1fr);
+          padding: 18px;
+          gap: 18px;
           pointer-events: auto;
           box-shadow: 0 10px 50px rgba(0, 0, 0, 0.8);
+        }
+
+        .cc-mode-rail {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 8px;
+          border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .cc-mode-tab {
+          position: relative;
+          width: 100%;
+          min-height: 54px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.025);
+          color: rgba(255, 255, 255, 0.62);
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 0 12px;
+          cursor: pointer;
+          transition: all var(--transition-fast);
+        }
+
+        .cc-mode-tab:hover,
+        .cc-mode-tab.mode-active {
+          background: rgba(var(--accent-color-rgb), 0.1);
+          border-color: rgba(var(--accent-color-rgb), 0.32);
+          color: var(--accent-color);
+          box-shadow: inset 0 0 18px rgba(var(--accent-color-rgb), 0.08);
+        }
+
+        .cc-mode-tab span:not(.mode-count) {
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .mode-count {
+          margin-left: auto;
+          min-width: 24px;
+          height: 22px;
+          padding: 0 7px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.8);
+          font-size: var(--fs-10);
+          font-weight: 700;
+        }
+
+        .cc-mode-content {
+          min-width: 0;
+          display: flex;
+        }
+
+        .cc-panel {
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          min-height: 324px;
+        }
+
+        .cc-panel-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 18px;
+        }
+
+        .cc-panel-header .cc-section-title {
+          margin-bottom: 6px;
+        }
+
+        .cc-panel-kicker {
+          margin: 0;
+          font-size: var(--fs-12);
+          color: rgba(255, 255, 255, 0.48);
+        }
+
+        .cc-library-count {
+          border: 1px solid rgba(255, 255, 255, 0.09);
+          border-radius: 999px;
+          padding: 6px 12px;
+          color: rgba(255, 255, 255, 0.58);
+          font-size: var(--fs-11);
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          white-space: nowrap;
         }
 
         .cc-section {
@@ -447,9 +568,30 @@ export default function ControlCenter({
           margin-bottom: 16px;
         }
 
-        .cc-telemetry-panel {
-          border-right: 1px solid rgba(255, 255, 255, 0.05);
-          padding-right: 24px;
+        .cc-subsection-title {
+          margin: 0 0 14px;
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          color: rgba(255, 255, 255, 0.42);
+        }
+
+        .quick-mode-grid {
+          flex: 1;
+          display: grid;
+          grid-template-columns: minmax(260px, 0.85fr) minmax(360px, 1.15fr);
+          gap: 16px;
+        }
+
+        .telemetry-card,
+        .quick-actions-card {
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-radius: 12px;
+          background: rgba(0, 0, 0, 0.16);
+          padding: 16px;
+          min-width: 0;
         }
 
         .telemetry-bar-item {
@@ -486,7 +628,7 @@ export default function ControlCenter({
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 10px;
-          margin-top: auto;
+          height: calc(100% - 30px);
         }
 
         .quick-btn-icon-label {
@@ -502,6 +644,7 @@ export default function ControlCenter({
           cursor: pointer;
           gap: 6px;
           transition: all var(--transition-fast);
+          min-height: 86px;
         }
 
         .quick-btn-icon-label:hover {
@@ -538,10 +681,6 @@ export default function ControlCenter({
           box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
         }
 
-        .cc-scanner-panel {
-          min-width: 0; /* Prevents overflow */
-        }
-
         .scanner-title-row {
           display: flex;
           align-items: center;
@@ -566,11 +705,23 @@ export default function ControlCenter({
           cursor: pointer;
         }
 
+        .import-toolbar {
+          display: grid;
+          grid-template-columns: 116px minmax(0, 1fr);
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+
+        .import-manual-btn {
+          min-height: 44px;
+          padding: 8px;
+        }
+
         .scanner-input-row {
           display: flex;
           align-items: center;
           gap: 12px;
-          margin-bottom: 16px;
+          min-width: 0;
         }
 
         .browser-directory-btn {
@@ -610,11 +761,14 @@ export default function ControlCenter({
         }
 
         .diagnostics-panel {
-          margin-top: 10px;
           border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 12px;
           background: rgba(0, 0, 0, 0.18);
           overflow: hidden;
+        }
+
+        .diagnostics-panel-full {
+          flex: 1;
         }
 
         .diagnostics-header {
@@ -629,8 +783,12 @@ export default function ControlCenter({
         }
 
         .diagnostics-list {
-          max-height: 8em;
+          max-height: 230px;
           overflow-y: auto;
+        }
+
+        .diagnostics-panel-full .diagnostics-list {
+          max-height: 270px;
         }
 
         .diagnostics-empty {
@@ -813,6 +971,40 @@ export default function ControlCenter({
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+
+        @media (max-width: 900px) {
+          .drawer-panel-grid {
+            width: calc(100% - 32px);
+            grid-template-columns: 1fr;
+            min-height: 430px;
+          }
+
+          .cc-mode-rail {
+            flex-direction: row;
+            border-right: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            overflow-x: auto;
+          }
+
+          .cc-mode-tab {
+            min-width: 148px;
+          }
+
+          .quick-mode-grid,
+          .import-toolbar {
+            grid-template-columns: 1fr;
+          }
+
+          .scanner-input-row,
+          .quick-action-buttons-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            display: grid;
+          }
+
+          .directory-path-display {
+            grid-column: 1 / -1;
+          }
         }
       `}} />
     </div>

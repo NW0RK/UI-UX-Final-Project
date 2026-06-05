@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, Award, Activity, ShieldCheck, Trophy, CheckCircle, Hourglass } from 'lucide-react';
+import { X, Activity, BookOpen, Hourglass } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { formatHltbHours, hasHltbTimes } from '../utils/hltb';
 
 export default function PiPSidebar({ 
   game, 
@@ -18,44 +19,12 @@ export default function PiPSidebar({
     onClose();
   };
 
-  // Mock Achievements Checklist tailored to selected games
-  const getAchievements = (gameId) => {
-    const list = {
-      cyberpunk: [
-        { id: 1, title: 'The Star', desc: 'Complete Cyberpunk main storyline.', progress: 80, completed: false },
-        { id: 2, title: 'Breathtaking', desc: 'Collect all items once belonging to Johnny Silverhand.', progress: 100, completed: true },
-        { id: 3, title: 'Ten out of Ten', desc: 'Reach the max level in any skill tree.', progress: 40, completed: false }
-      ],
-      eldenring: [
-        { id: 1, title: 'Elden Lord', desc: 'Achieve the Elden Lord ending in Lands Between.', progress: 90, completed: false },
-        { id: 2, title: 'Shardbearer Godrick', desc: 'Defeat Shardbearer Godrick in Stormveil.', progress: 100, completed: true },
-        { id: 3, title: 'Legendary Armaments', desc: 'Acquire all nine legendary weapons.', progress: 75, completed: false }
-      ],
-      hades: [
-        { id: 1, title: 'Family Reunion', desc: 'Welcome all Olympic gods to the House of Hades.', progress: 50, completed: false },
-        { id: 2, title: 'Champion of Elysium', desc: 'Clear Elysium chamber with extreme measures.', progress: 100, completed: true },
-        { id: 3, title: 'Skelly\'s Last Lament', desc: 'Unlock Skelly\'s final reward skeleton statue.', progress: 10, completed: false }
-      ],
-      portal2: [
-        { id: 1, title: 'Lunacy', desc: 'Place a portal on the moon.', progress: 100, completed: true },
-        { id: 2, title: 'Professor Portal', desc: 'Complete calibration course in co-op mode.', progress: 100, completed: true },
-        { id: 3, title: 'GHOSTRUST', desc: 'Complete Chamber 04 in under 2 minutes.', progress: 30, completed: false }
-      ],
-      witcher3: [
-        { id: 1, title: 'Gwent Master', desc: 'Defeat Tybalt and win the Passiflora tournament.', progress: 30, completed: false },
-        { id: 2, title: 'Lilac and Gooseberries', desc: 'Find Yennefer of Vengerberg in White Orchard.', progress: 100, completed: true },
-        { id: 3, title: 'Passed the Trial', desc: 'Complete game on Death March difficulty.', progress: 15, completed: false }
-      ]
-    };
-
-    return list[gameId] || [
-      { id: 1, title: 'First Venture', desc: 'Launch and run the game for the first time.', progress: 100, completed: true },
-      { id: 2, title: 'Enthusiast', desc: 'Track over 5 hours of total session gameplay.', progress: 0, completed: false },
-      { id: 3, title: 'Completionist', desc: 'Unlock all sub-system achievements.', progress: 0, completed: false }
-    ];
-  };
-
-  const achievements = getAchievements(game.id);
+  const hltbRows = [
+    ['Main Story', game.hltb?.mainStoryHours],
+    ['Main + Extras', game.hltb?.mainExtraHours],
+    ['Completionist', game.hltb?.completionistHours]
+  ];
+  const hasTimes = hasHltbTimes(game.hltb);
 
   // Time formatter for active session ticking
   const formatSessionTime = (secs) => {
@@ -127,39 +96,25 @@ export default function PiPSidebar({
         </div>
       )}
 
-      {/* Achievements Checklist Section */}
-      <div className="pip-widget achievements-checklist-widget">
+      {/* HowLongToBeat Section */}
+      <div className="pip-widget hltb-widget">
         <h4 className="widget-title">
-          <Trophy size={14} className="widget-title-icon" />
-          <span>Trophy Milestones</span>
+          <BookOpen size={14} className="widget-title-icon" />
+          <span>HowLongToBeat</span>
         </h4>
 
-        <div className="achievements-checklist-grid">
-          {achievements.map((ach) => (
-            <div key={ach.id} className={`achievement-check-row ${ach.completed ? 'completed' : ''}`}>
-              <div className="check-box-icon-wrapper">
-                {ach.completed ? (
-                  <CheckCircle size={16} className="checked-icon" />
-                ) : (
-                  <div className="unchecked-circle" />
-                )}
-              </div>
-              <div className="achievement-check-details">
-                <div className="ach-check-title">{ach.title}</div>
-                <div className="ach-check-desc">{ach.desc}</div>
-                
-                {/* Progress bar for locked achievements */}
-                {!ach.completed && ach.progress > 0 && (
-                  <div className="ach-mini-progress-bar">
-                    <div className="ach-mini-progress-track">
-                      <div className="ach-mini-progress-fill" style={{ width: `${ach.progress}%` }} />
-                    </div>
-                    <span className="ach-mini-progress-text">{ach.progress}%</span>
-                  </div>
-                )}
-              </div>
+        <div className="hltb-time-grid">
+          {hasTimes ? hltbRows.map(([label, hours]) => (
+            <div key={label} className="hltb-time-row">
+              <span className="hltb-time-label">{label}</span>
+              <span className="hltb-time-value">{formatHltbHours(hours)}</span>
             </div>
-          ))}
+          )) : (
+            <div className="hltb-unavailable">HLTB unavailable</div>
+          )}
+          {game.hltb?.sourceUrl && (
+            <div className="hltb-source-text">Source: howlongtobeat.com</div>
+          )}
         </div>
       </div>
 
@@ -177,7 +132,7 @@ export default function PiPSidebar({
           padding: 20px;
           box-shadow: -10px 0 40px rgba(0, 0, 0, 0.7);
           pointer-events: auto;
-          animation: slide-in-pip 0.5s var(--ease-ps5) forwards;
+          animation: slide-in-pip 0.5s var(--ease-interface) forwards;
         }
 
         @keyframes slide-in-pip {
@@ -371,11 +326,11 @@ export default function PiPSidebar({
           flex-shrink: 0;
         }
 
-        .achievements-checklist-widget {
+        .hltb-widget {
           flex: 1;
           display: flex;
           flex-direction: column;
-          min-height: 0; /* Containment scroll */
+          min-height: 0;
         }
 
         .widget-title {
@@ -395,96 +350,47 @@ export default function PiPSidebar({
           color: #e6af2e;
         }
 
-        .achievements-checklist-grid {
-          flex: 1;
-          overflow-y: auto;
+        .hltb-time-grid {
           display: flex;
           flex-direction: column;
           gap: 10px;
         }
 
-        .achievement-check-row {
+        .hltb-time-row {
           display: flex;
+          align-items: center;
+          justify-content: space-between;
           gap: 12px;
-          padding: 8px;
+          padding: 10px 12px;
           border-radius: 8px;
           background: rgba(255, 255, 255, 0.01);
           border: 1px solid rgba(255, 255, 255, 0.03);
-          transition: all var(--transition-fast);
         }
 
-        .achievement-check-row.completed {
-          background: rgba(230, 175, 46, 0.02);
-          border-color: rgba(230, 175, 46, 0.1);
-        }
-
-        .check-box-icon-wrapper {
-          flex-shrink: 0;
-          margin-top: 2px;
-        }
-
-        .checked-icon {
-          color: #e6af2e;
-        }
-
-        .unchecked-circle {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          border: 1.5px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .achievement-check-details {
-          display: flex;
-          flex-direction: column;
-          min-width: 0;
-        }
-
-        .ach-check-title {
+        .hltb-time-label {
           font-size: var(--fs-11);
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.35);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .hltb-time-value {
+          font-size: var(--fs-13);
           font-weight: 700;
           color: #fff;
         }
 
-        .completed .ach-check-title {
-          color: #e6af2e;
-          text-decoration: line-through;
-          opacity: 0.8;
-        }
-
-        .ach-check-desc {
-          font-size: var(--fs-9);
+        .hltb-unavailable,
+        .hltb-source-text {
+          font-size: var(--fs-10);
           color: rgba(255, 255, 255, 0.35);
+          line-height: 1.4;
+        }
+
+        .hltb-source-text {
           margin-top: 2px;
-          line-height: 1.3;
-        }
-
-        .ach-mini-progress-bar {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-top: 6px;
-        }
-
-        .ach-mini-progress-track {
-          flex: 1;
-          height: 3px;
-          background: rgba(255, 255, 255, 0.05);
-          border-radius: 2px;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .ach-mini-progress-fill {
-          height: 100%;
-          background: var(--accent-color);
-          border-radius: 2px;
-        }
-
-        .ach-mini-progress-text {
-          font-size: var(--fs-8);
-          font-weight: 700;
-          color: var(--accent-color);
+          color: rgba(255, 255, 255, 0.25);
         }
       `}} />
     </div>

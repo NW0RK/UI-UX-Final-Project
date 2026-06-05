@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Settings, Minus, Square, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Settings, Minus, Square, X, CircleX } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { useSystemStatus } from '../hooks/useSystemStatus';
 
 export default function NavigationHeader({ 
   onSearchChange, 
   searchQuery, 
   onOpenSettings,
-  cpuUsage,
-  ramUsage,
   activeView,
   onViewChange,
   systemStatusTracking = true,
@@ -16,6 +15,13 @@ export default function NavigationHeader({
   onOpenProfile
 }) {
   const [time, setTime] = useState('');
+  const searchInputRef = useRef(null);
+  
+  const { cpuUsage, ramUsage, ramUsedGb } = useSystemStatus(systemStatusTracking);
+
+  const activeRamLabel = Number.isFinite(ramUsedGb)
+    ? `${ramUsedGb.toFixed(ramUsedGb >= 10 ? 0 : 1)}GB`
+    : `${ramUsage}%`;
 
   // Update Clock in HH:MM format
   useEffect(() => {
@@ -82,16 +88,37 @@ export default function NavigationHeader({
 
       {/* Center Search Bar */}
       <div className="nav-center">
-        <div className="search-wrapper">
+        <div
+          className={`search-wrapper ${searchQuery ? 'has-query' : ''}`}
+          role="search"
+          onClick={() => searchInputRef.current?.focus()}
+        >
           <Search size={14} className="search-icon" />
           <input 
+            ref={searchInputRef}
             type="text" 
-            placeholder="Search games, activities..." 
+            placeholder="Search games..." 
             className="search-input"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             onFocus={audioEngine.playHoverTick}
           />
+          {searchQuery && (
+            <button
+              type="button"
+              className="search-clear-btn"
+              title="Clear Search"
+              aria-label="Clear Search"
+              onClick={(e) => {
+                e.stopPropagation();
+                audioEngine.playClickPulse();
+                onSearchChange('');
+                searchInputRef.current?.focus();
+              }}
+            >
+              <CircleX size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -126,7 +153,7 @@ export default function NavigationHeader({
                   <rect x="1" y="3" width="10" height="6" rx="1.5" stroke="var(--accent-color)" strokeWidth="1" />
                   <path d="M3 3v6M6 3v6M9 3v6" stroke="var(--accent-color)" strokeWidth="1" />
                 </svg>
-                <span className="telemetry-text">RAM {12 + Math.round((ramUsage / 100) * 4)}GB</span>
+                <span className="telemetry-text">RAM {activeRamLabel}</span>
               </div>
 
               {/* Divider */}
@@ -217,7 +244,7 @@ export default function NavigationHeader({
           letter-spacing: 12px;
           color: #FFFFFF;
           cursor: pointer;
-          transition: all 0.3s var(--ease-ps5);
+          transition: all 0.3s var(--ease-interface);
           text-shadow: 0 0 10px rgba(var(--accent-color-rgb), 0.15);
         }
 
@@ -264,12 +291,30 @@ export default function NavigationHeader({
           width: 320px;
           z-index: 10000;
           -webkit-app-region: no-drag;
+          display: flex;
+          justify-content: center;
+          transition: width 360ms var(--ease-interface);
+        }
+
+        .nav-center:focus-within,
+        .nav-center:has(.search-wrapper.has-query) {
+          width: 430px;
         }
 
         .search-wrapper {
           position: relative;
           display: flex;
           align-items: center;
+          width: 100%;
+          min-width: 54px;
+          border-radius: 22px;
+          cursor: text;
+          transition: transform 240ms var(--ease-interface), filter 240ms var(--ease-interface);
+        }
+
+        .search-wrapper:focus-within {
+          transform: translateY(-1px);
+          filter: drop-shadow(0 8px 18px rgba(var(--accent-color-rgb), 0.08));
         }
 
         .search-icon {
@@ -284,18 +329,40 @@ export default function NavigationHeader({
           background: rgba(255, 255, 255, 0.03);
           border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 20px;
-          padding: 8px 16px 8px 40px;
+          padding: 8px 38px 8px 40px;
           color: #fff;
           font-family: var(--font-sans);
           font-size: var(--fs-13);
-          transition: all var(--transition-fast);
+          transition: background 260ms var(--ease-interface), border-color 260ms var(--ease-interface), box-shadow 260ms var(--ease-interface), padding 260ms var(--ease-interface);
         }
 
         .search-input:focus {
           background: rgba(255, 255, 255, 0.06);
           border-color: var(--accent-color);
           box-shadow: 0 0 15px rgba(var(--accent-color-rgb), 0.15);
-          width: 380px;
+        }
+
+        .search-clear-btn {
+          position: absolute;
+          right: 10px;
+          width: 22px;
+          height: 22px;
+          border: none;
+          border-radius: 50%;
+          background: transparent;
+          color: rgba(255, 255, 255, 0.42);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: color var(--transition-fast), transform var(--transition-fast), background var(--transition-fast);
+        }
+
+        .search-clear-btn:hover,
+        .search-clear-btn:focus-visible {
+          color: #fff;
+          background: rgba(255, 255, 255, 0.08);
+          transform: scale(1.08);
         }
 
         .nav-right {

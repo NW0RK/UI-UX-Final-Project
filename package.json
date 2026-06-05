@@ -1,7 +1,7 @@
 {
   "name": "nexus-launcher",
   "version": "1.0.0",
-  "description": "Premium PlayStation 5-Inspired Game Launcher for Windows",
+  "description": "Premium Game Launcher for Windows",
   "main": "main.js",
   "type": "module",
   "scripts": {

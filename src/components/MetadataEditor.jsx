@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Save, Film, Image, Keyboard, Tag, Search, Download, Cloud, Move } from 'lucide-react';
+import { X, Save, Film, Image, Keyboard, Tag, Search, Download, Cloud, Move, RefreshCw } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { formatHltbHours, hasHltbTimes } from '../utils/hltb';
 
 export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPosition }) {
   if (!game) return null;
@@ -8,9 +9,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
   const [title, setTitle] = useState(game.title);
   const [developer, setDeveloper] = useState(game.developer);
   const [genre, setGenre] = useState(game.genre);
-  const [rating, setRating] = useState(game.rating);
-  const [releaseDate, setReleaseDate] = useState(game.releaseDate);
-  const [progress, setProgress] = useState(game.progress);
+  const [hltb, setHltb] = useState(game.hltb || null);
   const [playtimeHours, setPlaytimeHours] = useState(Math.round((game.playtime / 3600) * 10) / 10);
   const [description, setDescription] = useState(game.description);
   const [coverUrl, setCoverUrl] = useState(game.coverUrl || '');
@@ -28,7 +27,9 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
   const [isSearching, setIsSearching] = useState(false);
   const [isFetching, setIsFetching] = useState(null); // sgdbId of currently fetching
   const [isAutoFetching, setIsAutoFetching] = useState(false);
+  const [isFetchingHltb, setIsFetchingHltb] = useState(false);
   const [searchError, setSearchError] = useState(null);
+  const [hltbError, setHltbError] = useState(null);
 
   const handleImagePick = async (setter) => {
     audioEngine.playClickPulse();
@@ -59,9 +60,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
       title,
       developer,
       genre,
-      rating: parseFloat(rating) || 4.0,
-      releaseDate,
-      progress: parseInt(progress) || 0,
+      hltb,
       playtime: Math.round(parseFloat(playtimeHours) * 3600) || 0,
       description,
       coverUrl: coverUrl || null,
@@ -163,6 +162,31 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
     setIsAutoFetching(false);
   };
 
+  const handleFetchHltb = async () => {
+    if (!window.electronAPI?.autoFetchHowLongToBeat) {
+      setHltbError('HLTB lookup is available in the desktop app.');
+      return;
+    }
+
+    audioEngine.playClickPulse();
+    setIsFetchingHltb(true);
+    setHltbError(null);
+    try {
+      const result = await window.electronAPI.autoFetchHowLongToBeat({
+        ...game,
+        title: title.trim() || game.title
+      });
+      if (result?.error) {
+        setHltbError(result.error);
+      } else {
+        setHltb(result);
+      }
+    } catch (e) {
+      setHltbError(e.message);
+    }
+    setIsFetchingHltb(false);
+  };
+
   return (
     <div className="meta-editor-overlay flex-center">
       <div className="meta-editor-modal glass-panel-heavy">
@@ -232,30 +256,6 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
 
               <div className="form-group-row">
                 <div className="form-group flex-1">
-                  <label className="form-label">Rating (0-5)</label>
-                  <input 
-                    type="number" 
-                    step="0.1" 
-                    min="0" 
-                    max="5"
-                    className="glass-input editor-input" 
-                    value={rating} 
-                    onChange={(e) => setRating(e.target.value)} 
-                  />
-                </div>
-                <div className="form-group flex-1">
-                  <label className="form-label">Release Date</label>
-                  <input 
-                    type="date" 
-                    className="glass-input editor-input" 
-                    value={releaseDate} 
-                    onChange={(e) => setReleaseDate(e.target.value)} 
-                  />
-                </div>
-              </div>
-
-              <div className="form-group-row">
-                <div className="form-group flex-1">
                   <label className="form-label">Playtime (Hours)</label>
                   <input 
                     type="number" 
@@ -267,16 +267,33 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
                   />
                 </div>
                 <div className="form-group flex-1">
-                  <label className="form-label">Progress (%)</label>
-                  <input 
-                    type="number" 
-                    min="0" 
-                    max="100"
-                    className="glass-input editor-input" 
-                    value={progress} 
-                    onChange={(e) => setProgress(e.target.value)} 
-                  />
+                  <label className="form-label">HowLongToBeat</label>
+                  <button
+                    type="button"
+                    className="glass-input editor-input hltb-refresh-btn"
+                    onClick={handleFetchHltb}
+                    disabled={isFetchingHltb}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    <RefreshCw size={13} />
+                    <span>{isFetchingHltb ? 'Refreshing' : 'Refresh HLTB'}</span>
+                  </button>
                 </div>
+              </div>
+
+              <div className="hltb-editor-summary">
+                {hasHltbTimes(hltb) ? (
+                  <>
+                    <div className="hltb-editor-match">{hltb.name}</div>
+                    <div className="hltb-editor-times">
+                      Main Story: {formatHltbHours(hltb.mainStoryHours)} / Main + Extras: {formatHltbHours(hltb.mainExtraHours)} / Completionist: {formatHltbHours(hltb.completionistHours)}
+                    </div>
+                    <div className="hltb-editor-source">Source: howlongtobeat.com</div>
+                  </>
+                ) : (
+                  <div className="hltb-editor-empty">HLTB unavailable</div>
+                )}
+                {hltbError && <div className="sgdb-error">{hltbError}</div>}
               </div>
 
               <div className="form-group">
@@ -560,7 +577,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          animation: scale-up-editor 0.4s var(--ease-ps5) forwards;
+          animation: scale-up-editor 0.4s var(--ease-interface) forwards;
         }
 
         @keyframes scale-up-editor {
@@ -663,6 +680,48 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         .editor-input {
           font-size: var(--fs-13);
           padding: 10px 14px;
+        }
+
+        .hltb-refresh-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          cursor: pointer;
+          color: rgba(255, 255, 255, 0.82);
+        }
+
+        .hltb-refresh-btn:disabled {
+          cursor: wait;
+          opacity: 0.65;
+        }
+
+        .hltb-editor-summary {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 10px;
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+        }
+
+        .hltb-editor-match {
+          font-size: var(--fs-12);
+          font-weight: 700;
+          color: #fff;
+        }
+
+        .hltb-editor-times,
+        .hltb-editor-empty,
+        .hltb-editor-source {
+          font-size: var(--fs-10);
+          color: rgba(255, 255, 255, 0.42);
+          line-height: 1.4;
+        }
+
+        .hltb-editor-source {
+          color: rgba(255, 255, 255, 0.28);
         }
 
         .editor-textarea {

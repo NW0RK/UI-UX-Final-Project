@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import NavigationHeader from './components/NavigationHeader';
 import InteractiveCanvas from './components/InteractiveCanvas';
 import HorizontalLibrary from './components/HorizontalLibrary';
@@ -8,12 +8,17 @@ import SettingsPanel from './components/SettingsPanel';
 import MetadataEditor from './components/MetadataEditor';
 import StoreGrid from './components/StoreGrid';
 import StoreItemPage from './components/StoreItemPage';
+import SearchResultsPage from './components/SearchResultsPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import ProfileOverlay from './components/ProfileOverlay';
 import ControllerHintOverlay from './components/ControllerHintOverlay';
 import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
+import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
+import { fetchItadBestDeals } from './utils/itad';
+import { fetchRawgGameDetailsBrowser, fetchRawgPopularGamesBrowser, fetchRawgScreenshotsBrowser, searchRawgGamesBrowser } from './utils/rawg';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -26,8 +31,110 @@ const DEFAULT_SETTINGS = {
   bannerAnimation: true,
   fontScale: 1.0,
   studioLogosEnabled: false,
-  brandfetchClientId: ''
+  brandfetchClientId: '1idcoEyG7GtzdighKVU'
 };
+
+const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
+
+function normalizeStoreCacheTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .trim();
+}
+
+function getStoreItemCacheKey(item) {
+  if (!item) return null;
+
+  const steamAppId = String(item.steamAppId || '').trim();
+  if (/^\d+$/.test(steamAppId)) return `steam:${steamAppId}`;
+
+  const rawgId = String(item.rawgId || '').trim();
+  if (rawgId) return `rawg:${rawgId}`;
+
+  const itadId = String(item.itadId || '').trim();
+  if (itadId) return `itad:${itadId}`;
+
+  const title = normalizeStoreCacheTitle(item.title);
+  return title ? `title:${title}` : null;
+}
+
+function getStoreItemCacheAliases(item, resolvedSteamAppId = null) {
+  const aliases = new Set();
+  const steamAppId = String(resolvedSteamAppId || item?.steamAppId || '').trim();
+  if (/^\d+$/.test(steamAppId)) aliases.add(`steam:${steamAppId}`);
+  const rawgId = String(item?.rawgId || '').trim();
+  if (rawgId) aliases.add(`rawg:${rawgId}`);
+  const itadId = String(item?.itadId || '').trim();
+  if (itadId) aliases.add(`itad:${itadId}`);
+  const title = normalizeStoreCacheTitle(item?.title);
+  if (title) aliases.add(`title:${title}`);
+  return [...aliases];
+}
+
+function getSelectedStoreMedia(media) {
+  const movies = Array.isArray(media?.movies) ? media.movies : [];
+  const screenshots = Array.isArray(media?.screenshots) ? media.screenshots : [];
+
+  if (movies.length > 0) {
+    return {
+      type: 'video',
+      url: movies[0].mp4?.max || movies[0].mp4?.['480'] || movies[0].webm?.max,
+      thumbnail: movies[0].thumbnail
+    };
+  }
+
+  if (screenshots.length > 0) {
+    return { type: 'image', url: screenshots[0].path_full || screenshots[0].url };
+  }
+
+  return null;
+}
+
+function buildStorePrefetchMedia(item, steamAppId, steamDetails, rawgScreenshots = []) {
+  if (steamDetails && (steamDetails.screenshots?.length || steamDetails.movies?.length)) {
+    const media = {
+      screenshots: steamDetails.screenshots || [],
+      movies: steamDetails.movies || []
+    };
+    return {
+      media,
+      selectedMedia: getSelectedStoreMedia(media),
+      bannerUrl: getSteamStoreBannerUrl(steamDetails, steamAppId) || item?.bannerUrl || item?.coverUrl || null,
+      mediaSource: 'steam'
+    };
+  }
+
+  if (steamAppId) {
+    const steamImage = getSteamStoreBannerUrl(steamDetails, steamAppId);
+    const media = {
+      screenshots: steamImage ? [{ id: 'steam-hero', path_full: steamImage, path_thumbnail: steamImage }] : [],
+      movies: []
+    };
+    return {
+      media,
+      selectedMedia: getSelectedStoreMedia(media),
+      bannerUrl: steamImage || item?.bannerUrl || item?.coverUrl || null,
+      mediaSource: 'steam'
+    };
+  }
+
+  const rawgImage = item?.bannerUrl || item?.coverUrl || null;
+  const screenshots = rawgScreenshots.length
+    ? rawgScreenshots
+    : rawgImage
+      ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+      : [];
+  const media = { screenshots, movies: [] };
+
+  return {
+    media,
+    selectedMedia: getSelectedStoreMedia(media),
+    bannerUrl: rawgImage,
+    mediaSource: rawgScreenshots.length ? 'rawg' : 'fallback'
+  };
+}
 
 export default function App() {
   // --- Mode and Core States ---
@@ -36,6 +143,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeView, setActiveView] = useState('library');
   const [selectedStoreItem, setSelectedStoreItem] = useState(null);
+  const [storeReturnView, setStoreReturnView] = useState('store');
   
   // --- Active Gameplay Session Tracking ---
   const [runningGameId, setRunningGameId] = useState(null);
@@ -67,9 +175,27 @@ export default function App() {
   const [isBatchFetchingArtwork, setIsBatchFetchingArtwork] = useState(false);
   const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
+  const [storeReviewScores, setStoreReviewScores] = useState({});
+  const [popularStoreGames, setPopularStoreGames] = useState([]);
+  const [popularStoreStatus, setPopularStoreStatus] = useState('idle');
+  const [popularStoreError, setPopularStoreError] = useState(null);
+  const [itadDealGames, setItadDealGames] = useState([]);
+  const [itadDealsStatus, setItadDealsStatus] = useState('idle');
+  const [itadDealsError, setItadDealsError] = useState(null);
+  const [rawgSearchResults, setRawgSearchResults] = useState([]);
+  const [rawgSearchStatus, setRawgSearchStatus] = useState('idle');
+  const [rawgSearchError, setRawgSearchError] = useState(null);
+  const [storeDetailCache, setStoreDetailCache] = useState({});
   const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
+  const storeReviewsHydratedRef = useRef(false);
+  const storeSteamMetadataHydratedRef = useRef(new Set());
+  const popularStoreHydratedRef = useRef(false);
+  const itadDealsHydratedRef = useRef(false);
+  const hltbLookupAttemptedRef = useRef(new Set());
+  const storeDetailCacheRef = useRef({});
+  const storeDetailInFlightRef = useRef(new Map());
 
   const addDiagnostic = (area, level, message, details = null) => {
     setDiagnostics(prev => [{
@@ -81,11 +207,195 @@ export default function App() {
     }, ...prev].slice(0, 80));
   };
 
-  // --- System Diagnostic Metrics (CPU/RAM Mock telemetry) ---
-  const [cpuUsage, setCpuUsage] = useState(12);
-  const [ramUsage, setRamUsage] = useState(34);
+  const mergeStoreDetailCache = useCallback((item, patch = {}, resolvedSteamAppId = null) => {
+    const aliases = getStoreItemCacheAliases(item, resolvedSteamAppId);
+    if (aliases.length === 0) return null;
 
-  // --- Visual & UX Customisation Variables ---
+    const primaryKey = aliases[0];
+    const existing = aliases.reduce((merged, key) => ({
+      ...merged,
+      ...(storeDetailCacheRef.current[key] || {})
+    }), {});
+    const nextRecord = {
+      ...existing,
+      ...patch,
+      key: primaryKey,
+      aliases,
+      cachedAt: Date.now()
+    };
+
+    storeDetailCacheRef.current = aliases.reduce((cache, key) => {
+      cache[key] = nextRecord;
+      return cache;
+    }, { ...storeDetailCacheRef.current });
+
+    const entries = Object.entries(storeDetailCacheRef.current);
+    if (entries.length > MAX_STORE_DETAIL_CACHE_ENTRIES) {
+      const oldestKeys = entries
+        .sort(([, a], [, b]) => (a.cachedAt || 0) - (b.cachedAt || 0))
+        .slice(0, entries.length - MAX_STORE_DETAIL_CACHE_ENTRIES)
+        .map(([key]) => key);
+      oldestKeys.forEach(key => {
+        delete storeDetailCacheRef.current[key];
+      });
+    }
+
+    setStoreDetailCache({ ...storeDetailCacheRef.current });
+    return nextRecord;
+  }, []);
+
+  const prefetchStoreItemDetails = useCallback((item) => {
+    const initialKey = getStoreItemCacheKey(item);
+    if (!initialKey) return null;
+
+    const cached = storeDetailCacheRef.current[initialKey];
+    if (cached?.status === 'ready' && cached?.mediaLoaded && (cached?.steamMetadataLoaded || cached?.rawgDetailsLoaded || cached?.steamLookupStatus === 'missing')) {
+      return Promise.resolve(cached);
+    }
+
+    if (storeDetailInFlightRef.current.has(initialKey)) {
+      return storeDetailInFlightRef.current.get(initialKey);
+    }
+
+    const request = (async () => {
+      let resolvedSteamAppId = String(item?.steamAppId || '').trim();
+      if (!/^\d+$/.test(resolvedSteamAppId)) resolvedSteamAppId = null;
+      const patch = {
+        status: 'loading',
+        itemSnapshot: item,
+        errors: []
+      };
+
+      mergeStoreDetailCache(item, patch, resolvedSteamAppId);
+
+      try {
+        if (!resolvedSteamAppId && item?.title) {
+          try {
+            const match = window.electronAPI?.resolveSteamAppId
+              ? await window.electronAPI.resolveSteamAppId(item.title)
+              : await resolveSteamAppIdBrowser(item.title);
+
+            if (match?.error) {
+              patch.errors.push({ source: 'steam-resolve', message: match.error });
+              patch.steamLookupStatus = 'error';
+            } else {
+              resolvedSteamAppId = match?.steamAppId || null;
+              patch.resolvedSteamAppId = resolvedSteamAppId;
+              patch.steamLookupStatus = resolvedSteamAppId ? 'ready' : 'missing';
+              patch.steamMatchName = match?.name || item.steamMatchName || null;
+              patch.steamMatchScore = match?.matchScore ?? item.steamMatchScore ?? null;
+            }
+          } catch (error) {
+            patch.errors.push({ source: 'steam-resolve', message: error.message });
+            patch.steamLookupStatus = 'error';
+          }
+        } else {
+          patch.resolvedSteamAppId = resolvedSteamAppId;
+          patch.steamLookupStatus = resolvedSteamAppId ? 'ready' : 'missing';
+        }
+
+        if (resolvedSteamAppId) {
+          try {
+            const [details, reviews] = await Promise.all([
+              window.electronAPI?.fetchSteamDetails
+                ? window.electronAPI.fetchSteamDetails(resolvedSteamAppId)
+                : fetchSteamDetailsBrowser(resolvedSteamAppId),
+              window.electronAPI?.fetchSteamReviews
+                ? window.electronAPI.fetchSteamReviews(resolvedSteamAppId)
+                : fetchSteamReviewSummaryBrowser(resolvedSteamAppId)
+            ]);
+
+            patch.steamDetails = details || null;
+            patch.steamReviewScore = reviews || null;
+            patch.steamMetadataLoaded = true;
+          } catch (error) {
+            patch.errors.push({ source: 'steam-metadata', message: error.message });
+            patch.steamMetadataLoaded = false;
+          }
+        }
+
+        if (item?.rawgId && item.source === 'rawg') {
+          try {
+            const details = window.electronAPI?.fetchRawgGameDetails
+              ? await window.electronAPI.fetchRawgGameDetails(item.rawgId)
+              : await fetchRawgGameDetailsBrowser(item.rawgId);
+
+            if (details?.error) {
+              patch.rawgDetailsError = details.error;
+              patch.errors.push({ source: 'rawg-details', message: details.error });
+            } else {
+              patch.rawgDetails = details;
+              patch.rawgDetailsLoaded = true;
+            }
+          } catch (error) {
+            patch.rawgDetailsError = error.message;
+            patch.errors.push({ source: 'rawg-details', message: error.message });
+          }
+        }
+
+        let rawgScreenshots = [];
+        const needsRawgScreenshots = !resolvedSteamAppId || !patch.steamDetails?.screenshots?.length;
+        if (needsRawgScreenshots && (item?.rawgId || item?.title)) {
+          try {
+            const payload = {
+              rawgId: item.rawgId,
+              title: item.title
+            };
+            const screenshots = window.electronAPI?.fetchRawgScreenshots
+              ? await window.electronAPI.fetchRawgScreenshots(payload)
+              : await fetchRawgScreenshotsBrowser(payload);
+
+            if (screenshots?.error) {
+              patch.errors.push({ source: 'rawg-screenshots', message: screenshots.error });
+            } else {
+              rawgScreenshots = Array.isArray(screenshots) ? screenshots : [];
+              patch.rawgScreenshots = rawgScreenshots;
+            }
+          } catch (error) {
+            patch.errors.push({ source: 'rawg-screenshots', message: error.message });
+          }
+        }
+
+        const mediaPatch = buildStorePrefetchMedia(
+          patch.rawgDetails ? { ...item, ...patch.rawgDetails } : item,
+          resolvedSteamAppId,
+          patch.steamDetails,
+          rawgScreenshots
+        );
+
+        const finalRecord = mergeStoreDetailCache(item, {
+          ...patch,
+          ...mediaPatch,
+          mediaLoaded: true,
+          status: 'ready'
+        }, resolvedSteamAppId);
+
+        if (finalRecord?.aliases) {
+          finalRecord.aliases.forEach(alias => {
+            if (alias !== initialKey) {
+              storeDetailInFlightRef.current.delete(alias);
+            }
+          });
+        }
+
+        return finalRecord;
+      } catch (error) {
+        return mergeStoreDetailCache(item, {
+          ...patch,
+          status: 'error',
+          errors: [...patch.errors, { source: 'prefetch', message: error.message }]
+        }, resolvedSteamAppId);
+      } finally {
+        storeDetailInFlightRef.current.delete(initialKey);
+      }
+    })();
+
+    storeDetailInFlightRef.current.set(initialKey, request);
+    return request;
+  }, [mergeStoreDetailCache]);
+
+  // --- System Diagnostic Metrics ---
+
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const settingsLoadedRef = useRef(false);
   const [cacheVersion, setCacheVersion] = useState(0);
@@ -97,29 +407,37 @@ export default function App() {
         try {
           const loadedData = await window.electronAPI.loadDatabase();
           if (loadedData && Array.isArray(loadedData) && loadedData.length > 0) {
-            setGames(loadedData);
-            setSelectedGame(loadedData[0]);
+            const hydratedData = loadedData.map(applySeededHltbToGame);
+            setGames(hydratedData);
+            setSelectedGame(hydratedData[0] || null);
+            if (JSON.stringify(hydratedData) !== JSON.stringify(loadedData)) {
+              await window.electronAPI.saveDatabase(hydratedData);
+            }
           } else {
             // Save defaults if file is empty
-            setGames(defaultGames);
-            setSelectedGame(defaultGames[0]);
-            await window.electronAPI.saveDatabase(defaultGames);
+            const seededDefaults = defaultGames.map(applySeededHltbToGame);
+            setGames(seededDefaults);
+            setSelectedGame(seededDefaults[0] || null);
+            await window.electronAPI.saveDatabase(seededDefaults);
           }
         } catch (e) {
           console.error("Database load error, falling back to mock:", e);
-          setGames(defaultGames);
-          setSelectedGame(defaultGames[0]);
+          const seededDefaults = defaultGames.map(applySeededHltbToGame);
+          setGames(seededDefaults);
+          setSelectedGame(seededDefaults[0] || null);
         }
       } else {
         // Web Browser Sandbox Loading
         const localCache = localStorage.getItem('nexus_games_cache');
         if (localCache) {
-          const parsed = JSON.parse(localCache);
+          const parsed = JSON.parse(localCache).map(applySeededHltbToGame);
           setGames(parsed);
-          setSelectedGame(parsed[0]);
+          setSelectedGame(parsed[0] || null);
+          localStorage.setItem('nexus_games_cache', JSON.stringify(parsed));
         } else {
-          setGames(defaultGames);
-          setSelectedGame(defaultGames[0]);
+          const seededDefaults = defaultGames.map(applySeededHltbToGame);
+          setGames(seededDefaults);
+          setSelectedGame(seededDefaults[0] || null);
         }
       }
     }
@@ -163,6 +481,125 @@ export default function App() {
       setDiagnostics(prev => [event, ...prev].slice(0, 80));
     });
   }, []);
+
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 3 || (activeView !== 'search' && activeView !== 'store-item')) {
+      setRawgSearchResults([]);
+      setRawgSearchStatus('idle');
+      setRawgSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRawgSearchStatus('loading');
+    setRawgSearchError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = window.electronAPI?.searchRawgGames
+          ? await window.electronAPI.searchRawgGames(term)
+          : await searchRawgGamesBrowser(term);
+        if (cancelled) return;
+
+        if (results?.error) {
+          setRawgSearchResults([]);
+          setRawgSearchStatus('error');
+          setRawgSearchError(results.error);
+          addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${results.error}`);
+          return;
+        }
+
+        setRawgSearchResults(Array.isArray(results) ? results : []);
+        setRawgSearchStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setRawgSearchResults([]);
+        setRawgSearchStatus('error');
+        setRawgSearchError(error.message);
+        addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${error.message}`);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, activeView]);
+
+  useEffect(() => {
+    if (popularStoreHydratedRef.current) return;
+    if (activeView !== 'store' && activeView !== 'store-item') return;
+
+    let cancelled = false;
+    popularStoreHydratedRef.current = true;
+    setPopularStoreStatus('loading');
+    setPopularStoreError(null);
+
+    async function hydratePopularGames() {
+      try {
+        const results = window.electronAPI?.fetchRawgPopularGames
+          ? await window.electronAPI.fetchRawgPopularGames()
+          : await fetchRawgPopularGamesBrowser();
+        if (cancelled) return;
+
+        if (results?.error) {
+          setPopularStoreGames([]);
+          setPopularStoreStatus('error');
+          setPopularStoreError(results.error);
+          addDiagnostic('Discovery', 'warn', `Popular store feed failed: ${results.error}`);
+          return;
+        }
+
+        setPopularStoreGames(Array.isArray(results) ? results.map(applySeededHltbToGame) : []);
+        setPopularStoreStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setPopularStoreGames([]);
+        setPopularStoreStatus('error');
+        setPopularStoreError(error.message);
+        addDiagnostic('Discovery', 'warn', `Popular store feed failed: ${error.message}`);
+      }
+    }
+
+    hydratePopularGames();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
+
+  useEffect(() => {
+    if (itadDealsHydratedRef.current) return;
+    if (activeView !== 'store' && activeView !== 'store-item') return;
+
+    let cancelled = false;
+    itadDealsHydratedRef.current = true;
+    setItadDealsStatus('loading');
+    setItadDealsError(null);
+
+    async function hydrateItadDeals() {
+      try {
+        const deals = await fetchItadBestDeals({ country: 'US', limit: 10 });
+        if (cancelled) return;
+
+        setItadDealGames(deals.map(applySeededHltbToGame));
+        setItadDealsStatus('ready');
+      } catch (error) {
+        if (cancelled) return;
+        setItadDealGames([]);
+        setItadDealsStatus(error.message === 'Missing price API key.' ? 'missing-key' : 'error');
+        setItadDealsError(error.message);
+        addDiagnostic('Prices', 'warn', `Best deals feed unavailable: ${error.message}`);
+      }
+    }
+
+    hydrateItadDeals();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
 
   // --- 1b. Hydrate library and store art from SteamGridDB when desktop APIs exist ---
   useEffect(() => {
@@ -222,6 +659,151 @@ export default function App() {
     hydrateStoreArtwork();
   }, [cacheVersion]);
 
+  useEffect(() => {
+    if (storeReviewsHydratedRef.current) return;
+
+    const candidates = storeCatalog.filter(item => item.steamAppId);
+    if (candidates.length === 0) return;
+
+    storeReviewsHydratedRef.current = true;
+
+    async function hydrateStoreReviews() {
+      const fetchedScores = {};
+
+      for (const item of candidates) {
+        try {
+          let reviewScore = null;
+
+          if (window.electronAPI?.fetchSteamReviews) {
+            reviewScore = await window.electronAPI.fetchSteamReviews(item.steamAppId);
+          } else {
+            reviewScore = await fetchSteamReviewSummaryBrowser(item.steamAppId);
+          }
+
+          if (reviewScore?.label) {
+            fetchedScores[item.id] = reviewScore;
+          }
+        } catch (error) {
+          addDiagnostic('SteamReviews', 'warn', `Review score skipped ${item.title}: ${error.message}`);
+        }
+      }
+
+      if (Object.keys(fetchedScores).length > 0) {
+        setStoreReviewScores(fetchedScores);
+      }
+    }
+
+    hydrateStoreReviews();
+  }, []);
+
+  useEffect(() => {
+    const candidates = popularStoreGames.filter(item => (
+      item?.source === 'rawg' &&
+      item.title &&
+      !storeSteamMetadataHydratedRef.current.has(item.id) &&
+      (!item.steamAppId || !item.steamReviewScore)
+    ));
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+
+    async function hydratePopularSteamMetadata() {
+      const updates = {};
+
+      for (const item of candidates) {
+        storeSteamMetadataHydratedRef.current.add(item.id);
+
+        try {
+          let steamAppId = item.steamAppId || null;
+          let match = null;
+
+          if (!steamAppId) {
+            match = window.electronAPI?.resolveSteamAppId
+              ? await window.electronAPI.resolveSteamAppId(item.title)
+              : await resolveSteamAppIdBrowser(item.title);
+
+            if (match?.error) {
+              throw new Error(match.error);
+            }
+            steamAppId = match?.steamAppId || null;
+          }
+
+          let reviewScore = item.steamReviewScore || null;
+          if (steamAppId && !reviewScore) {
+            reviewScore = window.electronAPI?.fetchSteamReviews
+              ? await window.electronAPI.fetchSteamReviews(steamAppId)
+              : await fetchSteamReviewSummaryBrowser(steamAppId);
+          }
+
+          if (cancelled) return;
+
+          if (steamAppId || reviewScore?.label) {
+            updates[item.id] = {
+              steamAppId,
+              steamReviewScore: reviewScore || item.steamReviewScore || null,
+              steamMatchName: match?.name || item.steamMatchName || null,
+              steamMatchScore: match?.matchScore ?? item.steamMatchScore ?? null
+            };
+          }
+        } catch (error) {
+          addDiagnostic('SteamSearch', 'warn', `Steam metadata skipped ${item.title}: ${error.message}`);
+        }
+      }
+
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setPopularStoreGames(prevGames => prevGames.map(game =>
+          updates[game.id] ? { ...game, ...updates[game.id] } : game
+        ));
+      }
+    }
+
+    hydratePopularSteamMetadata();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [popularStoreGames]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.autoFetchHowLongToBeat || games.length === 0) return;
+
+    const candidates = games.filter(game => {
+      const key = `${game.id}:${game.title}`;
+      return shouldFetchHltb(game) && !hltbLookupAttemptedRef.current.has(key);
+    });
+    if (candidates.length === 0) return;
+
+    async function hydrateHowLongToBeat() {
+      const hltbById = {};
+
+      for (const game of candidates) {
+        const key = `${game.id}:${game.title}`;
+        hltbLookupAttemptedRef.current.add(key);
+
+        const hltb = await window.electronAPI.autoFetchHowLongToBeat(game);
+        if (!hltb?.error) {
+          hltbById[game.id] = hltb;
+          addDiagnostic('HowLongToBeat', 'info', `HLTB times applied to ${game.title}`);
+        } else {
+          addDiagnostic('HowLongToBeat', 'warn', `HLTB lookup skipped ${game.title}: ${hltb.error}`);
+        }
+      }
+
+      if (Object.keys(hltbById).length === 0) return;
+
+      setGames(prevGames => {
+        const mergedList = prevGames.map(existing =>
+          hltbById[existing.id] ? { ...existing, hltb: hltbById[existing.id] } : existing
+        );
+        setSelectedGame(prev => mergedList.find(g => g.id === prev?.id) || mergedList[0] || null);
+        window.electronAPI.saveDatabase(mergedList);
+        return mergedList;
+      });
+    }
+
+    hydrateHowLongToBeat();
+  }, [games]);
+
   // --- 2. Synchronize Custom Settings & CSS Styles ---
   useEffect(() => {
     // Sync active settings theme to body element
@@ -256,21 +838,6 @@ export default function App() {
     document.documentElement.style.setProperty('--fs-38', `${38 * fontScale}px`);
     document.documentElement.style.setProperty('--fs-48', `${48 * fontScale}px`);
     
-    if (!settings.trackSystemStatus) return;
-
-    // Quick hardware pulse
-    const sysTimer = setInterval(() => {
-      setCpuUsage(prev => {
-        const delta = Math.floor(Math.random() * 8) - 4;
-        return Math.max(5, Math.min(85, prev + delta));
-      });
-      setRamUsage(prev => {
-        const delta = Math.floor(Math.random() * 4) - 2;
-        return Math.max(25, Math.min(95, prev + delta));
-      });
-    }, 4000);
-
-    return () => clearInterval(sysTimer);
   }, [settings]);
 
   // --- 3. Ambient Audio Soundtrack Controls ---
@@ -347,7 +914,7 @@ export default function App() {
         if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
       };
     }
-  }, [games]);
+  }, []);
 
   // --- Action Trigger: Game Launching ---
   const handleLaunchGame = async (game) => {
@@ -466,6 +1033,12 @@ export default function App() {
     }
   };
 
+  const handleOpenMetadata = (game = selectedGame) => {
+    if (!game) return;
+    setSelectedGame(game);
+    setIsMetadataOpen(true);
+  };
+
   // --- Action Trigger: Remove Game from Library ---
   const handleRemoveGame = async (gameId) => {
     const gameToRemove = games.find(g => g.id === gameId);
@@ -497,17 +1070,15 @@ export default function App() {
         const metadata = matchGameMetadata(scannedFile.name, scannedFile.path);
         // Create clean ID
         const cleanId = scannedFile.name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
-        addedList.push({
+        addedList.push(applySeededHltbToGame({
           ...metadata,
           steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
-          platforms: scannedFile.platform ? [scannedFile.platform] : (metadata.platforms || ["PC"]),
           id: cleanId
-        });
+        }));
         newGameIds.push(cleanId);
         addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
           exePath: scannedFile.path,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
-          platform: scannedFile.platform || 'Custom'
+          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null
         });
       } else {
         duplicateCount += 1;
@@ -557,7 +1128,7 @@ export default function App() {
     const metadata = matchGameMetadata(name, mockExe);
     addDiagnostic('Importer', 'info', `Manual executable selected: ${mockExe}`);
 
-    let newGame = { ...metadata, id: cleanId };
+    let newGame = applySeededHltbToGame({ ...metadata, id: cleanId });
     if (window.electronAPI?.autoFetchArtwork) {
       const artwork = await window.electronAPI.autoFetchArtwork({ ...newGame, forceTitleLookup: true });
       if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
@@ -582,10 +1153,11 @@ export default function App() {
 
   // --- Action Trigger: Factory DB Resets ---
   const handleResetDatabase = async () => {
-    setGames(defaultGames);
-    setSelectedGame(defaultGames[0]);
+    const seededDefaults = defaultGames.map(applySeededHltbToGame);
+    setGames(seededDefaults);
+    setSelectedGame(seededDefaults[0] || null);
     if (window.electronAPI) {
-      await window.electronAPI.saveDatabase(defaultGames);
+      await window.electronAPI.saveDatabase(seededDefaults);
     } else {
       localStorage.removeItem('nexus_games_cache');
     }
@@ -653,7 +1225,9 @@ export default function App() {
       // Reset hydration refs
       libraryArtworkHydratedRef.current = false;
       storeArtworkHydratedRef.current = false;
+      storeReviewsHydratedRef.current = false;
       setStoreArtwork({});
+      setStoreReviewScores({});
       setCacheVersion(v => v + 1);
       
       alert("Cache cleared successfully (sandbox mock)!");
@@ -666,27 +1240,52 @@ export default function App() {
     setActiveView(view);
     if (view === 'store') {
       setSelectedStoreItem(null);
+      setStoreReturnView('store');
     }
   };
 
-  const handleSelectStoreItem = (item) => {
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    if (value.trim()) {
+      setActiveView('search');
+      return;
+    }
+
+    if (activeView === 'search') {
+      setActiveView('library');
+    }
+  };
+
+  const handleSelectStoreItem = (item, returnView = activeView) => {
+    prefetchStoreItemDetails(item);
     setSelectedStoreItem(item);
+    setStoreReturnView(returnView === 'search' ? 'search' : 'store');
     setActiveView('store-item');
   };
 
   const handleBackToStore = () => {
-    setActiveView('store');
+    setActiveView(storeReturnView === 'search' && searchQuery.trim() ? 'search' : 'store');
     setSelectedStoreItem(null);
+  };
+
+  const handleSelectSearchLibraryGame = (game) => {
+    setSelectedGame(game);
+    setActiveView('library');
   };
 
   // --- Store: Mark as Owned ---
   const handleMarkOwned = async (storeItem) => {
-    const existing = games.find(g => g.id === storeItem.id);
+    const existing = games.find(g =>
+      g.id === storeItem.id ||
+      (storeItem.rawgId && g.rawgId === storeItem.rawgId) ||
+      (storeItem.itadId && g.itadId === storeItem.itadId)
+    );
     if (existing) {
       const updatedList = games.map(g =>
-        g.id === storeItem.id ? { ...g, owned: true } : g
+        g.id === existing.id ? { ...g, ...storeItem, id: existing.id, owned: true } : g
       );
       setGames(updatedList);
+      setSelectedGame(updatedList.find(g => g.id === existing.id) || existing);
       if (window.electronAPI) {
         await window.electronAPI.saveDatabase(updatedList);
       } else {
@@ -695,10 +1294,7 @@ export default function App() {
       return;
     }
 
-    // Sync the store catalog ownership
-    storeItem.owned = true;
-
-    const newGame = {
+    const newGame = applySeededHltbToGame({
       ...storeItem,
       playtime: 0,
       lastPlayed: "Never",
@@ -708,7 +1304,7 @@ export default function App() {
       exePath: "",
       isFavorite: false,
       owned: true
-    };
+    });
 
     const updatedList = [...games, newGame];
     setGames(updatedList);
@@ -738,13 +1334,13 @@ export default function App() {
   };
 
   // --- Filter Catalog Search ---
-  const getFilteredGames = () => {
+  const filteredGames = useMemo(() => {
     return games.filter(g => 
-      g.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.developer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.genre.toLowerCase().includes(searchQuery.toLowerCase())
+      g.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      g.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      g.genre?.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  };
+  }, [games, searchQuery]);
 
   // --- Action Trigger: Batch SteamGridDB Artwork Fetch ---
   const handleBatchFetchArtwork = async () => {
@@ -784,16 +1380,73 @@ export default function App() {
     );
   };
 
-  const getFilteredFavoriteGames = () => {
-    return getFilteredGames().filter(g => g.isFavorite);
-  };
+  const filteredFavoriteGames = useMemo(() => {
+    return filteredGames.filter(g => g.isFavorite);
+  }, [filteredGames]);
 
   // Sync store catalog ownership with games library
-  const syncedCatalog = storeCatalog.map(item => ({
+  const syncedCatalog = useMemo(() => storeCatalog.map(item => applySeededHltbToGame({
     ...item,
     ...storeArtwork[item.id],
+    steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
     owned: games.some(g => g.id === item.id && g.owned)
-  }));
+  })), [storeArtwork, storeReviewScores, games]);
+
+  const ownedRawgIds = useMemo(() => new Set(games.map(game => game.rawgId).filter(Boolean)), [games]);
+  const ownedItadIds = useMemo(() => new Set(games.map(game => game.itadId).filter(Boolean)), [games]);
+  
+  const isOwnedStoreItem = useCallback((item) => (
+    games.some(game => game.id === item.id) ||
+    (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
+    (item.itadId && ownedItadIds.has(item.itadId))
+  ), [games, ownedRawgIds, ownedItadIds]);
+
+  const syncedPopularGames = useMemo(() => popularStoreGames.map(item => ({
+    ...item,
+    owned: isOwnedStoreItem(item)
+  })), [popularStoreGames, isOwnedStoreItem]);
+
+  const syncedItadDeals = useMemo(() => itadDealGames.map(item => ({
+    ...item,
+    owned: isOwnedStoreItem(item)
+  })), [itadDealGames, isOwnedStoreItem]);
+
+  const mergedStoreCatalog = useMemo(() => [
+    ...syncedPopularGames,
+    ...syncedItadDeals,
+    ...syncedCatalog
+  ], [syncedPopularGames, syncedItadDeals, syncedCatalog]);
+
+  const searchResults = useMemo(() => {
+    const normalizedSearchTitles = new Set();
+    return [
+      ...filteredGames.map(item => ({ ...item, resultType: 'library', owned: true })),
+      ...syncedCatalog
+        .filter(item => (
+          item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.genre?.toLowerCase().includes(searchQuery.toLowerCase())
+        ))
+        .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
+      ...rawgSearchResults
+        .filter(item => item.source === 'rawg' && item.rawgId)
+        .map(item => ({ ...item, resultType: 'rawg', owned: isOwnedStoreItem(item) }))
+    ].filter(item => {
+      const key = item.rawgId ? `rawg:${item.rawgId}` : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      if (!key || normalizedSearchTitles.has(key)) return false;
+      normalizedSearchTitles.add(key);
+      return true;
+    });
+  }, [filteredGames, syncedCatalog, rawgSearchResults, searchQuery, isOwnedStoreItem]);
+
+  const activeStoreItem = useMemo(() => selectedStoreItem
+    ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
+    : null, [selectedStoreItem, mergedStoreCatalog]);
+
+  const activeStoreItemCacheKey = useMemo(() => getStoreItemCacheKey(activeStoreItem), [activeStoreItem]);
+  const activeStoreItemCachedDetails = useMemo(() => activeStoreItemCacheKey
+    ? storeDetailCache[activeStoreItemCacheKey]
+    : null, [activeStoreItemCacheKey, storeDetailCache]);
 
   const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode;
   const primaryViews = ['store', 'library', 'favourites'];
@@ -878,6 +1531,7 @@ export default function App() {
       selectedStoreItem?.id,
       searchQuery,
       games.length,
+      rawgSearchResults.length,
       isCcOpen,
       isSettingsOpen,
       isMetadataOpen,
@@ -898,13 +1552,10 @@ export default function App() {
       {/* 2. Top-level Floating Navigation Bar */}
       <NavigationHeader 
         searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        onOpenSettings={() => { audioEngine.playClickPulse(); setIsSettingsOpen(true); }}
-        cpuUsage={cpuUsage}
-        ramUsage={ramUsage}
+        onSearchChange={handleSearchChange}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         activeView={activeView}
         onViewChange={handleViewChange}
-        systemStatusTracking={settings.trackSystemStatus}
         username={username}
         userAvatar={userAvatar}
         onOpenProfile={() => setIsProfileOpen(true)}
@@ -918,7 +1569,7 @@ export default function App() {
               game={selectedGame}
               onLaunch={handleLaunchGame}
               onToggleFavorite={handleToggleFavorite}
-              onEditMetadata={() => setIsMetadataOpen(true)}
+              onEditMetadata={handleOpenMetadata}
               onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
               bannerAnimation={settings.bannerAnimation}
@@ -931,10 +1582,11 @@ export default function App() {
             />
 
             <HorizontalLibrary 
-              games={getFilteredGames()}
+              games={filteredGames}
               selectedGame={selectedGame}
               onSelectGame={setSelectedGame}
               onLaunchGame={handleLaunchGame}
+              onEditMetadata={handleOpenMetadata}
               onRemoveGame={handleRemoveGame}
               runningGameId={runningGameId}
             />
@@ -943,7 +1595,7 @@ export default function App() {
 
         {activeView === 'favourites' && (
           <FavouritesTrophyRoom
-            games={getFilteredFavoriteGames()}
+            games={filteredFavoriteGames}
             selectedGame={selectedGame}
             onSelectGame={setSelectedGame}
             onLaunchGame={handleLaunchGame}
@@ -956,21 +1608,46 @@ export default function App() {
 
         {activeView === 'store' && (
           <StoreGrid 
-            catalog={syncedCatalog}
+            catalog={mergedStoreCatalog}
+            popularGames={syncedPopularGames}
+            dealGames={syncedItadDeals}
             ownedGames={games}
             onSelectItem={handleSelectStoreItem}
-            searchQuery={searchQuery}
+            onPrefetchItem={prefetchStoreItemDetails}
+            searchQuery=""
+            popularStatus={popularStoreStatus}
+            popularError={popularStoreError}
+            dealsStatus={itadDealsStatus}
+            dealsError={itadDealsError}
+          />
+        )}
+
+        {activeView === 'search' && (
+          <SearchResultsPage
+            query={searchQuery}
+            results={searchResults}
+            ownedGames={games}
+            rawgSearchStatus={rawgSearchStatus}
+            rawgSearchError={rawgSearchError}
+            onSelectItem={(item) => handleSelectStoreItem(item, 'search')}
+            onPrefetchItem={prefetchStoreItemDetails}
+            onSelectLibraryGame={handleSelectSearchLibraryGame}
+            onLaunchGame={handleLaunchGame}
           />
         )}
 
         {activeView === 'store-item' && (
           <StoreItemPage 
-            item={selectedStoreItem}
+            item={activeStoreItem}
+            cachedDetails={activeStoreItemCachedDetails}
+            onCacheDetails={mergeStoreDetailCache}
+            onPrefetchItem={prefetchStoreItemDetails}
             ownedGames={games}
             onBack={handleBackToStore}
             onMarkOwned={handleMarkOwned}
             onLinkExe={handleLinkExe}
             onLaunch={handleLaunchGame}
+            onEditMetadata={handleOpenMetadata}
             onRemoveGame={handleRemoveGame}
           />
         )}
@@ -985,8 +1662,6 @@ export default function App() {
         onImportScannedGames={handleImportScannedGames}
         onBatchFetchArtwork={handleBatchFetchArtwork}
         isBatchFetchingArtwork={isBatchFetchingArtwork}
-        cpuUsage={cpuUsage}
-        ramUsage={ramUsage}
         games={games}
         systemStatusTracking={settings.trackSystemStatus}
         diagnostics={diagnostics}

@@ -120,11 +120,23 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
       draw() {
         ctx.save();
         ctx.globalAlpha = this.alpha;
-        ctx.fillStyle = this.color;
+        
+        // Use performant radial gradient instead of shadowBlur
+        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 3);
+        gradient.addColorStop(0, this.color);
+        gradient.addColorStop(0.3, this.color);
+        
+        // Need to parse hex to rgba for transparent fade, but since it's glowing, transparent black works nicely in screen/lighter blend mode, or just transparent
+        // Alternatively, use a transparent version of the color if we parse it, but 'transparent' usually interpolates to rgba(0,0,0,0) which can cause grey rings in some browsers.
+        // Let's just use 'rgba(255,255,255,0)' since most colors are bright.
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        
+        ctx.fillStyle = gradient;
+        // Use lighter compositing for a better glow effect without shadowBlur
+        ctx.globalCompositeOperation = 'lighter';
+        
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.shadowBlur = this.size * 3;
-        ctx.shadowColor = this.color;
+        ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
       }

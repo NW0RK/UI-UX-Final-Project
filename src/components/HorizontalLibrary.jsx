@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Play, Flame, Star, Award, Trash2, Monitor, Gamepad2, Smartphone } from 'lucide-react';
+import { Play, Star } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function HorizontalLibrary({ 
@@ -7,7 +7,6 @@ export default function HorizontalLibrary({
   selectedGame, 
   onSelectGame, 
   onLaunchGame, 
-  onRemoveGame, 
   runningGameId 
 }) {
   const shelfRef = useRef(null);
@@ -45,7 +44,6 @@ export default function HorizontalLibrary({
               onClick={() => handleCardClick(game)}
               onFocus={() => handleCardFocus(game)}
               onLaunch={() => onLaunchGame(game)}
-              onRemove={() => onRemoveGame(game.id)}
             />
           );
         })}
@@ -112,43 +110,11 @@ export default function HorizontalLibrary({
   );
 }
 
-const platformIcons = {
-  'PC': Monitor,
-  'PS5': Gamepad2,
-  'PS4': Gamepad2,
-  'Xbox Series X|S': Gamepad2,
-  'Xbox One': Gamepad2,
-  'Switch': Gamepad2,
-  'Mobile': Smartphone
-};
-
-function PlatformIcon({ platform }) {
-  const Icon = platformIcons[platform] || Gamepad2;
-  const label = platform === 'PS5' || platform === 'PS4' ? 'PS' :
-                platform.startsWith('Xbox') ? 'XB' :
-                platform === 'Switch' ? 'NS' :
-                platform === 'Mobile' ? 'Mob' :
-                platform === 'PC' ? 'PC' : platform.slice(0, 2);
-  return (
-    <div className="platform-icon-badge" title={platform}>
-      <Icon size={10} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onRemove }) {
+function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
   const handleLaunchClick = (e) => {
     e.stopPropagation();
     onLaunch();
   };
-
-  const handleRemoveClick = (e) => {
-    e.stopPropagation();
-    onRemove();
-  };
-
-  const playtimeHours = Math.round((game.playtime / 3600) * 10) / 10;
 
   return (
     <div 
@@ -192,35 +158,11 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onR
           >
             <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
           </button>
-          <button
-            className="quick-remove-button"
-            onClick={handleRemoveClick}
-            title="Remove from Library"
-          >
-            <Trash2 size={14} />
-          </button>
         </div>
       </div>
 
       <div className="store-card-info">
         <div className="store-card-title">{game.title}</div>
-        <div className="store-card-developer">{game.developer}</div>
-        <div className="store-card-platforms">
-          {game.platforms?.map(p => (
-            <PlatformIcon key={p} platform={p} />
-          ))}
-        </div>
-        <div className="store-card-rating">
-          <Flame size={10} className="metric-icon" />
-          <span>{playtimeHours}h</span>
-          {game.progress > 0 && (
-            <>
-              <span className="rating-divider">·</span>
-              <Award size={10} className="metric-icon" />
-              <span>{game.progress}%</span>
-            </>
-          )}
-        </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -364,51 +306,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onR
           min-width: 0;
         }
 
-        .store-card-developer {
-          font-size: var(--fs-11);
-          color: rgba(255, 255, 255, 0.4);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          min-width: 0;
-        }
-
-        .store-card-platforms {
-          display: flex;
-          gap: 4px;
-          flex-wrap: wrap;
-          margin-top: 2px;
-        }
-
-        .platform-icon-badge {
-          display: flex;
-          align-items: center;
-          gap: 3px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 4px;
-          padding: 2px 5px;
-          font-size: var(--fs-8);
-          font-weight: 600;
-          color: rgba(255, 255, 255, 0.5);
-          letter-spacing: 0.3px;
-        }
-
-        .store-card-rating {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: var(--fs-11);
-          font-weight: 600;
-          color: #e6af2e;
-          margin-top: auto;
-          min-width: 0;
-        }
-
-        .rating-divider {
-          color: rgba(255, 255, 255, 0.2);
-        }
-
         .running-overlay-indicator {
           position: absolute;
           top: 10px;
@@ -495,40 +392,8 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch, onR
           background: #f87171;
         }
 
-        .quick-remove-button {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: rgba(239, 68, 68, 0.15);
-          border: 1px solid rgba(239, 68, 68, 0.25);
-          color: #ef4444;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: all var(--transition-fast);
-          transform: translateY(10px);
-          position: absolute;
-          bottom: 12px;
-          right: 12px;
-          opacity: 0;
-        }
-
-        .store-card:hover .quick-remove-button {
-          transform: translateY(0);
-          opacity: 1;
-        }
-
-        .quick-remove-button:hover {
-          background: #ef4444;
-          color: #fff;
-          box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
-        }
-
-        .metric-icon {
-          color: var(--accent-color);
-        }
       `}} />
     </div>
   );
 }
+

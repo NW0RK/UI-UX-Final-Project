@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Edit, Star, Trash2, Flame, Clock, Award, ShieldAlert, Move } from 'lucide-react';
+import { Play, Star, Flame, Clock, Hourglass, Move } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
+import { getPrimaryHltbText } from '../utils/hltb';
+import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 export default function GameMainBanner({ 
   game, 
@@ -115,6 +117,8 @@ export default function GameMainBanner({
   };
 
   const ratingData = getSteamRating(game.rating);
+  const hltbText = getPrimaryHltbText(game.hltb);
+  const bannerTransitionKey = game.id || game.title;
 
   const handleLaunchClick = () => {
     audioEngine.playClickPulse();
@@ -124,18 +128,6 @@ export default function GameMainBanner({
   const handleFavoriteClick = () => {
     audioEngine.playClickPulse();
     onToggleFavorite(game.id);
-  };
-
-  const handleEditClick = () => {
-    audioEngine.playClickPulse();
-    onEditMetadata(game);
-  };
-
-
-
-  const handleRemoveClick = () => {
-    audioEngine.playClickPulse();
-    onRemoveGame(game.id);
   };
 
   const parallaxClass = bannerAnimation ? ' backdrop-parallax' : '';
@@ -412,9 +404,9 @@ export default function GameMainBanner({
       </div>
 
       {/* Floating Info Overlay Sheet */}
-      <div className="banner-content-box">
+      <div className="banner-content-box" key={`banner-content-${bannerTransitionKey}`}>
         {/* Developer & Developer Meta */}
-        <div className="developer-meta">
+        <div className="developer-meta banner-transition-item transition-developer">
           <span className={`developer-name ${visibleStudioLogoUrl ? 'developer-name-with-logo' : ''} ${developerLogoBadgeClass}`}>
             {shouldProbeStudioWordmark && (
               <img
@@ -429,7 +421,7 @@ export default function GameMainBanner({
               <img
                 src={visibleStudioLogoUrl}
                 alt={`${game.developer} logo`}
-                className={`developer-studio-logo ${visibleStudioLogoClass}`}
+                className={`developer-studio-logo ${visibleStudioLogoClass} banner-transition-logo`}
                 onError={handleStudioLogoError}
               />
             )}
@@ -442,13 +434,13 @@ export default function GameMainBanner({
         </div>
 
         {/* Short Description */}
-        <p className="game-banner-description">
+        <p className="game-banner-description banner-transition-item transition-description">
           {game.description}
         </p>
 
         {/* Change Banner Title Position Trigger Button */}
         {editMode && (
-          <div className="banner-edit-toggle-row">
+          <div className="banner-edit-toggle-row banner-transition-item transition-edit">
             <button 
               className="glow-btn action-pill-btn banner-edit-btn edit-active"
               onClick={() => {
@@ -465,7 +457,7 @@ export default function GameMainBanner({
         )}
 
         {/* Telemetry Stats Card */}
-        <div className="telemetry-stats-glass-row">
+        <div className="telemetry-stats-glass-row banner-transition-item transition-stats">
           <div className="stat-glass-card">
             <Clock size={16} className="stat-icon" />
             <div className="stat-info">
@@ -482,19 +474,17 @@ export default function GameMainBanner({
             </div>
           </div>
 
-          {game.progress > 0 && (
-            <div className="stat-glass-card">
-              <Award size={16} className="stat-icon" />
-              <div className="stat-info">
-                <span className="stat-label">Progress</span>
-                <span className="stat-value">{game.progress}% ({game.timeToComplete} left)</span>
-              </div>
+          <div className="stat-glass-card">
+            <Hourglass size={16} className="stat-icon" />
+            <div className="stat-info">
+              <span className="stat-label">HowLongToBeat</span>
+              <span className="stat-value">{hltbText}</span>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Action Row */}
-        <div className="banner-actions-row">
+        <div className="banner-actions-row banner-transition-item transition-actions">
           {/* Main Launch Trigger */}
           <button 
             className={`glow-btn glow-btn-primary play-game-btn ${isRunning ? 'running-pulse' : ''}`}
@@ -503,19 +493,6 @@ export default function GameMainBanner({
           >
             <Play fill={isRunning ? 'transparent' : 'currentColor'} size={18} />
             <span>{isRunning ? 'Running...' : 'Play Game'}</span>
-          </button>
-
-
-
-          {/* Edit Metadata */}
-          <button 
-            className="glow-btn action-pill-btn"
-            onClick={handleEditClick}
-            onMouseEnter={audioEngine.playHoverTick}
-            title="Edit Game Metadata"
-          >
-            <Edit size={16} />
-            <span>Metadata</span>
           </button>
 
           {/* Toggle Favorite Star */}
@@ -528,15 +505,12 @@ export default function GameMainBanner({
             <Star size={16} fill={game.isFavorite ? 'currentColor' : 'transparent'} />
           </button>
 
-          {/* Remove from Library */}
-          <button 
-            className="glow-btn action-pill-btn remove-pill-btn"
-            onClick={handleRemoveClick}
-            onMouseEnter={audioEngine.playHoverTick}
-            title="Remove from Library"
-          >
-            <Trash2 size={16} />
-          </button>
+          <LibraryOverflowMenu
+            className="banner-library-overflow"
+            triggerClassName="glow-btn action-pill-btn banner-overflow-trigger"
+            onEditMetadata={() => onEditMetadata(game)}
+            onRemove={() => onRemoveGame(game.id)}
+          />
         </div>
       </div>
 
@@ -557,9 +531,14 @@ export default function GameMainBanner({
         onMouseDown={handleDragStart}
       >
         {game.logoUrl ? (
-          <img src={game.logoUrl} alt={game.title} className="banner-logo-img" />
+          <img
+            key={`banner-logo-${bannerTransitionKey}`}
+            src={game.logoUrl}
+            alt={game.title}
+            className="banner-logo-img banner-transition-title"
+          />
         ) : (
-          <h1 className="banner-game-title">{game.title}</h1>
+          <h1 key={`banner-title-${bannerTransitionKey}`} className="banner-game-title banner-transition-title">{game.title}</h1>
         )}
 
         {/* Drag Hint Overlay */}
@@ -715,6 +694,87 @@ export default function GameMainBanner({
           overflow: hidden;
         }
 
+        .banner-transition-item {
+          opacity: 0;
+          transform: translateY(14px);
+          animation: library-banner-element-in 560ms var(--ease-interface) forwards;
+          animation-delay: var(--library-transition-delay, 0ms);
+          will-change: opacity, transform, filter;
+        }
+
+        .transition-developer {
+          --library-transition-delay: 70ms;
+        }
+
+        .transition-description {
+          --library-transition-delay: 140ms;
+        }
+
+        .transition-edit {
+          --library-transition-delay: 180ms;
+        }
+
+        .transition-stats {
+          --library-transition-delay: 210ms;
+        }
+
+        .transition-actions {
+          --library-transition-delay: 280ms;
+        }
+
+        .banner-transition-title {
+          opacity: 0;
+          transform: translateY(12px) scale(0.985);
+          animation: library-banner-title-in 680ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation-delay: 120ms;
+          will-change: opacity, transform, filter;
+        }
+
+        .banner-transition-logo {
+          opacity: 0;
+          transform: translateY(6px);
+          animation: library-banner-logo-in 460ms var(--ease-interface) forwards;
+          animation-delay: 120ms;
+          will-change: opacity, transform;
+        }
+
+        @keyframes library-banner-element-in {
+          0% {
+            opacity: 0;
+            transform: translateY(14px);
+            filter: blur(8px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+          }
+        }
+
+        @keyframes library-banner-title-in {
+          0% {
+            opacity: 0;
+            transform: translateY(12px) scale(0.985);
+            filter: blur(10px) drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0) drop-shadow(0 0 25px rgba(0, 0, 0, 0.85));
+          }
+        }
+
+        @keyframes library-banner-logo-in {
+          0% {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
 
 
         /* Absolutely-placed title container */
@@ -775,7 +835,7 @@ export default function GameMainBanner({
           border-radius: 50%;
           z-index: 110;
           box-shadow: 0 2px 5px rgba(0,0,0,0.8);
-          transition: transform 0.15s var(--ease-ps5), background 0.15s var(--ease-ps5);
+          transition: transform 0.15s var(--ease-interface), background 0.15s var(--ease-interface);
         }
 
         .resize-handle:hover {
@@ -1169,15 +1229,43 @@ export default function GameMainBanner({
           box-shadow: 0 0 10px rgba(230, 175, 46, 0.2);
         }
 
-        .remove-pill-btn {
-          color: rgba(255, 255, 255, 0.35) !important;
+        .banner-library-overflow {
+          align-self: stretch;
         }
 
-        .remove-pill-btn:hover {
-          color: #ef4444 !important;
-          border-color: rgba(239, 68, 68, 0.3) !important;
-          background: rgba(239, 68, 68, 0.08) !important;
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+        .banner-overflow-trigger {
+          width: 42px !important;
+          height: 100%;
+          min-height: 42px;
+          padding: 0 !important;
+          border-radius: 8px;
+          color: rgba(255, 255, 255, 0.45) !important;
+        }
+
+        .banner-overflow-trigger svg {
+          display: block;
+          width: 18px;
+          height: 18px;
+          flex: 0 0 auto;
+          stroke: currentColor;
+          stroke-width: 2.5;
+        }
+
+        .banner-overflow-trigger:hover,
+        .banner-overflow-trigger[aria-expanded="true"] {
+          color: #fff !important;
+          border-color: rgba(255, 255, 255, 0.16) !important;
+          background: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .banner-transition-item,
+          .banner-transition-title,
+          .banner-transition-logo {
+            animation: none;
+            opacity: 1;
+            transform: none;
+          }
         }
       `}} />
     </div>

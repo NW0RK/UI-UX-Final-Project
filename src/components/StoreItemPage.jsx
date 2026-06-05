@@ -1,16 +1,54 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Monitor, Gamepad2, Smartphone, Check, Plus, Link, FolderOpen, Play, Star, Trash2, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, Plus, Link, FolderOpen, Play, Volume2, VolumeX, Maximize2, ChevronLeft, ChevronRight, X, Image as ImageIcon, LineChart, Gift, PackageOpen, KeyRound, RefreshCw, ExternalLink } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import LibraryOverflowMenu from './LibraryOverflowMenu';
+import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
+import { getSteamReviewScore } from '../utils/steamReviews';
+import { fetchRawgGameDetailsBrowser, fetchRawgScreenshotsBrowser } from '../utils/rawg';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
 
-const platformIcons = {
-  'PC': Monitor,
-  'PS5': Gamepad2,
-  'PS4': Gamepad2,
-  'Xbox Series X|S': Gamepad2,
-  'Xbox One': Gamepad2,
-  'Switch': Gamepad2,
-  'Mobile': Smartphone
-};
+const HIGHCHARTS_VERSION = '12.6.0';
+let highchartsLoaderPromise = null;
+
+function loadScriptOnce(src, globalCheck) {
+  if (globalCheck()) return Promise.resolve();
+
+  const existing = document.querySelector(`script[src="${src}"]`);
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+function loadHighchartsStock() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('Highcharts requires a browser runtime.'));
+  if (window.Highcharts?.stockChart) return Promise.resolve(window.Highcharts);
+
+  if (!highchartsLoaderPromise) {
+    highchartsLoaderPromise = loadScriptOnce(
+      `https://code.highcharts.com/stock/${HIGHCHARTS_VERSION}/highstock.js`,
+      () => !!window.Highcharts?.stockChart
+    )
+      .then(() => loadScriptOnce(
+        `https://code.highcharts.com/stock/${HIGHCHARTS_VERSION}/modules/exporting.js`,
+        () => !!window.Highcharts?.Chart?.prototype?.exportChart
+      ))
+      .then(() => window.Highcharts);
+  }
+
+  return highchartsLoaderPromise;
+}
 
 const MOCK_MEDIA_DATABASE = {
   cyberpunk: {
@@ -145,7 +183,52 @@ function getCuratedMockMedia(gameId, title) {
   };
 }
 
-export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, onLinkExe, onLaunch, onRemoveGame }) {
+function getThemeValue(name, fallback) {
+  if (typeof window === 'undefined') return fallback;
+  const bodyValue = document.body
+    ? window.getComputedStyle(document.body).getPropertyValue(name).trim()
+    : '';
+  if (bodyValue) return bodyValue;
+
+  const rootValue = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return rootValue || fallback;
+}
+
+function getItadChartTheme() {
+  const accentRgb = getThemeValue('--accent-color-rgb', '0, 229, 255');
+  const fontSans = getThemeValue('--font-sans', 'Inter, system-ui, sans-serif');
+  const fontDisplay = getThemeValue('--font-display', fontSans);
+
+  return {
+    accent: `rgba(${accentRgb}, 1)`,
+    accentSoft: `rgba(${accentRgb}, 0.14)`,
+    accentFaint: `rgba(${accentRgb}, 0.055)`,
+    accentLine: `rgba(${accentRgb}, 0.48)`,
+    background: 'transparent',
+    plotBackground: `rgba(${accentRgb}, 0.035)`,
+    grid: 'rgba(255, 255, 255, 0.065)',
+    text: '#ffffff',
+    mutedText: 'rgba(255, 255, 255, 0.62)',
+    faintText: 'rgba(255, 255, 255, 0.4)',
+    tooltipBackground: 'rgba(7, 9, 14, 0.94)',
+    fontSans,
+    fontDisplay
+  };
+}
+
+export default function StoreItemPage({
+  item,
+  cachedDetails = null,
+  onCacheDetails = () => {},
+  onPrefetchItem = () => {},
+  ownedGames,
+  onBack,
+  onMarkOwned,
+  onLinkExe,
+  onLaunch,
+  onEditMetadata,
+  onRemoveGame
+}) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
   const [media, setMedia] = useState({ screenshots: [], movies: [] });
@@ -153,69 +236,451 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const [selectedMedia, setSelectedMedia] = useState(null);
   const [isMuted, setIsMuted] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState(-1);
+  const [itadInsights, setItadInsights] = useState(null);
+  const [loadingItad, setLoadingItad] = useState(false);
+  const [itadOAuthStatus, setItadOAuthStatus] = useState(getItadOAuthStatus);
+  const [itadSyncMessage, setItadSyncMessage] = useState('');
+  const [itadApiKey, setItadApiKey] = useState(() => {
+    try {
+      return localStorage.getItem('nexus_itad_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [itadApiKeySaved, setItadApiKeySaved] = useState(false);
+  const [itadApiKeyRevision, setItadApiKeyRevision] = useState(0);
+  const [syncingItad, setSyncingItad] = useState(false);
+  const [resolvedSteamAppId, setResolvedSteamAppId] = useState(null);
+  const [steamDetails, setSteamDetails] = useState(null);
+  const [steamReviewScore, setSteamReviewScore] = useState(null);
+  const [steamLookupStatus, setSteamLookupStatus] = useState('idle');
+  const [steamMetadataLoaded, setSteamMetadataLoaded] = useState(false);
+  const [rawgDetails, setRawgDetails] = useState(null);
+  const [loadingRawgDetails, setLoadingRawgDetails] = useState(false);
+  const [rawgDetailsError, setRawgDetailsError] = useState(null);
+  const [itadGameId, setItadGameId] = useState(null);
+  const [chartPoints, setChartPoints] = useState([]);
+  const [highchartsStatus, setHighchartsStatus] = useState('Loading price history...');
+  const [chartThemeRevision, setChartThemeRevision] = useState(0);
+  const highchartsContainerRef = useRef(null);
+  const highchartsInstanceRef = useRef(null);
+  const activeItem = rawgDetails ? { ...item, ...rawgDetails, owned: item?.owned || rawgDetails.owned } : item;
+  const effectiveSteamAppId = resolvedSteamAppId || activeItem?.steamAppId || null;
+  const steamBackedItem = activeItem ? {
+    ...activeItem,
+    steamAppId: effectiveSteamAppId,
+    steamReviewScore: steamReviewScore || activeItem.steamReviewScore || null
+  } : activeItem;
 
   useEffect(() => {
     if (!item) return;
+    onPrefetchItem(item);
+  }, [item?.id, onPrefetchItem]);
+
+  useEffect(() => {
+    if (!item || !cachedDetails) return;
+
+    const cachedSteamAppId = String(cachedDetails.resolvedSteamAppId || cachedDetails.steamAppId || '').trim();
+    if (/^\d+$/.test(cachedSteamAppId)) {
+      setResolvedSteamAppId(cachedSteamAppId);
+      setSteamLookupStatus('ready');
+    } else if (cachedDetails.steamLookupStatus === 'missing') {
+      setSteamLookupStatus('missing');
+    }
+
+    if ('steamDetails' in cachedDetails) {
+      setSteamDetails(cachedDetails.steamDetails || null);
+    }
+
+    if ('steamReviewScore' in cachedDetails) {
+      setSteamReviewScore(cachedDetails.steamReviewScore || null);
+    }
+
+    if (cachedDetails.steamMetadataLoaded) {
+      setSteamMetadataLoaded(true);
+    }
+
+    if (cachedDetails.rawgDetails) {
+      setRawgDetails(cachedDetails.rawgDetails);
+      setRawgDetailsError(null);
+      setLoadingRawgDetails(false);
+    }
+
+    if (cachedDetails.rawgDetailsError && !cachedDetails.rawgDetails) {
+      setRawgDetailsError(cachedDetails.rawgDetailsError);
+    }
+
+    if (cachedDetails.mediaLoaded && cachedDetails.media && cachedDetails.mediaSource !== 'fallback') {
+      setMedia(cachedDetails.media);
+      setSelectedMedia(cachedDetails.selectedMedia || null);
+      setLoadingMedia(false);
+    }
+  }, [item?.id, cachedDetails?.cachedAt]);
+
+  useEffect(() => {
+    if (!item) return;
+
     let active = true;
+    setSteamDetails(null);
+    setSteamReviewScore(null);
+    setSteamMetadataLoaded(false);
+
+    const savedAppId = String(item.steamAppId || '').trim();
+    if (/^\d+$/.test(savedAppId)) {
+      setResolvedSteamAppId(savedAppId);
+      setSteamLookupStatus('ready');
+      return () => { active = false; };
+    }
+
+    const cachedAppId = String(cachedDetails?.resolvedSteamAppId || cachedDetails?.steamAppId || '').trim();
+    if (/^\d+$/.test(cachedAppId)) {
+      setResolvedSteamAppId(cachedAppId);
+      setSteamLookupStatus('ready');
+      return () => { active = false; };
+    }
+
+    if (cachedDetails?.steamLookupStatus === 'missing') {
+      setResolvedSteamAppId(null);
+      setSteamLookupStatus('missing');
+      return () => { active = false; };
+    }
+
+    if (cachedDetails?.status === 'loading') {
+      setResolvedSteamAppId(null);
+      setSteamLookupStatus('loading');
+      return () => { active = false; };
+    }
+
+    setResolvedSteamAppId(null);
+    setSteamLookupStatus('loading');
+
+    const resolver = window.electronAPI?.resolveSteamAppId
+      ? window.electronAPI.resolveSteamAppId(item.title)
+      : resolveSteamAppIdBrowser(item.title);
+
+    resolver
+      .then((match) => {
+        if (!active) return;
+        if (match?.error) {
+          setSteamLookupStatus('error');
+          return;
+        }
+
+        setResolvedSteamAppId(match?.steamAppId || null);
+        setSteamLookupStatus(match?.steamAppId ? 'ready' : 'missing');
+        onCacheDetails(item, {
+          resolvedSteamAppId: match?.steamAppId || null,
+          steamLookupStatus: match?.steamAppId ? 'ready' : 'missing',
+          steamMatchName: match?.name || null,
+          steamMatchScore: match?.matchScore ?? null
+        }, match?.steamAppId || null);
+      })
+      .catch((error) => {
+        console.warn('Steam App ID lookup failed:', error);
+        if (active) setSteamLookupStatus('error');
+      });
+
+    return () => { active = false; };
+  }, [item?.id, item?.title, item?.steamAppId, cachedDetails?.cachedAt, onCacheDetails]);
+
+  useEffect(() => {
+    if (!effectiveSteamAppId) return;
+    let active = true;
+
+    if (cachedDetails?.steamMetadataLoaded) {
+      if ('steamDetails' in cachedDetails) {
+        setSteamDetails(cachedDetails.steamDetails || null);
+      }
+      if ('steamReviewScore' in cachedDetails) {
+        setSteamReviewScore(cachedDetails.steamReviewScore || null);
+      }
+
+      setSteamMetadataLoaded(true);
+      return () => { active = false; };
+    }
+
+    if (cachedDetails?.status === 'loading') {
+      setSteamMetadataLoaded(false);
+      return () => { active = false; };
+    }
+
+    async function loadSteamMetadata() {
+      try {
+        const [details, reviews] = await Promise.all([
+          window.electronAPI?.fetchSteamDetails
+            ? window.electronAPI.fetchSteamDetails(effectiveSteamAppId)
+            : fetchSteamDetailsBrowser(effectiveSteamAppId),
+          window.electronAPI?.fetchSteamReviews
+            ? window.electronAPI.fetchSteamReviews(effectiveSteamAppId)
+            : fetchSteamReviewSummaryBrowser(effectiveSteamAppId)
+        ]);
+
+        if (!active) return;
+
+        setSteamDetails(details || null);
+        setSteamReviewScore(reviews || null);
+        onCacheDetails(item, {
+          steamDetails: details || null,
+          steamReviewScore: reviews || null,
+          steamMetadataLoaded: true
+        }, effectiveSteamAppId);
+
+      } catch (error) {
+        console.warn('Steam metadata lookup failed:', error);
+      } finally {
+        if (active) setSteamMetadataLoaded(true);
+      }
+    }
+
+    loadSteamMetadata();
+    return () => { active = false; };
+  }, [effectiveSteamAppId, cachedDetails?.cachedAt, item?.id, onCacheDetails]);
+
+  useEffect(() => {
+    if (!item?.rawgId || item.source !== 'rawg') {
+      setRawgDetails(null);
+      setRawgDetailsError(null);
+      setLoadingRawgDetails(false);
+      return;
+    }
+
+    let active = true;
+    setRawgDetails(null);
+    setRawgDetailsError(null);
+    setLoadingRawgDetails(true);
+
+    if (cachedDetails?.rawgDetails) {
+      setRawgDetails(cachedDetails.rawgDetails);
+      setLoadingRawgDetails(false);
+      return () => { active = false; };
+    }
+
+    if (cachedDetails?.status === 'loading') {
+      return () => { active = false; };
+    }
+
+    const detailsPromise = window.electronAPI?.fetchRawgGameDetails
+      ? window.electronAPI.fetchRawgGameDetails(item.rawgId)
+      : fetchRawgGameDetailsBrowser(item.rawgId);
+
+    detailsPromise
+      .then((details) => {
+        if (!active) return;
+        if (details?.error) {
+          setRawgDetailsError(details.error);
+        } else {
+          setRawgDetails(details);
+          onCacheDetails(item, {
+            rawgDetails: details,
+            rawgDetailsLoaded: true,
+            rawgDetailsError: null
+          }, effectiveSteamAppId);
+        }
+      })
+      .catch((error) => {
+        if (active) setRawgDetailsError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingRawgDetails(false);
+      });
+
+    return () => { active = false; };
+  }, [item?.id, item?.rawgId, item?.source, cachedDetails?.cachedAt, effectiveSteamAppId, onCacheDetails]);
+
+  useEffect(() => {
+    if (!activeItem) return;
+    let active = true;
+
+    if (cachedDetails?.mediaLoaded && cachedDetails.media && cachedDetails.mediaSource !== 'fallback') {
+      setMedia(cachedDetails.media);
+      setSelectedMedia(cachedDetails.selectedMedia || null);
+      setLoadingMedia(false);
+      return () => { active = false; };
+    }
+
+    if (cachedDetails?.status === 'loading') {
+      setLoadingMedia(true);
+      return () => { active = false; };
+    }
+
+    async function fetchRawgScreenshotFallback() {
+      if (Array.isArray(cachedDetails?.rawgScreenshots)) {
+        return cachedDetails.rawgScreenshots;
+      }
+
+      try {
+        const payload = {
+          rawgId: activeItem.rawgId,
+          title: activeItem.title
+        };
+        const screenshots = window.electronAPI?.fetchRawgScreenshots
+          ? await window.electronAPI.fetchRawgScreenshots(payload)
+          : await fetchRawgScreenshotsBrowser(payload);
+        if (screenshots?.error) {
+          console.warn('Screenshot lookup failed:', screenshots.error);
+          return [];
+        }
+        return Array.isArray(screenshots) ? screenshots : [];
+      } catch (error) {
+        console.warn('Screenshot lookup failed:', error);
+        return [];
+      }
+    }
 
     async function loadMedia() {
       setLoadingMedia(true);
-      let fetchedData = null;
 
-      if (item.steamAppId) {
-        if (window.electronAPI?.fetchSteamDetails) {
-          try {
-            fetchedData = await window.electronAPI.fetchSteamDetails(item.steamAppId);
-          } catch (e) {
-            console.error("Failed to fetch steam details via IPC:", e);
-          }
+      if (effectiveSteamAppId && !steamDetails && !steamMetadataLoaded && steamLookupStatus !== 'error') {
+        setMedia({ screenshots: [], movies: [] });
+        setSelectedMedia(null);
+        setLoadingMedia(false);
+        return;
+      }
+
+      if (steamDetails && (steamDetails.screenshots?.length || steamDetails.movies?.length)) {
+        const screenshots = steamDetails.screenshots || [];
+        const movies = steamDetails.movies || [];
+        const nextMedia = { screenshots, movies };
+        let nextSelectedMedia = null;
+        setMedia(nextMedia);
+        if (movies.length > 0) {
+          nextSelectedMedia = {
+            type: 'video',
+            url: movies[0].mp4?.max || movies[0].mp4?.['480'] || movies[0].webm?.max,
+            thumbnail: movies[0].thumbnail
+          };
+        } else if (screenshots.length > 0) {
+          nextSelectedMedia = { type: 'image', url: screenshots[0].path_full };
         } else {
-          try {
-            const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${item.steamAppId}`);
-            const json = await res.json();
-            if (json && json[item.steamAppId]?.success) {
-              fetchedData = json[item.steamAppId].data;
-            }
-          } catch (e) {
-            console.error("CORS or network error fetching steam details in browser sandbox:", e);
-          }
+          nextSelectedMedia = null;
         }
+        setSelectedMedia(nextSelectedMedia);
+        onCacheDetails(item, {
+          media: nextMedia,
+          selectedMedia: nextSelectedMedia,
+          bannerUrl: getSteamStoreBannerUrl(steamDetails, effectiveSteamAppId) || activeItem.bannerUrl || activeItem.coverUrl || null,
+          mediaLoaded: true,
+          mediaSource: 'steam'
+        }, effectiveSteamAppId);
+        setLoadingMedia(false);
+        return;
+      }
+
+      if (effectiveSteamAppId) {
+        const steamImage = getSteamStoreBannerUrl(steamDetails, effectiveSteamAppId);
+        const screenshots = steamImage
+          ? [{ id: 'steam-hero', path_full: steamImage, path_thumbnail: steamImage }]
+          : [];
+        const nextMedia = { screenshots, movies: [] };
+        const nextSelectedMedia = screenshots.length ? { type: 'image', url: screenshots[0].path_full } : null;
+        setMedia(nextMedia);
+        setSelectedMedia(nextSelectedMedia);
+        onCacheDetails(item, {
+          media: nextMedia,
+          selectedMedia: nextSelectedMedia,
+          bannerUrl: steamImage || activeItem.bannerUrl || activeItem.coverUrl || null,
+          mediaLoaded: true,
+          mediaSource: 'steam'
+        }, effectiveSteamAppId);
+        setLoadingMedia(false);
+        return;
+      }
+
+      if (!effectiveSteamAppId && activeItem.source === 'rawg') {
+        const rawgImage = activeItem.bannerUrl || activeItem.coverUrl;
+        const rawgScreenshots = await fetchRawgScreenshotFallback();
+        if (!active) return;
+
+        const screenshots = rawgScreenshots.length
+          ? rawgScreenshots
+          : rawgImage
+            ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+            : [];
+        const nextMedia = { screenshots, movies: [] };
+        const nextSelectedMedia = screenshots.length ? { type: 'image', url: screenshots[0].path_full || screenshots[0].url } : null;
+        setMedia(nextMedia);
+        setSelectedMedia(nextSelectedMedia);
+        onCacheDetails(item, {
+          media: nextMedia,
+          selectedMedia: nextSelectedMedia,
+          bannerUrl: rawgImage,
+          rawgScreenshots,
+          mediaLoaded: true,
+          mediaSource: rawgScreenshots.length ? 'rawg' : 'fallback'
+        }, effectiveSteamAppId);
+        setLoadingMedia(false);
+        return;
       }
 
       if (!active) return;
 
-      if (fetchedData && (fetchedData.screenshots?.length || fetchedData.movies?.length)) {
-        const screenshots = fetchedData.screenshots || [];
-        const movies = fetchedData.movies || [];
-        setMedia({ screenshots, movies });
-        if (movies.length > 0) {
-          setSelectedMedia({
-            type: 'video',
-            url: movies[0].mp4?.max || movies[0].mp4?.['480'] || movies[0].webm?.max,
-            thumbnail: movies[0].thumbnail
-          });
-        } else if (screenshots.length > 0) {
-          setSelectedMedia({ type: 'image', url: screenshots[0].path_full });
-        } else {
-          setSelectedMedia(null);
+      if (!effectiveSteamAppId) {
+        const rawgScreenshots = await fetchRawgScreenshotFallback();
+        if (!active) return;
+
+        if (rawgScreenshots.length > 0) {
+          const nextMedia = { screenshots: rawgScreenshots, movies: [] };
+          const nextSelectedMedia = { type: 'image', url: rawgScreenshots[0].path_full || rawgScreenshots[0].url };
+          setMedia(nextMedia);
+          setSelectedMedia(nextSelectedMedia);
+          onCacheDetails(item, {
+            media: nextMedia,
+            selectedMedia: nextSelectedMedia,
+            rawgScreenshots,
+            bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
+            mediaLoaded: true,
+            mediaSource: 'rawg'
+          }, effectiveSteamAppId);
+          setLoadingMedia(false);
+          return;
         }
-      } else {
-        const fallback = getCuratedMockMedia(item.id, item.title);
+
+        const fallback = getCuratedMockMedia(activeItem.id, activeItem.title);
         setMedia(fallback);
+        let nextSelectedMedia = null;
         if (fallback.movies?.length > 0) {
-          setSelectedMedia({ type: 'video', url: fallback.movies[0].mp4?.max || fallback.movies[0].url, thumbnail: fallback.movies[0].thumbnail });
+          nextSelectedMedia = { type: 'video', url: fallback.movies[0].mp4?.max || fallback.movies[0].url, thumbnail: fallback.movies[0].thumbnail };
         } else if (fallback.screenshots?.length > 0) {
-          setSelectedMedia({ type: 'image', url: fallback.screenshots[0].path_full || fallback.screenshots[0].url });
+          nextSelectedMedia = { type: 'image', url: fallback.screenshots[0].path_full || fallback.screenshots[0].url };
         } else {
-          setSelectedMedia(null);
+          nextSelectedMedia = null;
         }
+        setSelectedMedia(nextSelectedMedia);
+        onCacheDetails(item, {
+          media: fallback,
+          selectedMedia: nextSelectedMedia,
+          bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
+          mediaLoaded: true,
+          mediaSource: 'mock'
+        }, effectiveSteamAppId);
       }
       setLoadingMedia(false);
     }
 
     loadMedia();
     return () => { active = false; };
-  }, [item]);
+  }, [activeItem?.id, activeItem?.source, activeItem?.rawgId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl, effectiveSteamAppId, steamDetails, steamLookupStatus, steamMetadataLoaded, cachedDetails?.cachedAt, onCacheDetails]);
+
+  useEffect(() => {
+    if (typeof MutationObserver === 'undefined') return undefined;
+
+    const updateChartTheme = () => setChartThemeRevision(revision => revision + 1);
+    const observer = new MutationObserver(updateChartTheme);
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    });
+
+    if (document.body) {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style']
+      });
+    }
+
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (lightboxIndex === -1) return;
@@ -230,15 +695,357 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxIndex, media.screenshots]);
 
+  useEffect(() => {
+    if (!steamBackedItem) return;
+    let active = true;
+
+    if (cachedDetails?.itadInsights) {
+      setItadInsights(cachedDetails.itadInsights);
+      setLoadingItad(false);
+      return () => { active = false; };
+    }
+
+    async function loadItadInsights() {
+      setLoadingItad(true);
+      const insights = await getItadStoreInsights(steamBackedItem);
+      if (!active) return;
+      setItadInsights(insights);
+      onCacheDetails(item, { itadInsights: insights }, effectiveSteamAppId);
+      setLoadingItad(false);
+    }
+
+    loadItadInsights();
+    return () => { active = false; };
+  }, [activeItem?.id, effectiveSteamAppId, itadApiKeyRevision, cachedDetails?.cachedAt, onCacheDetails]);
+
+
+  useEffect(() => {
+    if (!steamBackedItem) return;
+    let active = true;
+
+    highchartsInstanceRef.current?.destroy();
+    highchartsInstanceRef.current = null;
+    setItadGameId(null);
+    setChartPoints([]);
+
+    if (!steamBackedItem.steamAppId) {
+      setHighchartsStatus('Missing Steam App ID for price history.');
+      return () => { active = false; };
+    }
+
+    if (!hasItadApiKey()) {
+      setHighchartsStatus('Missing price API key. Add nexus_itad_api_key to load live price history.');
+      return () => { active = false; };
+    }
+
+    setHighchartsStatus('Matching Steam App ID with price history...');
+
+    lookupItadGameBySteamAppId(steamBackedItem.steamAppId)
+      .then((lookup) => {
+        if (!active) return;
+        setItadGameId(lookup.id);
+      })
+      .catch((error) => {
+        console.error('Price lookup failed:', error);
+        if (active) setHighchartsStatus(error.message || 'Price lookup failed for this Steam App ID.');
+      });
+
+    return () => { active = false; };
+  }, [activeItem?.id, effectiveSteamAppId, itadApiKeyRevision]);
+
+  useEffect(() => {
+    if (!itadGameId) return;
+    let active = true;
+
+    async function loadChartHistory() {
+      setHighchartsStatus('Loading price history...');
+
+      try {
+        const result = await fetchItadHistory(itadGameId, { country: 'US' });
+        if (!active) return;
+
+        if (result.points.length === 0) {
+          highchartsInstanceRef.current?.destroy();
+          highchartsInstanceRef.current = null;
+          setChartPoints([]);
+          setHighchartsStatus('No valid price changes found.');
+          return;
+        }
+
+        setChartPoints(result.points);
+        setHighchartsStatus('');
+      } catch (error) {
+        console.error('Price history fetch failed:', error);
+        if (!active) return;
+        highchartsInstanceRef.current?.destroy();
+        highchartsInstanceRef.current = null;
+        setChartPoints([]);
+        setHighchartsStatus(error.message || 'Price history could not be loaded.');
+      }
+    }
+
+    loadChartHistory();
+    return () => { active = false; };
+  }, [itadGameId]);
+
+  useEffect(() => {
+    if (!highchartsContainerRef.current) return;
+
+    if (chartPoints.length === 0) {
+      highchartsInstanceRef.current?.destroy();
+      highchartsInstanceRef.current = null;
+      return;
+    }
+
+    let active = true;
+    const chartLowest = Math.min(...chartPoints.map(([, amount]) => amount));
+    const chartTheme = getItadChartTheme();
+    const historyFill = {
+      linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+      stops: [
+        [0, chartTheme.accentSoft],
+        [1, 'rgba(255, 255, 255, 0.01)']
+      ]
+    };
+
+    setHighchartsStatus('Loading price chart...');
+
+    loadHighchartsStock()
+      .then((Highcharts) => {
+        if (!active || !highchartsContainerRef.current) return;
+
+        if (highchartsInstanceRef.current) {
+          const chart = highchartsInstanceRef.current;
+          chart.update({
+            chart: {
+              backgroundColor: chartTheme.background,
+              plotBackgroundColor: chartTheme.plotBackground,
+              style: { fontFamily: chartTheme.fontSans }
+            },
+            credits: { enabled: false },
+            exporting: {
+              buttons: {
+                contextButton: {
+                  symbolStroke: chartTheme.mutedText,
+                  theme: {
+                    fill: 'transparent',
+                    stroke: 'transparent',
+                    states: {
+                      hover: { fill: chartTheme.accentFaint },
+                      select: { fill: chartTheme.accentFaint }
+                    }
+                  }
+                }
+              }
+            },
+            title: {
+              style: {
+                color: chartTheme.text,
+                fontFamily: chartTheme.fontDisplay,
+                fontSize: '22px',
+                fontWeight: '800'
+              }
+            },
+            xAxis: {
+              lineColor: chartTheme.accentLine,
+              tickColor: chartTheme.accentLine,
+              labels: {
+                style: {
+                  color: chartTheme.mutedText,
+                  fontSize: '12px',
+                  fontWeight: '700'
+                }
+              }
+            },
+            yAxis: {
+              gridLineColor: chartTheme.grid,
+              labels: {
+                style: {
+                  color: chartTheme.faintText,
+                  fontSize: '12px',
+                  fontWeight: '700'
+                }
+              },
+              plotBands: [{
+                from: 0,
+                to: chartLowest,
+                color: chartTheme.accentFaint
+              }],
+              plotLines: [{
+                value: chartLowest,
+                color: chartTheme.accent,
+                dashStyle: 'Dash',
+                width: 1,
+                zIndex: 3
+              }]
+            },
+            tooltip: {
+              backgroundColor: chartTheme.tooltipBackground,
+              borderColor: chartTheme.accentLine,
+              style: {
+                color: chartTheme.text,
+                fontWeight: '700'
+              }
+            }
+          }, false);
+          chart.series[0].update({
+            color: chartTheme.accent,
+            fillColor: historyFill,
+            threshold: chartLowest
+          }, false);
+          chart.series[0].setData(chartPoints, false);
+          chart.xAxis[0].setExtremes(chartPoints[0][0], chartPoints[chartPoints.length - 1][0], false, false);
+          chart.redraw();
+          setHighchartsStatus('');
+          return;
+        }
+
+        highchartsInstanceRef.current = Highcharts.stockChart(highchartsContainerRef.current, {
+          chart: {
+            backgroundColor: chartTheme.background,
+            plotBackgroundColor: chartTheme.plotBackground,
+            height: 300,
+            spacing: [16, 16, 10, 16],
+            style: { fontFamily: chartTheme.fontSans }
+          },
+          credits: { enabled: false },
+          exporting: {
+            enabled: true,
+            buttons: {
+              contextButton: {
+                symbolStroke: chartTheme.mutedText,
+                theme: {
+                  fill: 'transparent',
+                  stroke: 'transparent',
+                  states: {
+                    hover: { fill: chartTheme.accentFaint },
+                    select: { fill: chartTheme.accentFaint }
+                  }
+                }
+              }
+            }
+          },
+          title: {
+            text: '3-Month Price History',
+            align: 'left',
+            style: {
+              color: chartTheme.text,
+              fontFamily: chartTheme.fontDisplay,
+              fontSize: '22px',
+              fontWeight: '800'
+            }
+          },
+          rangeSelector: {
+            enabled: false,
+            inputEnabled: false
+          },
+          navigator: { enabled: false },
+          scrollbar: { enabled: false },
+          xAxis: {
+            type: 'datetime',
+            ordinal: false,
+            lineColor: chartTheme.accentLine,
+            tickColor: chartTheme.accentLine,
+            labels: {
+              style: {
+                color: chartTheme.mutedText,
+                fontSize: '12px',
+                fontWeight: '700'
+              }
+            }
+          },
+          yAxis: {
+            opposite: true,
+            min: 0,
+            title: { text: null },
+            gridLineColor: chartTheme.grid,
+            labels: {
+              style: {
+                color: chartTheme.faintText,
+                fontSize: '12px',
+                fontWeight: '700'
+              }
+            },
+            plotBands: [{
+              from: 0,
+              to: chartLowest,
+              color: chartTheme.accentFaint
+            }],
+            plotLines: [{
+              value: chartLowest,
+              color: chartTheme.accent,
+              dashStyle: 'Dash',
+              width: 1,
+              zIndex: 3
+            }]
+          },
+          tooltip: {
+            backgroundColor: chartTheme.tooltipBackground,
+            borderColor: chartTheme.accentLine,
+            borderRadius: 8,
+            style: {
+              color: chartTheme.text,
+              fontWeight: '700'
+            },
+            xDateFormat: '%B %e, %Y',
+            pointFormat: '<span style="color:{series.color}">*</span> {series.name}: <b>${point.y:.2f}</b><br/>'
+          },
+          plotOptions: {
+            series: {
+              animation: false,
+              marker: { enabled: false },
+              states: { hover: { lineWidthPlus: 0 } }
+            }
+          },
+          series: [{
+            type: 'area',
+            name: activeItem.title,
+            data: chartPoints,
+            step: 'left',
+            color: chartTheme.accent,
+            fillColor: historyFill,
+            lineWidth: 2,
+            threshold: chartLowest
+          }]
+        });
+
+        highchartsInstanceRef.current.xAxis[0].setExtremes(
+          chartPoints[0][0],
+          chartPoints[chartPoints.length - 1][0],
+          true,
+          false
+        );
+        setHighchartsStatus('');
+      })
+      .catch((error) => {
+        console.error('Highcharts load failed:', error);
+        if (active) setHighchartsStatus('Price chart could not be loaded.');
+      });
+
+    return () => { active = false; };
+  }, [chartPoints, activeItem?.title, itadInsights, loadingItad, chartThemeRevision]);
+
   if (!item) return null;
 
-  const ownedGame = ownedGames.find(g => g.id === item.id);
+  const ownedGame = ownedGames.find(g =>
+    g.id === activeItem.id ||
+    (activeItem.rawgId && g.rawgId === activeItem.rawgId) ||
+    (activeItem.itadId && g.itadId === activeItem.itadId)
+  );
   const isOwned = !!ownedGame;
   const hasExe = isOwned && ownedGame.exePath;
+  const reviewScore = steamBackedItem?.steamReviewScore ? getSteamReviewScore(steamBackedItem.steamReviewScore) : null;
+  const displayBannerUrl = steamDetails?.background_raw ||
+    steamDetails?.background ||
+    steamDetails?.header_image ||
+    cachedDetails?.bannerUrl ||
+    activeItem.bannerUrl ||
+    activeItem.coverUrl ||
+    null;
 
   const handleMarkOwnedClick = () => {
     audioEngine.playClickPulse();
-    onMarkOwned(item);
+    onMarkOwned(steamBackedItem || activeItem);
   };
 
   const handleBrowseExe = () => {
@@ -247,15 +1054,15 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       window.electronAPI.selectExecutable().then(path => {
         if (path) {
           setExeInput(path);
-          onLinkExe(item.id, path);
+          onLinkExe(activeItem.id, path);
           setShowExeInput(false);
         }
       });
     } else {
-      const path = prompt('Enter the full path to the .exe file:', 'C:\\Games\\' + item.title + '\\game.exe');
+      const path = prompt('Enter the full path to the .exe file:', 'C:\\Games\\' + activeItem.title + '\\game.exe');
       if (path) {
         setExeInput(path);
-        onLinkExe(item.id, path);
+        onLinkExe(activeItem.id, path);
         setShowExeInput(false);
       }
     }
@@ -264,7 +1071,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const handleLinkExeClick = () => {
     audioEngine.playClickPulse();
     if (exeInput) {
-      onLinkExe(item.id, exeInput);
+      onLinkExe(activeItem.id, exeInput);
       setShowExeInput(false);
     }
   };
@@ -276,6 +1083,49 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     }
   };
 
+  const handleSaveItadApiKey = () => {
+    audioEngine.playClickPulse();
+
+    try {
+      localStorage.setItem('nexus_itad_api_key', itadApiKey.trim());
+      setItadApiKeySaved(true);
+      setItadSyncMessage(itadApiKey.trim()
+        ? 'Price API key saved. Live price history is ready to refresh.'
+        : 'Price API key cleared. Price history will use preview data.'
+      );
+      setItadApiKeyRevision(revision => revision + 1);
+      setTimeout(() => setItadApiKeySaved(false), 2000);
+    } catch {
+      setItadSyncMessage('Could not save the price API key in this browser session.');
+    }
+  };
+
+  const handleItadSyncClick = async () => {
+    audioEngine.playClickPulse();
+
+    if (itadOAuthStatus.isConnected) {
+      setSyncingItad(true);
+      const result = await syncItadUserLibrary();
+      setSyncingItad(false);
+      setItadSyncMessage(result.ok
+        ? `${result.waitlistCount} waitlist and ${result.collectionCount} collection items ready.`
+        : result.message
+      );
+      return;
+    }
+
+    const url = getItadOAuthUrl();
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url);
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    setItadSyncMessage(itadOAuthStatus.hasClientId ? 'OAuth opened. Sync will unlock after authorization completes.' : 'Price app setup opened. OAuth credentials are required before sync can run.');
+    setItadOAuthStatus(getItadOAuthStatus());
+  };
+
+  const aboutText = activeItem.description;
+
   return (
     <div className="store-item-viewport">
       {/* Back button */}
@@ -286,31 +1136,41 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
       {/* Banner Section */}
       <div className="store-item-banner">
-        {item.bannerUrl ? (
-          <img src={item.bannerUrl} alt={item.title} className="store-item-banner-img" />
+        {displayBannerUrl ? (
+          <img src={displayBannerUrl} alt={activeItem.title} className="store-item-banner-img" />
         ) : (
           <div className="store-item-banner-img store-item-banner-placeholder">
-            <span>SteamGridDB artwork pending</span>
           </div>
         )}
         <div className="store-item-banner-overlay" />
+        <div className="store-item-banner-tags">
+          {activeItem.tags?.map((tag, idx) => (
+            <span key={idx} className="store-item-tag">{tag}</span>
+          ))}
+        </div>
         <div className="store-item-banner-content">
-          <div className="store-item-banner-tags">
-            {item.tags?.map((tag, idx) => (
-              <span key={idx} className="store-item-tag">{tag}</span>
-            ))}
-          </div>
-          <h1 className="store-item-title">{item.title}</h1>
+          <h1 className="store-item-title">{activeItem.title}</h1>
           <div className="store-item-meta">
-            <span>{item.developer}</span>
+            <span>{activeItem.developer}</span>
             <span className="store-item-dot" />
-            <span>{item.publisher}</span>
+            <span>{activeItem.publisher}</span>
             <span className="store-item-dot" />
-            <span>{item.releaseDate}</span>
+            <span>{activeItem.releaseDate}</span>
+            {activeItem.ageRating && (
+              <>
+                <span className="store-item-dot" />
+                <span>{activeItem.ageRating}</span>
+              </>
+            )}
           </div>
-          <div className="store-item-rating">
-            <Star size={14} fill="currentColor" />
-            <span>{item.rating}</span>
+          <div className="store-item-review-score">
+            <span>Steam Reviews</span>
+            <strong className={`steam-review-score ${reviewScore?.className || 'unavailable'}`}>
+              {reviewScore?.label || (effectiveSteamAppId ? 'Loading Steam Reviews' : 'Steam Match Pending')}
+            </strong>
+            {reviewScore?.source === 'steam' && reviewScore.totalReviews > 0 && (
+              <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} user reviews</small>
+            )}
           </div>
         </div>
       </div>
@@ -319,100 +1179,170 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       <div className="store-item-body">
         <div className="store-item-left">
           <h3 className="store-item-section-title">About This Game</h3>
-          <p className="store-item-description">{item.description}</p>
-          <h3 className="store-item-section-title">Platforms</h3>
-          <div className="store-item-platforms">
-            {item.platforms.map(p => {
-              const Icon = platformIcons[p] || Gamepad2;
-              return (
-                <div key={p} className="store-item-platform-badge">
-                  <Icon size={16} />
-                  <span>{p}</span>
-                </div>
-              );
-            })}
+          {loadingRawgDetails && <div className="rawg-status-line">Loading game profile...</div>}
+          {rawgDetailsError && <div className="rawg-status-line error">Game details unavailable: {rawgDetailsError}</div>}
+          <p className="store-item-description">{aboutText}</p>
+
+          <div className="store-item-showcase-row">
+            <div className="store-item-screenshots-panel">
+              {(() => {
+                const combinedMedia = [];
+                if (media.screenshots) {
+                  media.screenshots.forEach((s, idx) => {
+                    combinedMedia.push({
+                      type: 'image',
+                      id: `screenshot-${s.id || idx}`,
+                      url: s.path_full || s.url,
+                      thumbnail: s.path_thumbnail || s.path_full || s.url
+                    });
+                  });
+                }
+
+                return loadingMedia ? (
+                  <div className="store-item-media-loading">
+                    <div className="media-spinner" />
+                    <span>Searching gameplay screenshots...</span>
+                  </div>
+                ) : combinedMedia.length > 0 ? (
+                  <div className="store-item-media-grid">
+                    {combinedMedia.slice(0, 4).map((med, index) => {
+                      const isLastSlot = index === 3 && combinedMedia.length >= 4;
+                      const remainingCount = combinedMedia.length - 3;
+
+                      if (isLastSlot) {
+                        return (
+                          <div
+                            key="more-card"
+                            className="media-grid-card more-card"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Open ${remainingCount} more screenshots`}
+                            onClick={() => {
+                              const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
+                              setLightboxIndex(screenshotIdx !== -1 ? screenshotIdx : 0);
+                            }}
+                            onFocus={audioEngine.playHoverTick}
+                          >
+                            <img src={med.thumbnail} alt="More media" className="grid-card-img" />
+                            <div className="more-card-overlay">
+                              <span>+ {remainingCount} {remainingCount === 1 ? 'PHOTO' : 'PHOTOS'}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={med.id}
+                          className="media-grid-card"
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Open gameplay screenshot ${index + 1}`}
+                          onClick={() => {
+                            const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
+                            if (screenshotIdx !== -1) {
+                              setLightboxIndex(screenshotIdx);
+                            } else if (media.screenshots.length > 0) {
+                              setLightboxIndex(0);
+                            }
+                          }}
+                          onFocus={audioEngine.playHoverTick}
+                        >
+                          <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="store-item-media-empty">
+                    <span>No gameplay media available.</span>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="itad-market-stack">
+              <div className="itad-market-section">
+                <h3 className="store-item-section-title">
+                  <PackageOpen size={16} />
+                  <span>Bundles</span>
+                </h3>
+                {(itadInsights?.bundles || []).map(bundle => (
+                  <div key={bundle.id} className="itad-market-row">
+                    <div>
+                      <strong>{bundle.title}</strong>
+                      <span>{bundle.shop} - {bundle.expiry}</span>
+                    </div>
+                    <em>{bundle.price}</em>
+                  </div>
+                ))}
+              </div>
+
+              <div className="itad-market-section">
+                <h3 className="store-item-section-title">
+                  <Gift size={16} />
+                  <span>Giveaways</span>
+                </h3>
+                {(itadInsights?.giveaways || []).map(giveaway => (
+                  <div key={giveaway.id} className="itad-market-row">
+                    <div>
+                      <strong>{giveaway.title}</strong>
+                      <span>{giveaway.shop}</span>
+                    </div>
+                    <em>{giveaway.status}</em>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Screenshots Section */}
-          <h3 className="store-item-section-title" style={{ marginTop: '40px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ImageIcon size={16} />
-            <span>Screenshots & Gallery</span>
-          </h3>
-
-          {(() => {
-            const combinedMedia = [];
-            if (media.screenshots) {
-              media.screenshots.forEach((s, idx) => {
-                combinedMedia.push({
-                  type: 'image',
-                  id: `screenshot-${s.id || idx}`,
-                  url: s.path_full || s.url,
-                  thumbnail: s.path_thumbnail || s.path_full || s.url
-                });
-              });
-            }
-
-            return loadingMedia ? (
-              <div className="store-item-media-loading">
-                <div className="media-spinner" />
-                <span>Fetching visual logs from Steam...</span>
+          <div className="itad-panel">
+            <div className="itad-panel-header">
+              <div>
+                <h3 className="store-item-section-title">
+                  <LineChart size={16} />
+                  <span>ITAD Price History Chart</span>
+                </h3>
+                <p className="itad-source">{loadingItad ? 'Checking prices...' : itadInsights?.source}</p>
               </div>
-            ) : combinedMedia.length > 0 ? (
-              <div className="store-item-media-grid">
-                {combinedMedia.slice(0, 4).map((med, index) => {
-                  const isLastSlot = index === 3 && combinedMedia.length >= 4;
-                  const remainingCount = combinedMedia.length - 3;
+              <div className="itad-appid-pill">
+                <span>Steam App ID</span>
+                <strong>{effectiveSteamAppId || 'Unavailable'}</strong>
+              </div>
+            </div>
 
-                  if (isLastSlot) {
-                    return (
-                      <div
-                        key="more-card"
-                        className="media-grid-card more-card"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Open ${remainingCount} more screenshots`}
-                        onClick={() => {
-                          const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
-                          setLightboxIndex(screenshotIdx !== -1 ? screenshotIdx : 0);
-                        }}
-                        onFocus={audioEngine.playHoverTick}
-                      >
-                        <img src={med.thumbnail} alt="More media" className="grid-card-img" />
-                        <div className="more-card-overlay">
-                          <span>+ {remainingCount} {remainingCount === 1 ? 'PHOTO' : 'PHOTOS'}</span>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div
-                      key={med.id}
-                      className="media-grid-card"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Open gameplay screenshot ${index + 1}`}
-                      onClick={() => {
-                        const screenshotIdx = media.screenshots.findIndex(s => (s.path_full || s.url) === med.url);
-                        if (screenshotIdx !== -1) {
-                          setLightboxIndex(screenshotIdx);
-                        } else if (media.screenshots.length > 0) {
-                          setLightboxIndex(0);
-                        }
-                      }}
-                      onFocus={audioEngine.playHoverTick}
-                    >
-                      <img src={med.thumbnail} alt={`Gameplay ${index + 1}`} className="grid-card-img" />
-                    </div>
-                  );
-                })}
+            {loadingItad || !itadInsights ? (
+              <div className="itad-loading">
+                <div className="media-spinner" />
+                <span>Loading price history</span>
               </div>
             ) : (
-              <div className="store-item-media-empty">
-                <span>No gameplay media available.</span>
-              </div>
-            );
-          })()}
+              <>
+                <div className="itad-price-row">
+                  <div className="itad-price-stat">
+                    <span>Current low</span>
+                    <strong>{itadInsights.current.formatted}</strong>
+                    <small>{itadInsights.current.shop}</small>
+                  </div>
+                  <div className="itad-price-stat highlight">
+                    <span>Lowest ever</span>
+                    <strong>{itadInsights.lowestEver.formatted}</strong>
+                    <small>{itadInsights.lowestEver.date} on {itadInsights.lowestEver.shop}</small>
+                  </div>
+                  <div className="itad-price-stat">
+                    <span>Regular</span>
+                    <strong>{itadInsights.regular.formatted}</strong>
+                    <small>Baseline price</small>
+                  </div>
+                </div>
+
+                <div className="itad-chart" aria-label="Price history chart">
+                  <div ref={highchartsContainerRef} className="itad-highcharts-container" />
+                  {highchartsStatus && <div className="itad-highcharts-status">{highchartsStatus}</div>}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Fullscreen Lightbox Modal */}
           {lightboxIndex !== -1 && media.screenshots && media.screenshots[lightboxIndex] && (
@@ -520,13 +1450,16 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
                 <div className="store-item-divider" />
 
-                <button
-                  className="glow-btn remove-owned-btn"
-                  onClick={() => onRemoveGame(item.id)}
-                >
-                  <Trash2 size={14} />
-                  <span>Remove from Library</span>
-                </button>
+                <div className="owned-overflow-row">
+                  <span className="owned-overflow-label">Library actions</span>
+                  <LibraryOverflowMenu
+                    className="owned-library-overflow"
+                    triggerClassName="owned-overflow-trigger"
+                    menuClassName="owned-overflow-popover"
+                    onEditMetadata={ownedGame ? () => onEditMetadata(ownedGame) : undefined}
+                    onRemove={() => onRemoveGame(ownedGame?.id || activeItem.id)}
+                  />
+                </div>
               </>
             ) : (
               <>
@@ -544,22 +1477,36 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             )}
           </div>
 
-          {/* Platforms section moved to right column */}
-          <div className="store-item-platforms-container" style={{ marginTop: '20px' }}>
-            <h3 className="store-item-section-title">Platforms</h3>
-            <div className="store-item-platforms">
-              {item.platforms.map(p => {
-                const Icon = platformIcons[p] || Gamepad2;
-                return (
-                  <div key={p} className="store-item-platform-badge">
-                    <Icon size={16} />
-                    <span>{p}</span>
-                  </div>
-                );
-              })}
+          <div className="itad-sync-card">
+            <div className="itad-sync-title">
+              <KeyRound size={16} />
+              <span>Price Sync</span>
+            </div>
+            <p>{itadOAuthStatus.isConnected ? 'Waitlist and collection sync can pull directly from the price service.' : 'Connect price-service OAuth to sync waitlists and collections into Nexus.'}</p>
+            <div className="itad-api-key-row">
+              <input
+                type="password"
+                className="glass-input itad-api-key-input"
+                value={itadApiKey}
+                onChange={(e) => {
+                  setItadApiKey(e.target.value);
+                  setItadApiKeySaved(false);
+                }}
+                placeholder="Price API key..."
+                autoComplete="off"
+              />
+              <button className="glow-btn itad-api-key-save-btn" onClick={handleSaveItadApiKey}>
+                <KeyRound size={14} />
+                <span>{itadApiKeySaved ? 'Saved' : 'Save'}</span>
+              </button>
+            </div>
+            {itadSyncMessage && <div className="itad-sync-message">{itadSyncMessage}</div>}
+            <button className="glow-btn" onClick={handleItadSyncClick} disabled={syncingItad}>
+              {itadOAuthStatus.isConnected ? <RefreshCw size={14} /> : <ExternalLink size={14} />}
+              <span>{syncingItad ? 'Syncing...' : itadOAuthStatus.isConnected ? 'Sync Now' : itadOAuthStatus.hasClientId ? 'Start OAuth' : 'Register App'}</span>
+              </button>
             </div>
           </div>
-        </div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -600,7 +1547,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-banner {
           position: relative;
           width: 100%;
-          height: 280px;
+          height: 360px;
           border-radius: 16px;
           overflow: hidden;
           margin-bottom: 20px;
@@ -645,9 +1592,14 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         }
 
         .store-item-banner-tags {
+          position: absolute;
+          top: 20px;
+          left: 20px;
           display: flex;
+          flex-wrap: wrap;
           gap: 8px;
-          margin-bottom: 8px;
+          max-width: calc(100% - 40px);
+          z-index: 2;
         }
 
         .store-item-tag {
@@ -694,24 +1646,71 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
         }
 
-        .store-item-rating {
+        .store-item-review-score {
           display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-size: var(--fs-14-5);
-          font-weight: 800;
-          color: #ffc83b;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 4px;
           margin-top: 8px;
           background: rgba(0, 0, 0, 0.4);
-          padding: 4px 10px;
-          border-radius: 30px;
+          padding: 7px 12px;
+          border-radius: 8px;
           backdrop-filter: blur(10px);
           border: 1px solid rgba(255, 255, 255, 0.08);
           box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+          min-width: 0;
         }
 
-        .store-item-rating svg {
-          filter: drop-shadow(0 0 6px rgba(255, 200, 59, 0.6));
+        .store-item-review-score span {
+          color: rgba(255, 255, 255, 0.38);
+          font-family: var(--font-display);
+          font-size: var(--fs-9);
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+        }
+
+        .store-item-review-score small {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-10);
+          font-weight: 700;
+        }
+
+        .store-item-review-score .steam-review-score {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: var(--font-display);
+          font-size: var(--fs-14-5);
+          font-weight: 900;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          text-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .steam-review-score.overwhelmingly-positive,
+        .steam-review-score.very-positive,
+        .steam-review-score.mostly-positive {
+          color: #66c0f4;
+        }
+
+        .steam-review-score.mixed {
+          color: #b8b22a;
+        }
+
+        .steam-review-score.mostly-negative,
+        .steam-review-score.very-negative,
+        .steam-review-score.overwhelmingly-negative {
+          color: #ef4444;
+        }
+
+        .steam-review-score.unavailable {
+          color: rgba(255, 255, 255, 0.5);
         }
 
         .store-item-body {
@@ -727,7 +1726,26 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           display: flex;
           flex-direction: column;
           min-height: 0;
-          overflow: hidden;
+          overflow-y: auto;
+          padding-right: 8px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+        }
+
+        .store-item-left::-webkit-scrollbar,
+        .store-item-right::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .store-item-left::-webkit-scrollbar-track,
+        .store-item-right::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .store-item-left::-webkit-scrollbar-thumb,
+        .store-item-right::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.12);
+          border-radius: 4px;
         }
 
         .store-item-section-title {
@@ -748,7 +1766,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           line-height: 1.8;
           color: #a2b8cc;
           font-weight: 400;
-          margin-bottom: 20px;
+          margin-bottom: 22px;
           letter-spacing: 0.3px;
           white-space: pre-line;
           overflow-y: auto;
@@ -756,6 +1774,33 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           padding-right: 8px;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0);
+        }
+
+        .rawg-status-line {
+          margin-bottom: 10px;
+          color: rgba(255, 255, 255, 0.42);
+          font-size: var(--fs-11);
+          font-weight: 700;
+        }
+
+        .rawg-status-line.error {
+          color: #ef4444;
+        }
+
+        .rawg-attribution {
+          display: inline-flex;
+          width: fit-content;
+          margin: 10px 0 22px;
+          color: var(--accent-color);
+          font-size: var(--fs-11);
+          font-weight: 800;
+          text-decoration: none;
+          letter-spacing: 0.4px;
+        }
+
+        .rawg-attribution:hover,
+        .rawg-attribution:focus-visible {
+          text-decoration: underline;
         }
 
         .store-item-description::-webkit-scrollbar {
@@ -771,35 +1816,231 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           border-radius: 4px;
         }
 
-        .store-item-platforms {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
+        .store-item-showcase-row {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 18px;
+          align-items: stretch;
+          margin-bottom: 22px;
         }
 
-        .store-item-platform-badge {
+        .store-item-screenshots-panel,
+        .itad-market-stack {
+          min-width: 0;
+          min-height: 0;
           display: flex;
-          align-items: center;
-          gap: 8px;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
-          padding: 6px 12px;
+          flex-direction: column;
+        }
+
+        .itad-panel {
+          background: rgba(255, 255, 255, 0.025);
+          border: 1px solid rgba(255, 255, 255, 0.07);
+          border-radius: 12px;
+          padding: 16px;
+          margin: 0 0 22px 0;
+        }
+
+        .itad-panel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+          margin-bottom: 14px;
+        }
+
+        .itad-source {
+          margin: -6px 0 0 24px;
+          color: rgba(255, 255, 255, 0.38);
           font-size: var(--fs-11);
           font-weight: 600;
-          color: rgba(255, 255, 255, 0.7);
-          transition: all var(--transition-fast);
         }
 
-        .store-item-platform-badge:hover {
-          background: rgba(255, 255, 255, 0.08);
-          border-color: rgba(255, 255, 255, 0.15);
+        .itad-appid-pill {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 3px;
+          min-width: 112px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: rgba(0, 0, 0, 0.22);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .itad-appid-pill span {
+          color: rgba(255, 255, 255, 0.34);
+          font-size: var(--fs-9);
+          font-family: var(--font-display);
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+        }
+
+        .itad-appid-pill strong {
           color: #fff;
+          font-size: var(--fs-13);
+          font-family: var(--font-display);
         }
 
-        .store-item-platform-badge svg {
+        .itad-loading {
+          min-height: 130px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          color: rgba(255, 255, 255, 0.44);
+          font-size: var(--fs-12);
+        }
+
+        .itad-price-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .itad-price-stat {
+          min-width: 0;
+          border-radius: 8px;
+          padding: 12px;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)), var(--panel-bg);
+          border: 1px solid var(--glass-border);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+        }
+
+        .itad-price-stat.highlight {
+          border-color: rgba(var(--accent-color-rgb), 0.32);
+          background: linear-gradient(180deg, rgba(var(--accent-color-rgb), 0.13), rgba(var(--accent-color-rgb), 0.035)), var(--panel-bg);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 0 18px rgba(var(--accent-color-rgb), 0.08);
+        }
+
+        .itad-price-stat span,
+        .itad-price-stat small {
+          display: block;
+          color: rgba(255, 255, 255, 0.44);
+          font-size: var(--fs-10);
+          font-weight: 700;
+          line-height: 1.35;
+        }
+
+        .itad-price-stat strong {
+          display: block;
+          color: #fff;
+          font-family: var(--font-display);
+          font-size: var(--fs-20);
+          font-weight: 900;
+          margin: 4px 0;
+        }
+
+        .itad-chart {
+          position: relative;
+          min-height: 300px;
+          border-radius: 8px;
+          background:
+            linear-gradient(180deg, rgba(var(--accent-color-rgb), 0.08), rgba(255, 255, 255, 0.018) 42%, rgba(0, 0, 0, 0.12)),
+            var(--panel-bg);
+          border: 1px solid var(--glass-border);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 32px rgba(0, 0, 0, 0.24), 0 0 24px rgba(var(--accent-color-rgb), 0.06);
+          overflow: hidden;
+        }
+
+        .itad-chart::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          border: 1px solid rgba(var(--accent-color-rgb), 0.12);
+          pointer-events: none;
+          z-index: 1;
+        }
+
+        .itad-highcharts-container {
+          position: relative;
+          z-index: 0;
+          width: 100%;
+          min-height: 300px;
+        }
+
+        .itad-highcharts-status {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-12);
+          font-weight: 700;
+          text-align: center;
+          pointer-events: none;
+          z-index: 2;
+        }
+
+        .itad-market-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 14px;
+          margin-bottom: 22px;
+        }
+
+        .itad-market-stack {
+          gap: 12px;
+        }
+
+        .itad-market-section {
+          min-width: 0;
+          border-radius: 12px;
+          padding: 14px;
+          background: rgba(255, 255, 255, 0.018);
+          border: 1px solid rgba(255, 255, 255, 0.055);
+        }
+
+        .itad-market-stack .itad-market-section {
+          flex: 1;
+          overflow: hidden;
+        }
+
+        .itad-market-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 0;
+          border-top: 1px solid rgba(255, 255, 255, 0.045);
+        }
+
+        .itad-market-row div {
+          min-width: 0;
+        }
+
+        .itad-market-row strong,
+        .itad-market-row span {
+          display: block;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .itad-market-row strong {
+          color: rgba(255, 255, 255, 0.84);
+          font-size: var(--fs-12);
+          font-weight: 800;
+        }
+
+        .itad-market-row span {
+          color: rgba(255, 255, 255, 0.36);
+          font-size: var(--fs-10);
+          margin-top: 3px;
+        }
+
+        .itad-market-row em {
+          flex: 0 0 auto;
           color: var(--accent-color);
-          filter: drop-shadow(0 0 5px rgba(var(--accent-color-rgb), 0.4));
+          font-size: var(--fs-11);
+          font-style: normal;
+          font-family: var(--font-display);
+          font-weight: 900;
         }
 
         /* --- Media Grid Section --- */
@@ -808,7 +2049,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          min-height: 220px;
+          min-height: 300px;
           background: rgba(255, 255, 255, 0.02);
           border: 1px dashed rgba(255, 255, 255, 0.06);
           border-radius: 16px;
@@ -834,9 +2075,10 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-media-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-top: 16px;
-          max-width: 480px;
+          gap: 12px;
+          margin-top: 0;
+          max-width: none;
+          flex: 1;
         }
 
         .media-grid-card {
@@ -944,10 +2186,14 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           background: rgba(255, 255, 255, 0.01);
           border: 1px solid rgba(255, 255, 255, 0.04);
           border-radius: 16px;
+          min-height: 300px;
           padding: 40px;
           text-align: center;
           color: rgba(255, 255, 255, 0.3);
           font-size: var(--fs-13);
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         /* --- Fullscreen Lightbox Modal --- */
@@ -1064,6 +2310,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-right {
           display: flex;
           flex-direction: column;
+          min-height: 0;
+          overflow-y: auto;
+          padding-right: 4px;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
         }
 
         .store-item-ownership-card {
@@ -1152,19 +2403,31 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           margin: 4px 0;
         }
 
-        .remove-owned-btn {
-          width: 100%;
-          padding: 10px;
-          font-size: var(--fs-11);
-          color: rgba(255, 255, 255, 0.4) !important;
-          border-color: rgba(255, 255, 255, 0.06) !important;
+        .owned-overflow-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
         }
 
-        .remove-owned-btn:hover {
-          color: #ef4444 !important;
-          border-color: rgba(239, 68, 68, 0.3) !important;
-          background: rgba(239, 68, 68, 0.08) !important;
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.15) !important;
+        .owned-overflow-label {
+          font-family: var(--font-display);
+          font-size: var(--fs-10);
+          font-weight: 800;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.36);
+        }
+
+        .owned-overflow-trigger {
+          width: 38px;
+          height: 38px;
+          border-radius: 8px;
+        }
+
+        .owned-overflow-popover {
+          bottom: auto;
+          top: calc(100% + 10px);
         }
 
         .not-owned-label {
@@ -1185,6 +2448,118 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           color: rgba(255, 255, 255, 0.25);
           text-align: center;
           line-height: 1.5;
+        }
+
+        .itad-sync-card {
+          margin-top: 20px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 12px;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .itad-sync-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: rgba(255, 255, 255, 0.86);
+          font-family: var(--font-display);
+          font-size: var(--fs-12);
+          font-weight: 900;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+        }
+
+        .itad-sync-title svg {
+          color: var(--accent-color);
+        }
+
+        .itad-sync-card p {
+          margin: 0;
+          color: rgba(255, 255, 255, 0.38);
+          font-size: var(--fs-11);
+          line-height: 1.55;
+        }
+
+        .itad-sync-message {
+          border-radius: 8px;
+          background: rgba(var(--accent-color-rgb), 0.07);
+          border: 1px solid rgba(var(--accent-color-rgb), 0.16);
+          color: rgba(255, 255, 255, 0.68);
+          font-size: var(--fs-10);
+          line-height: 1.45;
+          padding: 8px 10px;
+        }
+
+        .itad-api-key-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .itad-api-key-input {
+          min-width: 0;
+          height: 36px;
+          font-size: var(--fs-11);
+        }
+
+        .itad-sync-card .glow-btn {
+          width: 100%;
+          font-size: var(--fs-11);
+          padding: 10px 12px;
+        }
+
+        .itad-sync-card .glow-btn.itad-api-key-save-btn {
+          width: auto;
+          height: 36px;
+          padding: 0 10px;
+          white-space: nowrap;
+        }
+
+        @media (max-width: 980px) {
+          .store-item-body {
+            grid-template-columns: 1fr;
+            overflow-y: auto;
+          }
+
+          .store-item-left,
+          .store-item-right {
+            overflow: visible;
+          }
+
+          .store-item-showcase-row,
+          .itad-market-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .itad-market-stack .itad-market-section {
+            flex: none;
+          }
+        }
+
+        @media (max-width: 680px) {
+          .store-item-banner {
+            height: 280px;
+          }
+
+          .store-item-title {
+            font-size: var(--fs-30);
+          }
+
+          .itad-panel-header,
+          .itad-price-row {
+            grid-template-columns: 1fr;
+            flex-direction: column;
+          }
+
+          .itad-appid-pill {
+            align-items: flex-start;
+            width: 100%;
+          }
         }
       `}} />
     </div>

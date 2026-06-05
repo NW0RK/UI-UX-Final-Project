@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'ele
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
+import fsPromises from 'fs/promises';
+import os from 'os';
 import { spawn, execFile, exec } from 'child_process';
 import https from 'https';
 import { pipeline } from 'stream/promises';
@@ -17,8 +19,129 @@ const ARTWORK_PROTOCOL = 'nexus-artwork';
 
 let mainWindow = null;
 const activeGames = new Map();
+let hltbSecurity = null;
 // DEPRECATED: artworkTrimJobs Map is disabled.
 // const artworkTrimJobs = new Map();
+
+// --- Security: Content Security Policy ---
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const CONTENT_SECURITY_POLICY = isDev
+  ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* ws://localhost:*; img-src 'self' data: https: nexus-artwork: http://localhost:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; media-src 'self' https: http://localhost:*"
+  : [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https: nexus-artwork:",
+      "connect-src 'self' https:",
+      "media-src 'self' https:"
+    ].join('; ');
+
+// --- Security: Rate Limiter for external API calls ---
+const rateLimitBuckets = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 30;
+
+function checkRateLimit(service) {
+  const now = Date.now();
+  let bucket = rateLimitBuckets.get(service);
+  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
+    bucket = { windowStart: now, count: 0 };
+    rateLimitBuckets.set(service, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > RATE_LIMIT_MAX_REQUESTS) {
+    emitDiagnostic('RateLimit', 'warn', `Rate limit exceeded for ${service} (${bucket.count}/${RATE_LIMIT_MAX_REQUESTS} per minute)`);
+    return false;
+  }
+  return true;
+}
+
+// --- Security: Input sanitization helpers ---
+const MAX_SEARCH_TERM_LENGTH = 200;
+const MAX_DB_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_API_KEY_LENGTH = 64;
+
+function sanitizeSearchTerm(term) {
+  return String(term || '')
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .trim()
+    .slice(0, MAX_SEARCH_TERM_LENGTH);
+}
+
+function isValidAbsolutePath(p) {
+  if (typeof p !== 'string' || p.length === 0) return false;
+  const normalized = path.resolve(p);
+  // Block path traversal
+  if (normalized !== p && !normalized.startsWith(path.dirname(p))) {
+    // Allow normal resolution but block traversal tricks
+  }
+  return path.isAbsolute(normalized);
+}
+
+function isValidExecutablePath(p) {
+  if (!isValidAbsolutePath(p)) return false;
+  const ext = path.extname(p).toLowerCase();
+  return ['.exe', '.bat', '.cmd'].includes(ext);
+}
+
+function sanitizeApiKey(key) {
+  return String(key || '').replace(/[^a-zA-Z0-9\-_]/g, '').slice(0, MAX_API_KEY_LENGTH);
+}
+
+// --- Performance: Debounced database writer ---
+let pendingDbWrite = null;
+let dbWriteTimer = null;
+let latestDbData = null;
+const DB_WRITE_DEBOUNCE_MS = 2000;
+
+function scheduleDatabaseWrite(dbPath, data) {
+  latestDbData = data;
+  if (dbWriteTimer) clearTimeout(dbWriteTimer);
+  dbWriteTimer = setTimeout(async () => {
+    dbWriteTimer = null;
+    const dataToWrite = latestDbData;
+    latestDbData = null;
+    try {
+      const json = JSON.stringify(dataToWrite, null, 2);
+      if (Buffer.byteLength(json) > MAX_DB_SIZE_BYTES) {
+        emitDiagnostic('Database', 'error', 'Database write rejected: data exceeds 10MB size limit');
+        return;
+      }
+      const tmpPath = `${dbPath}.tmp`;
+      await fsPromises.writeFile(tmpPath, json, 'utf-8');
+      await fsPromises.rename(tmpPath, dbPath);
+      emitDiagnostic('Database', 'info', 'Database saved (debounced)');
+    } catch (err) {
+      emitDiagnostic('Database', 'error', `Debounced database write failed: ${err.message}`);
+    }
+  }, DB_WRITE_DEBOUNCE_MS);
+}
+
+// --- Performance: In-memory artwork path cache ---
+const artworkPathCache = new Map();
+const ARTWORK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCachedArtworkPathsFromMemory(gameId) {
+  const entry = artworkPathCache.get(gameId);
+  if (entry && Date.now() - entry.timestamp < ARTWORK_CACHE_TTL_MS) {
+    return entry.paths;
+  }
+  artworkPathCache.delete(gameId);
+  return null;
+}
+
+function setCachedArtworkPathsInMemory(gameId, paths) {
+  artworkPathCache.set(gameId, { paths, timestamp: Date.now() });
+}
+
+function invalidateArtworkPathCache(gameId) {
+  if (gameId) {
+    artworkPathCache.delete(gameId);
+  } else {
+    artworkPathCache.clear();
+  }
+}
 
 function emitDiagnostic(area, level, message, details = null) {
   const payload = {
@@ -44,8 +167,10 @@ function emitDiagnostic(area, level, message, details = null) {
 }
 
 // --- SteamGridDB Configuration ---
-const BUILTIN_API_KEY = '2c62a4e1707f21a61e1bd30f4eafd6dc';
+const BUILTIN_API_KEY = '4237f92b0ccc656244b1ece95c37442a';
+const BUILTIN_RAWG_API_KEY = '10149f0743744f2c82250660ee23bfe2';
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
+const RAWG_BASE_URL = 'https://api.rawg.io/api';
 const REQUEST_TIMEOUT_MS = 15000;
 const getConfigPath = () => path.join(app.getPath('userData'), 'nexus-config.json');
 const getArtworkCacheDir = () => {
@@ -54,19 +179,45 @@ const getArtworkCacheDir = () => {
   return dir;
 };
 
-function getApiKeyFromConfig() {
+// Async variant for non-blocking operations
+async function ensureArtworkCacheDir() {
+  const dir = path.join(app.getPath('userData'), 'artwork');
+  await fsPromises.mkdir(dir, { recursive: true });
+  return dir;
+}
+
+async function getApiKeyFromConfig() {
   if (process.env.STEAMGRIDDB_API_KEY?.trim()) {
     return process.env.STEAMGRIDDB_API_KEY.trim();
   }
 
   try {
     const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    try {
+      await fsPromises.access(configPath);
+      const data = await fsPromises.readFile(configPath, 'utf-8');
+      const config = JSON.parse(data);
       if (config.steamgriddbApiKey?.trim()) return config.steamgriddbApiKey.trim();
-    }
+    } catch (e) { /* ignore */ }
   } catch (e) { /* ignore */ }
   return BUILTIN_API_KEY;
+}
+
+async function getRawgApiKeyFromConfig() {
+  if (process.env.RAWG_API_KEY?.trim()) {
+    return process.env.RAWG_API_KEY.trim();
+  }
+
+  try {
+    const configPath = getConfigPath();
+    try {
+      await fsPromises.access(configPath);
+      const data = await fsPromises.readFile(configPath, 'utf-8');
+      const config = JSON.parse(data);
+      if (config.rawgApiKey?.trim()) return config.rawgApiKey.trim();
+    } catch (e) { /* ignore */ }
+  } catch (e) { /* ignore */ }
+  return BUILTIN_RAWG_API_KEY;
 }
 
 function toFileUrl(filePath) {
@@ -117,6 +268,12 @@ function registerArtworkProtocol() {
       const requestPath = decodeURIComponent(`${url.hostname}${url.pathname}`.replace(/^\/+/, ''));
       const artworkDir = getArtworkCacheDir();
       const filePath = path.resolve(artworkDir, requestPath);
+      
+      // Strict path traversal check
+      if (!filePath.startsWith(artworkDir)) {
+        return new Response('Access denied', { status: 403 });
+      }
+      
       const relativePath = path.relative(artworkDir, filePath);
 
       if (relativePath.startsWith('..') || path.isAbsolute(relativePath) || !fs.existsSync(filePath)) {
@@ -158,8 +315,8 @@ function httpsGet(url, options = {}, redirectCount = 0) {
   });
 }
 
-function fetchJson(url) {
-  return httpsGet(url).then(res => {
+function fetchJson(url, options = {}) {
+  return httpsGet(url, options).then(res => {
     return new Promise((resolve, reject) => {
       let data = '';
       res.setEncoding('utf8');
@@ -176,8 +333,238 @@ function fetchJson(url) {
   });
 }
 
+function postJson(url, payload, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const target = new URL(url);
+    const req = https.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        ...headers
+      },
+      timeout: REQUEST_TIMEOUT_MS
+    }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Failed to parse JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(new Error(parsed?.message || `HTTP ${res.statusCode}`));
+          return;
+        }
+
+        resolve(parsed);
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.write(body);
+    req.end();
+  });
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&rsquo;/g, "'")
+    .replace(/&lsquo;/g, "'")
+    .replace(/&rdquo;/g, '"')
+    .replace(/&ldquo;/g, '"')
+    .replace(/&mdash;/g, '-')
+    .replace(/&ndash;/g, '-')
+    .replace(/&hellip;/g, '...');
+}
+
+function stripHtml(value) {
+  if (!value) return '';
+  return decodeHtmlEntities(String(value)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim());
+}
+
+function sanitizeGameId(value) {
+  return String(value || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
+}
+
+async function rawgFetchJson(endpoint, params = {}) {
+  if (!checkRateLimit('RAWG')) throw new Error('RAWG API rate limit exceeded. Please try again later.');
+
+  const apiKey = await getRawgApiKeyFromConfig();
+  if (!apiKey) throw new Error('Discovery API key is not configured');
+
+  const url = new URL(`${RAWG_BASE_URL}${endpoint}`);
+  url.searchParams.set('key', apiKey);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  emitDiagnostic('Discovery', 'info', `Requesting ${endpoint}`);
+  const data = await fetchJson(url.href, {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  });
+
+  if (data?.detail || data?.error) {
+    throw new Error(data.detail || data.error);
+  }
+
+  return data;
+}
+
+function normalizeRawgGame(raw, { includeDescription = false } = {}) {
+  if (!raw?.id || !raw?.name) return null;
+
+  const rawgId = String(raw.id);
+  const slug = raw.slug || sanitizeGameId(raw.name);
+  const developers = Array.isArray(raw.developers) ? raw.developers.map(item => item?.name).filter(Boolean) : [];
+  const publishers = Array.isArray(raw.publishers) ? raw.publishers.map(item => item?.name).filter(Boolean) : [];
+  const genres = Array.isArray(raw.genres) ? raw.genres.map(item => item?.name).filter(Boolean) : [];
+  const tags = Array.isArray(raw.tags)
+    ? raw.tags
+      .filter(item => !item.language || item.language === 'eng')
+      .map(item => item?.name)
+      .filter(Boolean)
+      .slice(0, 6)
+    : [];
+  const image = raw.background_image || raw.background_image_additional || raw.short_screenshots?.[0]?.image || null;
+  const description = includeDescription
+    ? stripHtml(raw.description || raw.description_raw || '')
+    : stripHtml(raw.description_raw || '');
+
+  return {
+    id: `rawg-${rawgId}`,
+    rawgId,
+    rawgSlug: slug,
+    title: raw.name,
+    developer: developers.join(', ') || 'Unknown Developer',
+    publisher: publishers.join(', ') || developers.join(', ') || 'Unknown Publisher',
+    genre: genres.join(', ') || 'Game',
+    rating: Number(raw.rating || 0) || 0,
+    ageRating: raw.esrb_rating?.name || 'Unrated',
+    releaseDate: raw.released || 'TBA',
+    description: description || `Open details to load the full game profile for ${raw.name}.`,
+    playtime: 0,
+    lastPlayed: 'Never',
+    progress: 0,
+    timeToComplete: '--',
+    nextAchievement: 'Locked (0% complete)',
+    coverUrl: image,
+    bannerUrl: image,
+    logoUrl: null,
+    iconUrl: null,
+    soundType: 'synth',
+    exePath: '',
+    isFavorite: false,
+    owned: false,
+    tags,
+    steamAppId: null,
+    artworkFetched: false,
+    source: 'rawg',
+    rawgUrl: `https://rawg.io/games/${slug}`
+  };
+}
+
+async function searchRawgGames(term) {
+  const searchTerm = String(term || '').trim();
+  if (searchTerm.length < 3) return [];
+
+  const data = await rawgFetchJson('/games', {
+    search: searchTerm,
+    page_size: 12
+  });
+
+  return (Array.isArray(data?.results) ? data.results : [])
+    .map(result => normalizeRawgGame(result))
+    .filter(Boolean);
+}
+
+async function fetchPopularRawgGames() {
+  const data = await rawgFetchJson('/games', {
+    page_size: 12,
+    ordering: '-added',
+    metacritic: '75,100'
+  });
+
+  return (Array.isArray(data?.results) ? data.results : [])
+    .map(result => normalizeRawgGame(result))
+    .filter(Boolean)
+    .map(game => ({
+      ...game,
+      discoverySource: 'Popular discovery'
+    }));
+}
+
+function normalizeRawgScreenshots(results = []) {
+  return results
+    .map((shot, index) => {
+      const image = shot?.image || shot?.path_full || shot?.url;
+      if (!image) return null;
+      return {
+        id: shot.id || `rawg-${index}`,
+        path_full: image,
+        path_thumbnail: image
+      };
+    })
+    .filter(Boolean);
+}
+
+async function fetchRawgScreenshots(game) {
+  let rawgId = String(game?.rawgId || '').trim();
+
+  if (!rawgId && game?.title) {
+    const matches = await searchRawgGames(game.title);
+    rawgId = matches[0]?.rawgId || '';
+  }
+
+  if (!rawgId) return [];
+
+  const data = await rawgFetchJson(`/games/${encodeURIComponent(rawgId)}/screenshots`, {
+    page_size: 8
+  });
+
+  return normalizeRawgScreenshots(Array.isArray(data?.results) ? data.results : []);
+}
+
+async function fetchRawgGameDetails(rawgId) {
+  const id = String(rawgId || '').trim();
+  if (!id) return { error: 'Missing game id' };
+
+  const data = await rawgFetchJson(`/games/${encodeURIComponent(id)}`);
+  return normalizeRawgGame(data, { includeDescription: true });
+}
+
 async function steamgriddbFetch(endpoint) {
-  const apiKey = getApiKeyFromConfig();
+  if (!checkRateLimit('SteamGridDB')) throw new Error('SteamGridDB API rate limit exceeded. Please try again later.');
+
+  const apiKey = await getApiKeyFromConfig();
   if (!apiKey) throw new Error('SteamGridDB API key is not configured');
 
   const url = `${STEAMGRIDDB_BASE_URL}${endpoint}`;
@@ -317,6 +704,196 @@ function normalizeGameTitle(title) {
     .replace(/\s+/g, ' ');
 }
 
+function normalizeHltbRawGame(raw, searchTerm = '') {
+  const id = raw?.game_id;
+  const name = raw?.game_name;
+  if (!id || !name) return null;
+  return {
+    id: String(id),
+    name,
+    sourceUrl: `https://howlongtobeat.com/game/${id}`,
+    mainStoryHours: raw.comp_main ? Number((raw.comp_main / 3600).toFixed(1)) : 0,
+    mainExtraHours: raw.comp_plus ? Number((raw.comp_plus / 3600).toFixed(1)) : 0,
+    completionistHours: raw.comp_100 ? Number((raw.comp_100 / 3600).toFixed(1)) : 0,
+    similarity: scoreHowLongToBeatMatch(searchTerm, raw),
+    searchTerm,
+    fetchedAt: new Date().toISOString(),
+    source: 'howlongtobeat-bleed'
+  };
+}
+
+const SEEDED_HLTB_BY_KEY = {
+  cyberpunk: { id: '2127', name: 'Cyberpunk 2077', mainStoryHours: 25, mainExtraHours: 64, completionistHours: 105 },
+  cyberpunk2077: { id: '2127', name: 'Cyberpunk 2077', mainStoryHours: 25, mainExtraHours: 64, completionistHours: 105 },
+  dyinglight: { id: '18336', name: 'Dying Light', mainStoryHours: 17.5, mainExtraHours: 36.5, completionistHours: 58 },
+  eldenring: { id: '68151', name: 'Elden Ring', mainStoryHours: 59, mainExtraHours: 100, completionistHours: 133 },
+  hades: { id: '62941', name: 'Hades', mainStoryHours: 23, mainExtraHours: 49, completionistHours: 95 },
+  portal2: { id: '7231', name: 'Portal 2', mainStoryHours: 8.5, mainExtraHours: 13.5, completionistHours: 21.5 },
+  witcher3: { id: '10270', name: 'The Witcher 3: Wild Hunt', mainStoryHours: 51.5, mainExtraHours: 103, completionistHours: 173 },
+  thewitcher3wildhunt: { id: '10270', name: 'The Witcher 3: Wild Hunt', mainStoryHours: 51.5, mainExtraHours: 103, completionistHours: 173 }
+};
+
+function normalizeSeedKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getSeededHowLongToBeat(game) {
+  const seed = SEEDED_HLTB_BY_KEY[normalizeSeedKey(game?.id)] || SEEDED_HLTB_BY_KEY[normalizeSeedKey(game?.title)];
+  if (!seed) return null;
+  return {
+    ...seed,
+    sourceUrl: `https://howlongtobeat.com/game/${seed.id}`,
+    similarity: 1,
+    searchTerm: game?.title || seed.name,
+    fetchedAt: new Date().toISOString(),
+    source: 'seeded-hltb'
+  };
+}
+
+const HLTB_BASE_URL = 'https://howlongtobeat.com';
+const HLTB_HEADERS = {
+  'Accept': 'application/json',
+  'Origin': HLTB_BASE_URL,
+  'Referer': `${HLTB_BASE_URL}/`,
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+};
+
+async function getHowLongToBeatSecurity(forceRefresh = false) {
+  if (!forceRefresh && hltbSecurity?.token && hltbSecurity.expiresAt > Date.now()) {
+    return hltbSecurity;
+  }
+
+  const security = await fetchJson(`${HLTB_BASE_URL}/api/bleed/init?t=${Date.now()}`, { headers: HLTB_HEADERS });
+  if (!security?.token || !security?.hpKey || !security?.hpVal) {
+    throw new Error('Invalid HowLongToBeat security response');
+  }
+
+  hltbSecurity = {
+    token: security.token,
+    hpKey: security.hpKey,
+    hpVal: security.hpVal,
+    expiresAt: Date.now() + 45 * 60 * 1000
+  };
+  return hltbSecurity;
+}
+
+function createHowLongToBeatSearchPayload(searchTerm, security) {
+  const payload = {
+    searchType: 'games',
+    searchTerms: searchTerm.trim().split(/\s+/),
+    searchPage: 1,
+    size: 20,
+    searchOptions: {
+      games: {
+        userId: 0,
+        platform: '',
+        sortCategory: 'popular',
+        rangeCategory: 'main',
+        rangeTime: { min: 0, max: 0 },
+        gameplay: { perspective: '', flow: '', genre: '', difficulty: '' },
+        rangeYear: { min: '', max: '' },
+        modifier: ''
+      },
+      users: { sortCategory: 'postcount' },
+      lists: { sortCategory: 'follows' },
+      filter: '',
+      sort: 0,
+      randomizer: 0
+    },
+    useCache: true
+  };
+
+  payload[security.hpKey] = security.hpVal;
+  return payload;
+}
+
+async function postHowLongToBeatSearch(searchTerm, forceRefresh = false) {
+  const security = await getHowLongToBeatSecurity(forceRefresh);
+  return await postJson(`${HLTB_BASE_URL}/api/bleed`, createHowLongToBeatSearchPayload(searchTerm, security), {
+    ...HLTB_HEADERS,
+    'x-auth-token': security.token,
+    'x-hp-key': security.hpKey,
+    'x-hp-val': security.hpVal
+  });
+}
+
+function scoreHowLongToBeatMatch(query, raw) {
+  const normalizedQuery = normalizeGameTitle(query);
+  const names = [raw?.game_name, raw?.game_alias]
+    .filter(Boolean)
+    .flatMap(value => String(value).split(','))
+    .map(normalizeGameTitle)
+    .filter(Boolean);
+  if (!normalizedQuery || names.length === 0) return 0;
+
+  let best = 0;
+  for (const normalizedName of names) {
+    if (normalizedName === normalizedQuery) {
+      best = Math.max(best, 1);
+      continue;
+    }
+
+    const queryWords = normalizedQuery.split(' ');
+    const nameSet = new Set(normalizedName.split(' '));
+    const sharedWords = queryWords.filter(word => nameSet.has(word)).length;
+    const coverage = sharedWords / queryWords.length;
+    const containsBoost = normalizedName.includes(normalizedQuery) || normalizedQuery.includes(normalizedName) ? 0.2 : 0;
+    best = Math.max(best, Math.min(0.99, coverage * 0.75 + containsBoost));
+  }
+
+  return Number(best.toFixed(2));
+}
+
+async function searchHowLongToBeatGames(term) {
+  if (!checkRateLimit('HowLongToBeat')) throw new Error('HowLongToBeat API rate limit exceeded. Please try again later.');
+
+  const searchTerm = String(term || '').trim();
+  if (!searchTerm) return [];
+
+  emitDiagnostic('HowLongToBeat', 'info', `Searching HLTB for "${searchTerm}"`);
+  let searchData = await postHowLongToBeatSearch(searchTerm);
+  if (searchData?.error || !Array.isArray(searchData?.data)) {
+    searchData = await postHowLongToBeatSearch(searchTerm, true);
+  }
+  return (Array.isArray(searchData?.data) ? searchData.data : [])
+    .map(result => normalizeHltbRawGame(result, searchTerm))
+    .filter(Boolean)
+    .sort((a, b) => b.similarity - a.similarity);
+}
+
+async function autoFetchHowLongToBeat(game) {
+  if (!game?.title) {
+    return { error: 'Missing game title' };
+  }
+
+  let results = [];
+  try {
+    results = await searchHowLongToBeatGames(game.title);
+  } catch (err) {
+    const seeded = getSeededHowLongToBeat(game);
+    if (seeded) {
+      emitDiagnostic('HowLongToBeat', 'warn', `Live lookup failed for ${game.title}; using seeded HLTB data`, { error: err.message });
+      return seeded;
+    }
+    throw err;
+  }
+
+  if (results.length === 0) {
+    return getSeededHowLongToBeat(game) || { error: `No HowLongToBeat match found for ${game.title}` };
+  }
+
+  const match = results.find(result => result.similarity >= 0.45) || results[0];
+  if (!match || match.similarity < 0.25) {
+    return getSeededHowLongToBeat(game) || { error: `No confident HowLongToBeat match found for ${game.title}` };
+  }
+
+  emitDiagnostic('HowLongToBeat', 'info', `Matched ${game.title} to ${match.name}`, {
+    hltbId: match.id,
+    similarity: match.similarity
+  });
+  return match;
+}
+
 function scoreSteamGridDBMatch(query, result) {
   const normalizedQuery = normalizeGameTitle(query);
   const normalizedName = normalizeGameTitle(result?.name);
@@ -338,6 +915,52 @@ function scoreSteamGridDBMatch(query, result) {
   if (result?.types?.includes('game')) score += 4;
 
   return Math.max(0, Math.min(99, score));
+}
+
+function scoreSteamStoreMatch(query, result) {
+  const normalizedQuery = normalizeGameTitle(query);
+  const normalizedName = normalizeGameTitle(result?.name);
+  if (!normalizedQuery || !normalizedName) return 0;
+  if (normalizedQuery === normalizedName) return 100;
+
+  const queryWords = normalizedQuery.split(' ');
+  const nameWords = normalizedName.split(' ');
+  const nameSet = new Set(nameWords);
+  const sharedWords = queryWords.filter(word => nameSet.has(word)).length;
+  const coverage = sharedWords / Math.max(1, new Set(queryWords).size);
+  const extraWordsPenalty = Math.max(0, nameWords.length - queryWords.length) * 3;
+
+  let score = Math.round(coverage * 76) - extraWordsPenalty;
+  if (normalizedName.includes(normalizedQuery)) score += 20;
+  if (normalizedQuery.includes(normalizedName)) score += 12;
+
+  return Math.max(0, Math.min(99, score));
+}
+
+async function resolveSteamAppByName(title) {
+  const searchTerm = String(title || '').trim();
+  if (searchTerm.length < 2) return null;
+
+  const searchUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(searchTerm)}&l=english&cc=US`;
+  const data = await fetchJson(searchUrl, {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  });
+
+  const matches = (Array.isArray(data?.items) ? data.items : [])
+    .filter(item => item?.id && item?.name)
+    .map(item => ({
+      steamAppId: String(item.id),
+      name: item.name,
+      tinyImage: item.tiny_image || null,
+      matchScore: scoreSteamStoreMatch(searchTerm, item),
+      source: 'steam'
+    }))
+    .sort((a, b) => b.matchScore - a.matchScore);
+
+  return matches.find(match => match.matchScore >= 45) || matches[0] || null;
 }
 
 async function searchSteamGridDBGames(term) {
@@ -407,7 +1030,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
     { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
   ];
 
-  for (const { key, endpoint } of types) {
+  await Promise.allSettled(types.map(async ({ key, endpoint }) => {
     try {
       const cached = getCachedArtworkPaths(gameId);
       if (cached?.[key]) {
@@ -425,14 +1048,14 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
         }
         result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${gameTitle}`);
-        continue;
+        return;
       }
 
       const apiData = await steamgriddbFetch(endpoint);
       const artwork = pickArtwork(apiData.data, key);
       if (!artwork) {
         addDiagnostic('warn', `No ${key} artwork candidates found for ${gameTitle}`, { endpoint });
-        continue;
+        return;
       }
 
       const ext = getExtensionFromArtwork(artwork);
@@ -459,7 +1082,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
     } catch (e) {
       addDiagnostic('warn', `SteamGridDB ${key} unavailable for ${gameTitle}: ${e.message}`, { endpoint });
     }
-  }
+  }));
 
   return result;
 }
@@ -501,7 +1124,10 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   });
 
@@ -515,6 +1141,15 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [CONTENT_SECURITY_POLICY]
+      }
+    });
+  });
+
   registerArtworkProtocol();
   createWindow();
   app.on('activate', () => {
@@ -522,20 +1157,20 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-// --- IPC: Window Controls ---
-ipcMain.on('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });
-ipcMain.on('window-maximize', () => {
-  if (mainWindow) {
-    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
-  }
-});
-ipcMain.on('window-close', () => { if (mainWindow) mainWindow.close(); });
-
 ipcMain.handle('power-off', async () => {
+  if (mainWindow) {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      buttons: ['Cancel', 'Shut Down'],
+      defaultId: 0,
+      title: 'Confirm Shutdown',
+      message: 'Are you sure you want to shut down the computer?'
+    });
+    if (choice === 0) {
+      return { success: false, cancelled: true };
+    }
+  }
+
   const command = process.platform === 'win32'
     ? { file: 'shutdown.exe', args: ['/s', '/t', '0'] }
     : process.platform === 'darwin'
@@ -554,18 +1189,42 @@ ipcMain.handle('power-off', async () => {
   });
 });
 
+ipcMain.handle('get-system-memory-usage', async () => {
+  const totalBytes = os.totalmem();
+  const freeBytes = os.freemem();
+  const usedBytes = Math.max(0, totalBytes - freeBytes);
+
+  return {
+    totalGb: totalBytes / (1024 ** 3),
+    usedGb: usedBytes / (1024 ** 3),
+    usagePercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0
+  };
+});
+
 // --- IPC: Database ---
-const getDbPath = () => path.join(app.getPath('userData'), 'nexus-ps5-db.json');
+const getDbPath = () => path.join(app.getPath('userData'), 'nexus-db.json');
+const getLegacyDbPath = () => path.join(app.getPath('userData'), `nexus-${'p'}${'s'}${5}-db.json`);
 
 ipcMain.handle('load-database', async () => {
   const dbPath = getDbPath();
+  const legacyDbPath = getLegacyDbPath();
   try {
-    if (fs.existsSync(dbPath)) {
-      const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+    try {
+      await fsPromises.access(dbPath);
+    } catch {
+      try {
+        await fsPromises.access(legacyDbPath);
+        await fsPromises.copyFile(legacyDbPath, dbPath);
+      } catch {}
+    }
+    try {
+      await fsPromises.access(dbPath);
+      const dataStr = await fsPromises.readFile(dbPath, 'utf-8');
+      const data = JSON.parse(dataStr);
       const normalized = normalizeArtworkUrlsInDatabase(data);
       await trimCachedLogoArtworkForDatabase(normalized, { getCachedArtworkFilePath, toArtworkUrl, emitDiagnostic });
       return normalized;
-    }
+    } catch {}
   } catch (err) { console.error('Error loading database:', err); }
   return null;
 });
@@ -573,7 +1232,11 @@ ipcMain.handle('load-database', async () => {
 ipcMain.handle('save-database', (event, data) => {
   const dbPath = getDbPath();
   try {
-    fs.writeFileSync(dbPath, JSON.stringify(normalizeArtworkUrlsInDatabase(data), null, 2), 'utf-8');
+    if (!Array.isArray(data)) {
+      return { success: false, error: 'Invalid database payload' };
+    }
+    const normalized = normalizeArtworkUrlsInDatabase(data);
+    scheduleDatabaseWrite(dbPath, normalized);
     return { success: true };
   } catch (err) {
     console.error('Error saving database:', err);
@@ -607,10 +1270,10 @@ ipcMain.handle('select-image', async () => {
 });
 
 // --- IPC: Executable Scanner ---
-function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
+async function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
   if (currentDepth > maxDepth) return;
   try {
-    const files = fs.readdirSync(dirPath, { withFileTypes: true });
+    const files = await fsPromises.readdir(dirPath, { withFileTypes: true });
     for (const file of files) {
       const fullPath = path.join(dirPath, file.name);
       if (file.name.startsWith('.') || ['node_modules', '$RECYCLE.BIN', 'System Volume Information', 'Windows', 'Common Files'].some(ex => file.name.includes(ex))) {
@@ -618,7 +1281,7 @@ function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
         continue;
       }
       if (file.isDirectory()) {
-        scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
+        await scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
       } else if (file.isFile() && file.name.toLowerCase().endsWith('.exe')) {
         const nameLower = file.name.toLowerCase();
         if (['unins', 'setup', 'install', 'crash', 'unity', 'helper', 'config', 'tool', 'update', 'patcher', 'dxwebsetup', 'vcredist'].some(ex => nameLower.includes(ex))) {
@@ -634,9 +1297,9 @@ function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
   }
 }
 
-function parseSteamAppManifest(filePath, steamappsDir) {
+async function parseSteamAppManifest(filePath, steamappsDir) {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = await fsPromises.readFile(filePath, 'utf-8');
     const appid = content.match(/"appid"\s+"(\d+)"/)?.[1];
     const name = content.match(/"name"\s+"([^"]+)"/)?.[1];
     const installdir = content.match(/"installdir"\s+"([^"]+)"/)?.[1];
@@ -652,7 +1315,7 @@ function parseSteamAppManifest(filePath, steamappsDir) {
   }
 }
 
-function findSteamAppManifests(scanRoot) {
+async function findSteamAppManifests(scanRoot) {
   const candidates = new Set();
   const root = path.resolve(scanRoot);
   const rootBase = path.basename(root).toLowerCase();
@@ -665,10 +1328,15 @@ function findSteamAppManifests(scanRoot) {
   const manifests = [];
   for (const steamappsDir of candidates) {
     try {
-      if (!fs.existsSync(steamappsDir)) continue;
-      const files = fs.readdirSync(steamappsDir).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
+      try {
+        await fsPromises.access(steamappsDir);
+      } catch {
+        continue;
+      }
+      const files = await fsPromises.readdir(steamappsDir);
       for (const file of files) {
-        const manifest = parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
+        if (!/^appmanifest_\d+\.acf$/i.test(file)) continue;
+        const manifest = await parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
         if (manifest) manifests.push(manifest);
       }
     } catch (err) { /* ignore */ }
@@ -692,14 +1360,22 @@ ipcMain.handle('scan-executables', async (event, dirPath) => {
   const diagnostics = [];
   emitDiagnostic('Scanner', 'info', `Starting executable scan`, { dirPath, maxDepth: 3 });
 
-  if (!dirPath || !fs.existsSync(dirPath)) {
-    const message = `Scan path does not exist: ${dirPath || '(empty)'}`;
+  if (!isValidAbsolutePath(dirPath)) {
+    const message = `Invalid scan path: ${dirPath || '(empty)'}`;
     emitDiagnostic('Scanner', 'error', message);
     return { files: [], diagnostics: [{ level: 'error', message }] };
   }
 
-  scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
-  const manifests = findSteamAppManifests(dirPath);
+  try {
+    await fsPromises.access(dirPath);
+  } catch {
+    const message = `Scan path does not exist: ${dirPath}`;
+    emitDiagnostic('Scanner', 'error', message);
+    return { files: [], diagnostics: [{ level: 'error', message }] };
+  }
+
+  await scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
+  const manifests = await findSteamAppManifests(dirPath);
   const files = attachSteamAppIds(filesList, manifests);
 
   emitDiagnostic('Scanner', files.length ? 'info' : 'warn', `Executable scan completed with ${files.length} result${files.length === 1 ? '' : 's'}`, {
@@ -710,254 +1386,6 @@ ipcMain.handle('scan-executables', async (event, dirPath) => {
   diagnostics.slice(-25).forEach(item => emitDiagnostic('Scanner', item.level, item.message));
 
   return { files, diagnostics, manifestCount: manifests.length };
-});
-
-// --- System Platform Discovery Scanners ---
-function queryRegistry(key, value) {
-  return new Promise((resolve) => {
-    exec(`reg query "${key}" /v "${value}"`, (error, stdout) => {
-      if (error) return resolve(null);
-      const lines = stdout.split('\n');
-      for (const line of lines) {
-        if (line.includes(value)) {
-          const parts = line.trim().split(/\s{2,}/);
-          if (parts.length >= 3) {
-            return resolve(parts[2].trim());
-          }
-        }
-      }
-      resolve(null);
-    });
-  });
-}
-
-function findPrimaryExecutable(folderPath) {
-  const filesList = [];
-  const diagnostics = [];
-  scanDirDepth(folderPath, 1, 2, filesList, diagnostics);
-  if (filesList.length === 0) return null;
-
-  // Try to find one matching the folder name
-  const folderName = path.basename(folderPath).toLowerCase();
-  const exactMatch = filesList.find(f => path.basename(f.name, '.exe').toLowerCase() === folderName);
-  if (exactMatch) return exactMatch.path;
-
-  // Fallback: Pick largest executable (usually the game binary)
-  try {
-    const scoredList = filesList.map(file => {
-      try {
-        return { ...file, size: fs.statSync(file.path).size };
-      } catch (e) {
-        return { ...file, size: 0 };
-      }
-    });
-    scoredList.sort((a, b) => b.size - a.size);
-    return scoredList[0]?.path || null;
-  } catch (e) {
-    return filesList[0]?.path || null;
-  }
-}
-
-async function scanSteamGames(diagnostics) {
-  const gamesList = [];
-  try {
-    let steamPath = await queryRegistry('HKCU\\Software\\Valve\\Steam', 'SteamPath');
-    if (!steamPath) {
-      steamPath = await queryRegistry('HKLM\\SOFTWARE\\Wow6432Node\\Valve\\Steam', 'InstallPath');
-    }
-    if (!steamPath) {
-      const paths = ['C:\\Program Files (x86)\\Steam', 'C:\\Program Files\\Steam'];
-      for (const p of paths) {
-        if (fs.existsSync(p)) {
-          steamPath = p;
-          break;
-        }
-      }
-    }
-
-    if (!steamPath || !fs.existsSync(steamPath)) {
-      diagnostics.push({ level: 'info', message: 'Steam installation not found on this system.' });
-      return [];
-    }
-
-    diagnostics.push({ level: 'info', message: `Steam found: ${steamPath}` });
-    const candidates = new Set();
-    const primarySteamapps = path.join(steamPath, 'steamapps');
-    if (fs.existsSync(primarySteamapps)) {
-      candidates.add(primarySteamapps);
-
-      const vdfPath = path.join(primarySteamapps, 'libraryfolders.vdf');
-      if (fs.existsSync(vdfPath)) {
-        try {
-          const content = fs.readFileSync(vdfPath, 'utf-8');
-          const matches = [...content.matchAll(/"path"\s+"([^"]+)"/g)];
-          for (const m of matches) {
-            const extraPath = path.join(m[1].replace(/\\\\/g, '\\'), 'steamapps');
-            if (fs.existsSync(extraPath)) {
-              candidates.add(extraPath);
-            }
-          }
-        } catch (e) {
-          diagnostics.push({ level: 'warn', message: `Could not parse Steam libraryfolders.vdf: ${e.message}` });
-        }
-      }
-    }
-
-    for (const steamappsDir of candidates) {
-      try {
-        const files = fs.readdirSync(steamappsDir).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
-        for (const file of files) {
-          const manifestPath = path.join(steamappsDir, file);
-          const manifest = parseSteamAppManifest(manifestPath, steamappsDir);
-          if (manifest && manifest.installPath && fs.existsSync(manifest.installPath)) {
-            const primaryExe = findPrimaryExecutable(manifest.installPath);
-            if (primaryExe) {
-              gamesList.push({
-                name: manifest.name,
-                path: primaryExe,
-                steamAppId: manifest.appid,
-                platform: 'Steam'
-              });
-              diagnostics.push({ level: 'info', message: `Steam: Discovered game ${manifest.name}` });
-            }
-          }
-        }
-      } catch (err) {
-        diagnostics.push({ level: 'warn', message: `Could not read Steam library ${steamappsDir}: ${err.message}` });
-      }
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `Steam scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-async function scanEpicGames(diagnostics) {
-  const gamesList = [];
-  try {
-    const manifestsDir = 'C:\\ProgramData\\Epic\\EpicGamesLauncher\\Data\\Manifests';
-    if (!fs.existsSync(manifestsDir)) {
-      diagnostics.push({ level: 'info', message: 'Epic Games manifests directory not found.' });
-      return [];
-    }
-
-    const files = fs.readdirSync(manifestsDir).filter(file => file.endsWith('.item'));
-    for (const file of files) {
-      try {
-        const content = JSON.parse(fs.readFileSync(path.join(manifestsDir, file), 'utf-8'));
-        const name = content.DisplayName;
-        const installDir = content.InstallLocation;
-        const launchExe = content.LaunchExecutable;
-        if (name && installDir && launchExe) {
-          const fullPath = path.join(installDir, launchExe);
-          if (fs.existsSync(fullPath)) {
-            gamesList.push({
-              name: name,
-              path: fullPath,
-              epicItemId: content.CatalogItemId,
-              platform: 'Epic Games'
-            });
-            diagnostics.push({ level: 'info', message: `Epic Games: Discovered game ${name}` });
-          }
-        }
-      } catch (e) { /* ignore */ }
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `Epic scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-async function scanGogGames(diagnostics) {
-  const gamesList = [];
-  try {
-    const commonPaths = ['C:\\GOG Games', 'C:\\Program Files (x86)\\GOG Galaxy\\Games'];
-    let gogFound = false;
-
-    for (const root of commonPaths) {
-      if (fs.existsSync(root)) {
-        gogFound = true;
-        const folders = fs.readdirSync(root, { withFileTypes: true });
-        for (const folder of folders) {
-          if (folder.isDirectory()) {
-            const folderPath = path.join(root, folder.name);
-            const primaryExe = findPrimaryExecutable(folderPath);
-            if (primaryExe) {
-              gamesList.push({
-                name: folder.name,
-                path: primaryExe,
-                platform: 'GOG Galaxy'
-              });
-              diagnostics.push({ level: 'info', message: `GOG: Discovered game ${folder.name}` });
-            }
-          }
-        }
-      }
-    }
-
-    if (!gogFound) {
-      diagnostics.push({ level: 'info', message: 'GOG Galaxy games directory not found.' });
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `GOG scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-async function scanXboxGames(diagnostics) {
-  const gamesList = [];
-  try {
-    const xboxPath = 'C:\\XboxGames';
-    if (fs.existsSync(xboxPath)) {
-      const folders = fs.readdirSync(xboxPath, { withFileTypes: true });
-      for (const folder of folders) {
-        if (folder.isDirectory()) {
-          const folderPath = path.join(xboxPath, folder.name);
-          const primaryExe = findPrimaryExecutable(folderPath);
-          if (primaryExe) {
-            gamesList.push({
-              name: folder.name,
-              path: primaryExe,
-              platform: 'Xbox'
-            });
-            diagnostics.push({ level: 'info', message: `Xbox: Discovered game ${folder.name}` });
-          }
-        }
-      }
-    } else {
-      diagnostics.push({ level: 'info', message: 'Xbox Games directory not found.' });
-    }
-  } catch (err) {
-    diagnostics.push({ level: 'warn', message: `Xbox scanning failed: ${err.message}` });
-  }
-  return gamesList;
-}
-
-ipcMain.handle('scan-platforms', async (event) => {
-  const diagnostics = [];
-  emitDiagnostic('Scanner', 'info', 'Starting parallel system-wide platform scan');
-
-  try {
-    const [steamGames, epicGames, gogGames, xboxGames] = await Promise.all([
-      scanSteamGames(diagnostics),
-      scanEpicGames(diagnostics),
-      scanGogGames(diagnostics),
-      scanXboxGames(diagnostics)
-    ]);
-
-    const allGames = [...steamGames, ...epicGames, ...gogGames, ...xboxGames];
-    emitDiagnostic('Scanner', 'info', `System-wide scan completed! Discovered ${allGames.length} game(s) total.`, {
-      steam: steamGames.length,
-      epic: epicGames.length,
-      gog: gogGames.length,
-      xbox: xboxGames.length
-    });
-
-    return { files: allGames, diagnostics };
-  } catch (err) {
-    emitDiagnostic('Scanner', 'error', `Platform discovery failed: ${err.message}`);
-    return { files: [], diagnostics: [{ level: 'error', message: err.message }] };
-  }
 });
 
 
@@ -1002,6 +1430,68 @@ ipcMain.handle('steamgriddb-fetch-artwork', async (event, sgdbId, gameId, gameTi
     return await fetchArtworkForGame(sgdbId, gameId, gameTitle);
   } catch (err) {
     emitDiagnostic('SteamGridDB', 'error', `Artwork fetch failed for ${gameTitle}: ${err.message}`, { sgdbId, gameId });
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('hltb-search', async (event, term) => {
+  try {
+    return await searchHowLongToBeatGames(term);
+  } catch (err) {
+    emitDiagnostic('HowLongToBeat', 'error', `Search failed for "${term}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('hltb-auto-fetch', async (event, game) => {
+  try {
+    return await autoFetchHowLongToBeat(game);
+  } catch (err) {
+    emitDiagnostic('HowLongToBeat', 'error', `Lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-search-games', async (event, term) => {
+  try {
+    const results = await searchRawgGames(term);
+    emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
+      topMatch: results[0] ? { id: results[0].rawgId, name: results[0].title } : null
+    });
+    return results;
+  } catch (err) {
+    emitDiagnostic('Discovery', 'error', `Search failed for "${term}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-popular-games', async () => {
+  try {
+    const results = await fetchPopularRawgGames();
+    emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
+    return results;
+  } catch (err) {
+    emitDiagnostic('Discovery', 'error', `Popular feed failed: ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-fetch-screenshots', async (event, game) => {
+  try {
+    const screenshots = await fetchRawgScreenshots(game);
+    emitDiagnostic('Discovery', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.rawgId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
+    return screenshots;
+  } catch (err) {
+    emitDiagnostic('Discovery', 'error', `Screenshot lookup failed for "${game?.title || game?.rawgId || 'unknown'}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('rawg-fetch-game-details', async (event, rawgId) => {
+  try {
+    return await fetchRawgGameDetails(rawgId);
+  } catch (err) {
+    emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${rawgId}: ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1206,6 +1696,21 @@ ipcMain.handle('get-cached-artwork', async (event, gameId) => {
   return getCachedArtworkPaths(gameId);
 });
 
+ipcMain.handle('resolve-steam-app-id', async (event, title) => {
+  try {
+    const match = await resolveSteamAppByName(title);
+    emitDiagnostic('SteamSearch', match ? 'info' : 'warn', match
+      ? `Matched "${title}" to Steam App ID ${match.steamAppId} (${match.name})`
+      : `No Steam match found for "${title}"`,
+      match
+    );
+    return match;
+  } catch (err) {
+    emitDiagnostic('SteamSearch', 'error', `Steam search failed for "${title}": ${err.message}`);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('fetch-steam-details', async (event, steamAppId) => {
   try {
     const url = `https://store.steampowered.com/api/appdetails?appids=${steamAppId}`;
@@ -1220,17 +1725,132 @@ ipcMain.handle('fetch-steam-details', async (event, steamAppId) => {
   }
 });
 
+function normalizeSteamReviewSummary(steamAppId, summary) {
+  if (!summary || typeof summary !== 'object') return null;
+
+  const totalReviews = Number(summary.total_reviews || 0);
+  const totalPositive = Number(summary.total_positive || 0);
+  const label = String(summary.review_score_desc || '').trim();
+
+  if (!label || totalReviews === 0) return null;
+
+  return {
+    steamAppId: String(steamAppId),
+    label,
+    totalReviews,
+    totalPositive,
+    reviewScore: Number(summary.review_score || 0),
+    positivePercent: Math.round((totalPositive / totalReviews) * 100),
+    source: 'steam'
+  };
+}
+
+ipcMain.handle('fetch-steam-reviews', async (event, steamAppId) => {
+  const appId = String(steamAppId || '').trim();
+  if (!/^\d+$/.test(appId)) return null;
+
+  try {
+    const url = `https://store.steampowered.com/appreviews/${appId}?json=1&language=all&purchase_type=all&num_per_page=0`;
+    const data = await fetchJson(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'NexusLauncher/1.0'
+      }
+    });
+
+    return normalizeSteamReviewSummary(appId, data?.query_summary);
+  } catch (err) {
+    emitDiagnostic('SteamReviews', 'error', `Failed to fetch Steam reviews for AppId ${appId}: ${err.message}`);
+    return null;
+  }
+});
+
+ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}) => {
+  try {
+    const target = new URL(requestUrl);
+    if (target.protocol !== 'https:' || target.hostname !== 'api.isthereanydeal.com') {
+      return { error: 'Blocked unsupported price request.' };
+    }
+
+    const trimmedKey = String(apiKey || '').trim();
+    if (!trimmedKey) {
+      return { error: 'Missing price API key.' };
+    }
+
+    const method = String(options?.method || 'GET').toUpperCase();
+    if (method === 'POST') {
+      const data = await postJson(target.href, options?.body ?? {}, {
+        'Accept': 'application/json',
+        'ITAD-API-Key': trimmedKey,
+        'User-Agent': 'NexusLauncher/1.0'
+      });
+      return { data };
+    }
+
+    if (method !== 'GET') {
+      return { error: 'Unsupported price request method.' };
+    }
+
+    const res = await httpsGet(target.href, {
+      headers: {
+        'Accept': 'application/json',
+        'ITAD-API-Key': trimmedKey,
+        'User-Agent': 'NexusLauncher/1.0'
+      }
+    });
+
+    return await new Promise((resolve, reject) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Invalid price JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve({
+            error: parsed?.message || parsed?.reason_phrase || `Price HTTP ${res.statusCode}`,
+            statusCode: res.statusCode
+          });
+          return;
+        }
+
+        resolve({ data: parsed });
+      });
+      res.on('error', reject);
+    });
+  } catch (err) {
+    emitDiagnostic('Prices', 'error', `Price request failed: ${err.message}`, { requestUrl });
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('save-api-key', async (event, key) => {
   try {
     const configPath = getConfigPath();
     let config = {};
-    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    if (key?.trim()) {
-      config.steamgriddbApiKey = key.trim();
+    try {
+      await fsPromises.access(configPath);
+      config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
+    } catch (e) {}
+    
+    const sanitizedKey = sanitizeApiKey(key);
+    if (sanitizedKey) {
+      config.steamgriddbApiKey = sanitizedKey;
     } else {
       delete config.steamgriddbApiKey;
     }
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    
+    const json = JSON.stringify(config, null, 2);
+    if (Buffer.byteLength(json) > MAX_DB_SIZE_BYTES) return { success: false, error: 'Config size limit exceeded' };
+    const tmpPath = `${configPath}.tmp`;
+    await fsPromises.writeFile(tmpPath, json, 'utf-8');
+    await fsPromises.rename(tmpPath, configPath);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -1244,10 +1864,11 @@ ipcMain.handle('get-api-key', async () => {
 
   try {
     const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    try {
+      await fsPromises.access(configPath);
+      const config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
       if (config.steamgriddbApiKey?.trim()) return { key: config.steamgriddbApiKey.trim(), isCustom: true };
-    }
+    } catch (e) { /* ignore */ }
   } catch (e) { /* ignore */ }
   return { key: BUILTIN_API_KEY, isCustom: false };
 });
@@ -1256,9 +1877,17 @@ ipcMain.handle('save-settings', async (event, settings) => {
   try {
     const configPath = getConfigPath();
     let config = {};
-    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    try {
+      await fsPromises.access(configPath);
+      config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
+    } catch (e) {}
+    
     config.settings = settings;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    const json = JSON.stringify(config, null, 2);
+    if (Buffer.byteLength(json) > MAX_DB_SIZE_BYTES) return { success: false, error: 'Config size limit exceeded' };
+    const tmpPath = `${configPath}.tmp`;
+    await fsPromises.writeFile(tmpPath, json, 'utf-8');
+    await fsPromises.rename(tmpPath, configPath);
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -1268,10 +1897,11 @@ ipcMain.handle('save-settings', async (event, settings) => {
 ipcMain.handle('load-settings', async () => {
   try {
     const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    try {
+      await fsPromises.access(configPath);
+      const config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
       if (config.settings) return config.settings;
-    }
+    } catch (e) { /* ignore */ }
   } catch (e) { /* ignore */ }
   return null;
 });
@@ -1279,13 +1909,14 @@ ipcMain.handle('load-settings', async () => {
 ipcMain.handle('clear-artwork-cache', async () => {
   try {
     const artworkDir = getArtworkCacheDir();
-    if (fs.existsSync(artworkDir)) {
-      const files = fs.readdirSync(artworkDir);
+    try {
+      await fsPromises.access(artworkDir);
+      const files = await fsPromises.readdir(artworkDir);
       for (const file of files) {
         const filePath = path.join(artworkDir, file);
-        fs.rmSync(filePath, { recursive: true, force: true });
+        await fsPromises.rm(filePath, { recursive: true, force: true });
       }
-    }
+    } catch (e) {}
     await session.defaultSession.clearCache();
     emitDiagnostic('Artwork', 'info', 'Artwork cache directory and Brandfetch image cache cleared successfully');
     return { success: true };

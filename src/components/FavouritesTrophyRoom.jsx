@@ -216,6 +216,7 @@ export default function FavouritesTrophyRoom({
                   role="button"
                   tabIndex={0}
                   aria-selected={isSelected}
+                  data-controller-item="true"
                   data-controller-confirm-label={`Select ${game.title}`}
                   data-controller-selected={isSelected ? 'true' : undefined}
                   onClick={() => handleSelect(game)}
@@ -643,7 +644,7 @@ const roomStyles = `
     flex-shrink: 0;
     overflow: hidden;
     cursor: pointer;
-    transition: all 0.4s var(--ease-ps5);
+    transition: all 0.4s var(--ease-interface);
   }
 
   /* Active Card layout */
@@ -667,9 +668,16 @@ const roomStyles = `
     opacity: 0.5;
   }
 
-  .fav-game-card.inactive-card:hover {
+  .fav-game-card.inactive-card:hover,
+  .fav-game-card.inactive-card:focus {
     opacity: 0.85;
     transform: translateY(-4px);
+  }
+
+  .fav-game-card.active-card:hover,
+  .fav-game-card.active-card:focus {
+    transform: translateY(-5px) scale(1.015);
+    box-shadow: 0px 0px 38px rgba(var(--accent-color-rgb), 0.26);
   }
 
   .card-cover-image {

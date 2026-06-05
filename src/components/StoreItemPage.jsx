@@ -1124,7 +1124,91 @@ export default function StoreItemPage({
     setItadOAuthStatus(getItadOAuthStatus());
   };
 
-  const aboutText = activeItem.description;
+  const aboutText = (() => {
+    // Strip HTML tags from Steam descriptions (they contain markup)
+    const strip = (html) => {
+      if (!html) return '';
+      return String(html)
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&rsquo;/g, "'")
+        .replace(/&lsquo;/g, "'")
+        .replace(/&rdquo;/g, '"')
+        .replace(/&ldquo;/g, '"')
+        .replace(/&mdash;/g, '—')
+        .replace(/&ndash;/g, '–')
+        .replace(/&hellip;/g, '...')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    };
+
+    // Check if a description is a real description (not a placeholder or generic stub)
+    const isReal = (text) => {
+      if (!text || typeof text !== 'string') return false;
+      const t = text.trim();
+      if (t.length < 20) return false;
+      if (t.startsWith('Open details to load')) return false;
+      if (t.startsWith('Your scanned copy of')) return false;
+      if (t.startsWith('A local executable found at')) return false;
+      if (t === 'No description available for this title.') return false;
+      return true;
+    };
+
+    // Gather Steam details from component state OR from cache prop directly
+    const sd = steamDetails || cachedDetails?.steamDetails || null;
+
+    // Priority 1: Steam detailed_description (richest source)
+    const steamDetailed = strip(sd?.detailed_description);
+    if (isReal(steamDetailed)) return steamDetailed;
+
+    // Priority 2: Steam about_the_game (another rich field)
+    const steamAbout = strip(sd?.about_the_game);
+    if (isReal(steamAbout)) return steamAbout;
+
+    // Priority 3: Steam short_description
+    const steamShort = strip(sd?.short_description);
+    if (isReal(steamShort)) return steamShort;
+
+    // Priority 4: RAWG details description (from enrichment or cache)
+    const rawgDesc = rawgDetails?.description || cachedDetails?.rawgDetails?.description;
+    if (isReal(rawgDesc)) return rawgDesc;
+
+    // Priority 5: Item's own description (ITAD deal text, etc.)
+    const itemDesc = activeItem?.description;
+    if (isReal(itemDesc)) return itemDesc;
+
+    return null;
+  })();
+
+  // Debug: Log description sources on each render to diagnose empty descriptions
+  console.log('[StoreItemPage] Description debug:', {
+    title: activeItem?.title,
+    aboutTextLength: aboutText?.length || 0,
+    aboutTextPreview: aboutText?.slice(0, 60) || '(null)',
+    steamDetailsLoaded: !!steamDetails,
+    cachedSteamDetails: !!cachedDetails?.steamDetails,
+    steamDetailed: !!(steamDetails?.detailed_description || cachedDetails?.steamDetails?.detailed_description),
+    steamShort: !!(steamDetails?.short_description || cachedDetails?.steamDetails?.short_description),
+    rawgDetailsLoaded: !!rawgDetails,
+    cachedRawgDetails: !!cachedDetails?.rawgDetails,
+    rawgDesc: !!(rawgDetails?.description || cachedDetails?.rawgDetails?.description),
+    itemDesc: activeItem?.description?.slice(0, 60) || '(none)',
+    itemSource: item?.source,
+    steamMetadataLoaded,
+    loadingRawgDetails,
+    effectiveSteamAppId,
+    cacheStatus: cachedDetails?.status
+  });
+
+  // Description is loading if we haven't finished fetching enrichment data yet
+  const descriptionLoading = !aboutText && (!steamMetadataLoaded || loadingRawgDetails);
 
   return (
     <div className="store-item-viewport">
@@ -1181,7 +1265,12 @@ export default function StoreItemPage({
           <h3 className="store-item-section-title">About This Game</h3>
           {loadingRawgDetails && <div className="rawg-status-line">Loading game profile...</div>}
           {rawgDetailsError && <div className="rawg-status-line error">Game details unavailable: {rawgDetailsError}</div>}
-          <p className="store-item-description">{aboutText}</p>
+          {descriptionLoading && !loadingRawgDetails && (
+            <div className="rawg-status-line">Loading description...</div>
+          )}
+          <p className="store-item-description">
+            {aboutText || (descriptionLoading ? '' : 'No description available for this title.')}
+          </p>
 
           <div className="store-item-showcase-row">
             <div className="store-item-screenshots-panel">
@@ -1769,11 +1858,25 @@ export default function StoreItemPage({
           margin-bottom: 22px;
           letter-spacing: 0.3px;
           white-space: pre-line;
+          flex-shrink: 0;
           overflow-y: auto;
-          max-height: 8em;
+          max-height: 10em;
           padding-right: 8px;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0);
+        }
+
+        .store-item-description::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .store-item-description::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .store-item-description::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
         }
 
         .rawg-status-line {

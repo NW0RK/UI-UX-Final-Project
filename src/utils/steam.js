@@ -67,22 +67,6 @@ export async function fetchSteamDetailsBrowser(steamAppId) {
   return data?.[appId]?.success ? data[appId].data : null;
 }
 
-export function cleanSteamDescription(value) {
-  if (!value) return '';
-  const withLineBreaks = String(value)
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/li>/gi, '\n');
-
-  if (typeof document !== 'undefined') {
-    const node = document.createElement('div');
-    node.innerHTML = withLineBreaks;
-    return node.textContent.replace(/\n{3,}/g, '\n\n').trim();
-  }
-
-  return withLineBreaks.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
 export function normalizeSteamReviewSummary(steamAppId, summary) {
   if (!summary || typeof summary !== 'object') return null;
 

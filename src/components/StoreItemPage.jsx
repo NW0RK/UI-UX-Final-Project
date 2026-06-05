@@ -5,7 +5,7 @@ import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 import { getSteamReviewScore } from '../utils/steamReviews';
 import { fetchRawgGameDetailsBrowser, fetchRawgScreenshotsBrowser } from '../utils/rawg';
-import { cleanSteamDescription, fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
 
 const HIGHCHARTS_VERSION = '12.6.0';
 let highchartsLoaderPromise = null;
@@ -250,7 +250,6 @@ export default function StoreItemPage({
   const [itadApiKeySaved, setItadApiKeySaved] = useState(false);
   const [itadApiKeyRevision, setItadApiKeyRevision] = useState(0);
   const [syncingItad, setSyncingItad] = useState(false);
-  const [steamDescription, setSteamDescription] = useState('');
   const [resolvedSteamAppId, setResolvedSteamAppId] = useState(null);
   const [steamDetails, setSteamDetails] = useState(null);
   const [steamReviewScore, setSteamReviewScore] = useState(null);
@@ -396,14 +395,6 @@ export default function StoreItemPage({
         setSteamReviewScore(cachedDetails.steamReviewScore || null);
       }
 
-      const steamAbout = cleanSteamDescription(
-        cachedDetails.steamDetails?.about_the_game ||
-        cachedDetails.steamDetails?.detailed_description ||
-        cachedDetails.steamDetails?.short_description
-      );
-      if (steamAbout) {
-        setSteamDescription(steamAbout);
-      }
       setSteamMetadataLoaded(true);
       return () => { active = false; };
     }
@@ -434,12 +425,6 @@ export default function StoreItemPage({
           steamMetadataLoaded: true
         }, effectiveSteamAppId);
 
-        const steamAbout = cleanSteamDescription(
-          details?.about_the_game || details?.detailed_description || details?.short_description
-        );
-        if (steamAbout) {
-          setSteamDescription(steamAbout);
-        }
       } catch (error) {
         console.warn('Steam metadata lookup failed:', error);
       } finally {
@@ -505,10 +490,6 @@ export default function StoreItemPage({
   useEffect(() => {
     if (!activeItem) return;
     let active = true;
-    const steamAbout = cleanSteamDescription(
-      steamDetails?.about_the_game || steamDetails?.detailed_description || steamDetails?.short_description
-    );
-    setSteamDescription(steamAbout || activeItem.description || '');
 
     if (cachedDetails?.mediaLoaded && cachedDetails.media && cachedDetails.mediaSource !== 'fallback') {
       setMedia(cachedDetails.media);
@@ -1143,7 +1124,7 @@ export default function StoreItemPage({
     setItadOAuthStatus(getItadOAuthStatus());
   };
 
-  const aboutText = steamDescription || activeItem.description;
+  const aboutText = activeItem.description;
 
   return (
     <div className="store-item-viewport">

@@ -18,7 +18,7 @@ import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
 import { fetchItadBestDeals } from './utils/itad';
 import { fetchRawgGameDetailsBrowser, fetchRawgPopularGamesBrowser, fetchRawgScreenshotsBrowser, searchRawgGamesBrowser } from './utils/rawg';
-import { cleanSteamDescription, fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -705,7 +705,7 @@ export default function App() {
       item?.source === 'rawg' &&
       item.title &&
       !storeSteamMetadataHydratedRef.current.has(item.id) &&
-      (!item.steamAppId || !item.steamReviewScore || !item.steamDescriptionSourced)
+      (!item.steamAppId || !item.steamReviewScore)
     ));
     if (candidates.length === 0) return;
 
@@ -732,7 +732,6 @@ export default function App() {
             steamAppId = match?.steamAppId || null;
           }
 
-          let steamDescription = '';
           let reviewScore = item.steamReviewScore || null;
           if (steamAppId && !reviewScore) {
             reviewScore = window.electronAPI?.fetchSteamReviews
@@ -740,27 +739,14 @@ export default function App() {
               : await fetchSteamReviewSummaryBrowser(steamAppId);
           }
 
-          if (steamAppId && !item.steamDescriptionSourced) {
-            const details = window.electronAPI?.fetchSteamDetails
-              ? await window.electronAPI.fetchSteamDetails(steamAppId)
-              : await fetchSteamDetailsBrowser(steamAppId);
-            steamDescription = cleanSteamDescription(
-              details?.about_the_game || details?.detailed_description || details?.short_description
-            );
-          }
-
           if (cancelled) return;
 
-          if (steamAppId || reviewScore?.label || steamDescription) {
+          if (steamAppId || reviewScore?.label) {
             updates[item.id] = {
               steamAppId,
               steamReviewScore: reviewScore || item.steamReviewScore || null,
               steamMatchName: match?.name || item.steamMatchName || null,
-              steamMatchScore: match?.matchScore ?? item.steamMatchScore ?? null,
-              ...(steamDescription ? {
-                description: steamDescription,
-                steamDescriptionSourced: true
-              } : {})
+              steamMatchScore: match?.matchScore ?? item.steamMatchScore ?? null
             };
           }
         } catch (error) {

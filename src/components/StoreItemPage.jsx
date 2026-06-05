@@ -887,12 +887,12 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           </div>
         )}
         <div className="store-item-banner-overlay" />
+        <div className="store-item-banner-tags">
+          {activeItem.tags?.map((tag, idx) => (
+            <span key={idx} className="store-item-tag">{tag}</span>
+          ))}
+        </div>
         <div className="store-item-banner-content">
-          <div className="store-item-banner-tags">
-            {activeItem.tags?.map((tag, idx) => (
-              <span key={idx} className="store-item-tag">{tag}</span>
-            ))}
-          </div>
           <h1 className="store-item-title">{activeItem.title}</h1>
           <div className="store-item-meta">
             <span>{activeItem.developer}</span>
@@ -1308,7 +1308,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .store-item-banner {
           position: relative;
           width: 100%;
-          height: 280px;
+          height: 360px;
           border-radius: 16px;
           overflow: hidden;
           margin-bottom: 20px;
@@ -1353,9 +1353,13 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         }
 
         .store-item-banner-tags {
+          position: absolute;
+          top: 20px;
+          left: 20px;
           display: flex;
+          flex-wrap: wrap;
           gap: 8px;
-          margin-bottom: 8px;
+          max-width: calc(100% - 40px);
         }
 
         .store-item-tag {
@@ -2295,7 +2299,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
         @media (max-width: 680px) {
           .store-item-banner {
-            height: 220px;
+            height: 280px;
           }
 
           .store-item-title {

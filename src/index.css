@@ -115,6 +115,7 @@ body.controller-navigation-active :where(
 }
 
 body.controller-navigation-active .store-card:focus,
+body.controller-navigation-active .store-feed-card:focus,
 body.controller-navigation-active .fav-game-card:focus,
 body.controller-navigation-active .media-grid-card:focus,
 body.controller-navigation-active .result-item-row:focus,

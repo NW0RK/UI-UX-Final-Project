@@ -113,6 +113,7 @@ export default function StoreGrid({
       className={`store-feed-card ${isOwned(item) ? 'owned' : ''} ${item.source === 'itad' ? 'deal-card' : ''}`}
       role="button"
       tabIndex={0}
+      data-controller-item="true"
       data-controller-confirm-label={`View ${item.title}`}
       data-controller-default={section === 'popular' && index === 0 ? 'true' : undefined}
       onClick={() => handleItemClick(item)}
@@ -137,6 +138,7 @@ export default function StoreGrid({
       className={`store-card ${isOwned(item) ? 'owned' : ''} ${item.source ? 'external-source' : ''}`}
       role="button"
       tabIndex={0}
+      data-controller-item="true"
       data-controller-confirm-label={`View ${item.title}`}
       data-controller-default={index === 0 ? 'true' : undefined}
       onClick={() => handleItemClick(item)}
@@ -206,9 +208,11 @@ export default function StoreGrid({
             <div className="store-feed-heading">
               <div>
                 <span className="store-feed-kicker">RAWG</span>
-                <h2>Popular Video Games</h2>
+                <div className="store-feed-title-row">
+                  <h2>Popular Video Games</h2>
+                  <Flame size={18} />
+                </div>
               </div>
-              <Flame size={18} />
             </div>
             <div className="store-feed-list">
               {popularGames.length > 0
@@ -221,9 +225,11 @@ export default function StoreGrid({
             <div className="store-feed-heading">
               <div>
                 <span className="store-feed-kicker">IsThereAnyDeal</span>
-                <h2>Best Deals</h2>
+                <div className="store-feed-title-row">
+                  <h2>Best Deals</h2>
+                  <BadgePercent size={18} />
+                </div>
               </div>
-              <BadgePercent size={18} />
             </div>
             <div className="store-feed-list">
               {dealGames.length > 0
@@ -294,12 +300,23 @@ export default function StoreGrid({
           gap: 14px;
         }
 
+        .store-feed-column + .store-feed-column {
+          padding-left: 24px;
+          border-left: 3px solid rgba(var(--accent-color-rgb), 0.24);
+        }
+
         .store-feed-heading {
           display: flex;
           align-items: flex-end;
-          justify-content: space-between;
+          justify-content: flex-start;
           gap: 14px;
           padding: 0 4px 4px;
+        }
+
+        .store-feed-title-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .store-feed-kicker {
@@ -322,18 +339,18 @@ export default function StoreGrid({
         }
 
         .store-feed-list {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+          align-content: start;
+          gap: 16px;
           min-height: 260px;
         }
 
         .store-feed-card {
-          min-height: 138px;
-          display: grid;
-          grid-template-columns: 92px minmax(0, 1fr);
-          gap: 14px;
-          padding: 10px;
+          min-height: 310px;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
           border-radius: 8px;
           border: 1px solid rgba(255, 255, 255, 0.06);
           background: rgba(255, 255, 255, 0.025);
@@ -368,8 +385,8 @@ export default function StoreGrid({
         }
 
         .store-feed-card .store-card-image-wrapper {
-          height: 118px;
-          aspect-ratio: auto;
+          aspect-ratio: 16 / 10;
+          border-radius: 8px 8px 0 0;
         }
 
         .store-card-image {
@@ -425,6 +442,11 @@ export default function StoreGrid({
           gap: 6px;
         }
 
+        .store-feed-card-info {
+          flex: 1;
+          padding: 12px;
+        }
+
         .store-card-topline {
           min-height: 20px;
           display: flex;
@@ -476,7 +498,12 @@ export default function StoreGrid({
         }
 
         .store-feed-card .store-card-title {
+          display: -webkit-box;
+          white-space: normal;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
           font-size: var(--fs-14);
+          line-height: 1.2;
         }
 
         .store-card-developer {
@@ -627,6 +654,13 @@ export default function StoreGrid({
             grid-template-columns: 1fr;
           }
 
+          .store-feed-column + .store-feed-column {
+            padding-top: 22px;
+            padding-left: 0;
+            border-top: 3px solid rgba(var(--accent-color-rgb), 0.24);
+            border-left: 0;
+          }
+
           .store-header {
             align-items: flex-start;
             flex-direction: column;
@@ -635,13 +669,16 @@ export default function StoreGrid({
         }
 
         @media (max-width: 560px) {
+          .store-feed-list {
+            grid-template-columns: 1fr;
+          }
+
           .store-feed-card {
-            grid-template-columns: 74px minmax(0, 1fr);
-            gap: 10px;
+            min-height: 0;
           }
 
           .store-feed-card .store-card-image-wrapper {
-            height: 104px;
+            aspect-ratio: 16 / 9;
           }
 
           .store-deal-meta strong {

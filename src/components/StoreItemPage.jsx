@@ -5,6 +5,7 @@ import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 import { getSteamReviewScore } from '../utils/steamReviews';
 import { fetchRawgGameDetailsBrowser, fetchRawgScreenshotsBrowser } from '../utils/rawg';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
 
 const HIGHCHARTS_VERSION = '12.6.0';
 let highchartsLoaderPromise = null;
@@ -254,6 +255,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const [itadApiKeyRevision, setItadApiKeyRevision] = useState(0);
   const [syncingItad, setSyncingItad] = useState(false);
   const [steamDescription, setSteamDescription] = useState('');
+  const [resolvedSteamAppId, setResolvedSteamAppId] = useState(null);
+  const [steamDetails, setSteamDetails] = useState(null);
+  const [steamReviewScore, setSteamReviewScore] = useState(null);
+  const [steamLookupStatus, setSteamLookupStatus] = useState('idle');
+  const [steamMetadataLoaded, setSteamMetadataLoaded] = useState(false);
   const [rawgDetails, setRawgDetails] = useState(null);
   const [loadingRawgDetails, setLoadingRawgDetails] = useState(false);
   const [rawgDetailsError, setRawgDetailsError] = useState(null);
@@ -265,6 +271,90 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const highchartsInstanceRef = useRef(null);
   const activeItem = rawgDetails ? { ...item, ...rawgDetails, owned: item?.owned || rawgDetails.owned } : item;
   const isRawgItem = activeItem?.source === 'rawg';
+  const effectiveSteamAppId = resolvedSteamAppId || activeItem?.steamAppId || null;
+  const steamBackedItem = activeItem ? {
+    ...activeItem,
+    steamAppId: effectiveSteamAppId,
+    steamReviewScore: steamReviewScore || activeItem.steamReviewScore || null
+  } : activeItem;
+
+  useEffect(() => {
+    if (!item) return;
+
+    let active = true;
+    setSteamDetails(null);
+    setSteamReviewScore(null);
+    setSteamMetadataLoaded(false);
+
+    const savedAppId = String(item.steamAppId || '').trim();
+    if (/^\d+$/.test(savedAppId)) {
+      setResolvedSteamAppId(savedAppId);
+      setSteamLookupStatus('ready');
+      return () => { active = false; };
+    }
+
+    setResolvedSteamAppId(null);
+    setSteamLookupStatus('loading');
+
+    const resolver = window.electronAPI?.resolveSteamAppId
+      ? window.electronAPI.resolveSteamAppId(item.title)
+      : resolveSteamAppIdBrowser(item.title);
+
+    resolver
+      .then((match) => {
+        if (!active) return;
+        if (match?.error) {
+          setSteamLookupStatus('error');
+          return;
+        }
+
+        setResolvedSteamAppId(match?.steamAppId || null);
+        setSteamLookupStatus(match?.steamAppId ? 'ready' : 'missing');
+      })
+      .catch((error) => {
+        console.warn('Steam App ID lookup failed:', error);
+        if (active) setSteamLookupStatus('error');
+      });
+
+    return () => { active = false; };
+  }, [item?.id, item?.title, item?.steamAppId]);
+
+  useEffect(() => {
+    if (!effectiveSteamAppId) return;
+    let active = true;
+
+    async function loadSteamMetadata() {
+      try {
+        const [details, reviews] = await Promise.all([
+          window.electronAPI?.fetchSteamDetails
+            ? window.electronAPI.fetchSteamDetails(effectiveSteamAppId)
+            : fetchSteamDetailsBrowser(effectiveSteamAppId),
+          window.electronAPI?.fetchSteamReviews
+            ? window.electronAPI.fetchSteamReviews(effectiveSteamAppId)
+            : fetchSteamReviewSummaryBrowser(effectiveSteamAppId)
+        ]);
+
+        if (!active) return;
+
+        setSteamDetails(details || null);
+        setSteamReviewScore(reviews || null);
+
+        const steamAbout = cleanSteamDescription(
+          details?.about_the_game || details?.detailed_description || details?.short_description
+        );
+        if (steamAbout) {
+          setSteamDescription(steamAbout);
+        }
+      } catch (error) {
+        console.warn('Steam metadata lookup failed:', error);
+      } finally {
+        if (active) setSteamMetadataLoaded(true);
+      }
+    }
+
+    loadSteamMetadata();
+    return () => { active = false; };
+  }, [effectiveSteamAppId]);
 
   useEffect(() => {
     if (!item?.rawgId || item.source !== 'rawg') {
@@ -305,7 +395,10 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   useEffect(() => {
     if (!activeItem) return;
     let active = true;
-    setSteamDescription(activeItem.description || '');
+    const steamAbout = cleanSteamDescription(
+      steamDetails?.about_the_game || steamDetails?.detailed_description || steamDetails?.short_description
+    );
+    setSteamDescription(steamAbout || activeItem.description || '');
 
     async function fetchRawgScreenshotFallback() {
       try {
@@ -330,7 +423,44 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     async function loadMedia() {
       setLoadingMedia(true);
 
-      if (activeItem.source === 'rawg') {
+      if (effectiveSteamAppId && !steamDetails && !steamMetadataLoaded && steamLookupStatus !== 'error') {
+        setMedia({ screenshots: [], movies: [] });
+        setSelectedMedia(null);
+        setLoadingMedia(false);
+        return;
+      }
+
+      if (steamDetails && (steamDetails.screenshots?.length || steamDetails.movies?.length)) {
+        const screenshots = steamDetails.screenshots || [];
+        const movies = steamDetails.movies || [];
+        setMedia({ screenshots, movies });
+        if (movies.length > 0) {
+          setSelectedMedia({
+            type: 'video',
+            url: movies[0].mp4?.max || movies[0].mp4?.['480'] || movies[0].webm?.max,
+            thumbnail: movies[0].thumbnail
+          });
+        } else if (screenshots.length > 0) {
+          setSelectedMedia({ type: 'image', url: screenshots[0].path_full });
+        } else {
+          setSelectedMedia(null);
+        }
+        setLoadingMedia(false);
+        return;
+      }
+
+      if (effectiveSteamAppId) {
+        const steamImage = getSteamStoreBannerUrl(steamDetails, effectiveSteamAppId);
+        const screenshots = steamImage
+          ? [{ id: 'steam-hero', path_full: steamImage, path_thumbnail: steamImage }]
+          : [];
+        setMedia({ screenshots, movies: [] });
+        setSelectedMedia(screenshots.length ? { type: 'image', url: screenshots[0].path_full } : null);
+        setLoadingMedia(false);
+        return;
+      }
+
+      if (!effectiveSteamAppId && activeItem.source === 'rawg') {
         const rawgImage = activeItem.bannerUrl || activeItem.coverUrl;
         const rawgScreenshots = await fetchRawgScreenshotFallback();
         if (!active) return;
@@ -346,51 +476,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         return;
       }
 
-      let fetchedData = null;
-
-      if (activeItem.steamAppId) {
-        if (window.electronAPI?.fetchSteamDetails) {
-          try {
-            fetchedData = await window.electronAPI.fetchSteamDetails(activeItem.steamAppId);
-          } catch (e) {
-            console.error("Failed to fetch steam details via IPC:", e);
-          }
-        } else {
-          try {
-            const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${activeItem.steamAppId}`);
-            const json = await res.json();
-            if (json && json[activeItem.steamAppId]?.success) {
-              fetchedData = json[activeItem.steamAppId].data;
-            }
-          } catch (e) {
-            console.error("CORS or network error fetching steam details in browser sandbox:", e);
-          }
-        }
-      }
-
       if (!active) return;
 
-      const steamAbout = cleanSteamDescription(
-        fetchedData?.about_the_game || fetchedData?.detailed_description || fetchedData?.short_description
-      );
-      setSteamDescription(steamAbout || activeItem.description || '');
-
-      if (fetchedData && (fetchedData.screenshots?.length || fetchedData.movies?.length)) {
-        const screenshots = fetchedData.screenshots || [];
-        const movies = fetchedData.movies || [];
-        setMedia({ screenshots, movies });
-        if (movies.length > 0) {
-          setSelectedMedia({
-            type: 'video',
-            url: movies[0].mp4?.max || movies[0].mp4?.['480'] || movies[0].webm?.max,
-            thumbnail: movies[0].thumbnail
-          });
-        } else if (screenshots.length > 0) {
-          setSelectedMedia({ type: 'image', url: screenshots[0].path_full });
-        } else {
-          setSelectedMedia(null);
-        }
-      } else {
+      if (!effectiveSteamAppId) {
         const rawgScreenshots = await fetchRawgScreenshotFallback();
         if (!active) return;
 
@@ -416,7 +504,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     loadMedia();
     return () => { active = false; };
-  }, [activeItem?.id, activeItem?.source, activeItem?.steamAppId, activeItem?.rawgId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl]);
+  }, [activeItem?.id, activeItem?.source, activeItem?.rawgId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl, effectiveSteamAppId, steamDetails, steamLookupStatus, steamMetadataLoaded]);
 
   useEffect(() => {
     if (typeof MutationObserver === 'undefined') return undefined;
@@ -453,12 +541,12 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   }, [lightboxIndex, media.screenshots]);
 
   useEffect(() => {
-    if (!activeItem || isRawgItem) return;
+    if (!steamBackedItem) return;
     let active = true;
 
     async function loadItadInsights() {
       setLoadingItad(true);
-      const insights = await getItadStoreInsights(activeItem);
+      const insights = await getItadStoreInsights(steamBackedItem);
       if (!active) return;
       setItadInsights(insights);
       setLoadingItad(false);
@@ -466,11 +554,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     loadItadInsights();
     return () => { active = false; };
-  }, [activeItem?.id, activeItem?.steamAppId, isRawgItem, itadApiKeyRevision]);
+  }, [activeItem?.id, effectiveSteamAppId, itadApiKeyRevision]);
 
 
   useEffect(() => {
-    if (!activeItem || isRawgItem) return;
+    if (!steamBackedItem) return;
     let active = true;
 
     highchartsInstanceRef.current?.destroy();
@@ -478,7 +566,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     setItadGameId(null);
     setChartPoints([]);
 
-    if (!activeItem.steamAppId) {
+    if (!steamBackedItem.steamAppId) {
       setHighchartsStatus('Missing Steam App ID for price history.');
       return () => { active = false; };
     }
@@ -490,7 +578,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
     setHighchartsStatus('Matching Steam App ID with price history...');
 
-    lookupItadGameBySteamAppId(activeItem.steamAppId)
+    lookupItadGameBySteamAppId(steamBackedItem.steamAppId)
       .then((lookup) => {
         if (!active) return;
         setItadGameId(lookup.id);
@@ -501,7 +589,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       });
 
     return () => { active = false; };
-  }, [activeItem?.id, activeItem?.steamAppId, isRawgItem, itadApiKeyRevision]);
+  }, [activeItem?.id, effectiveSteamAppId, itadApiKeyRevision]);
 
   useEffect(() => {
     if (!itadGameId) return;
@@ -784,11 +872,13 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   );
   const isOwned = !!ownedGame;
   const hasExe = isOwned && ownedGame.exePath;
-  const reviewScore = getSteamReviewScore(activeItem.steamReviewScore || activeItem.rating);
+  const reviewScore = steamBackedItem?.steamReviewScore ? getSteamReviewScore(steamBackedItem.steamReviewScore) : null;
+  const steamBannerUrl = getSteamStoreBannerUrl(steamDetails, effectiveSteamAppId);
+  const displayBannerUrl = steamBannerUrl || (!isRawgItem ? activeItem.bannerUrl : null);
 
   const handleMarkOwnedClick = () => {
     audioEngine.playClickPulse();
-    onMarkOwned(activeItem);
+    onMarkOwned(steamBackedItem || activeItem);
   };
 
   const handleBrowseExe = () => {
@@ -879,11 +969,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
 
       {/* Banner Section */}
       <div className="store-item-banner">
-        {activeItem.bannerUrl ? (
-          <img src={activeItem.bannerUrl} alt={activeItem.title} className="store-item-banner-img" />
+        {displayBannerUrl ? (
+          <img src={displayBannerUrl} alt={activeItem.title} className="store-item-banner-img" />
         ) : (
           <div className="store-item-banner-img store-item-banner-placeholder">
-            <span>SteamGridDB artwork pending</span>
+            <span>{steamLookupStatus === 'loading' ? 'Matching Steam artwork' : 'Steam artwork unavailable'}</span>
           </div>
         )}
         <div className="store-item-banner-overlay" />
@@ -908,9 +998,11 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             )}
           </div>
           <div className="store-item-review-score">
-            <span>{isRawgItem ? 'Community Rating' : 'Steam Reviews'}</span>
-            <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
-            {reviewScore.source === 'steam' && reviewScore.totalReviews > 0 && (
+            <span>Steam Reviews</span>
+            <strong className={`steam-review-score ${reviewScore?.className || 'unavailable'}`}>
+              {reviewScore?.label || (effectiveSteamAppId ? 'Loading Steam Reviews' : 'Steam Match Pending')}
+            </strong>
+            {reviewScore?.source === 'steam' && reviewScore.totalReviews > 0 && (
               <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} user reviews</small>
             )}
           </div>
@@ -1043,19 +1135,18 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             </div>
           </div>
 
-          {!isRawgItem && (
           <div className="itad-panel">
             <div className="itad-panel-header">
               <div>
                 <h3 className="store-item-section-title">
                   <LineChart size={16} />
-                  <span>Price Intelligence</span>
+                  <span>ITAD Price History Chart</span>
                 </h3>
                 <p className="itad-source">{loadingItad ? 'Checking prices...' : itadInsights?.source}</p>
               </div>
               <div className="itad-appid-pill">
                 <span>Steam App ID</span>
-                <strong>{activeItem.steamAppId || 'Unavailable'}</strong>
+                <strong>{effectiveSteamAppId || 'Unavailable'}</strong>
               </div>
             </div>
 
@@ -1091,7 +1182,6 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               </>
             )}
           </div>
-          )}
 
           {/* Fullscreen Lightbox Modal */}
           {lightboxIndex !== -1 && media.screenshots && media.screenshots[lightboxIndex] && (
@@ -1226,7 +1316,6 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             )}
           </div>
 
-          {!isRawgItem && (
           <div className="itad-sync-card">
             <div className="itad-sync-title">
               <KeyRound size={16} />
@@ -1256,7 +1345,6 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               <span>{syncingItad ? 'Syncing...' : itadOAuthStatus.isConnected ? 'Sync Now' : itadOAuthStatus.hasClientId ? 'Start OAuth' : 'Register App'}</span>
               </button>
             </div>
-          )}
           </div>
       </div>
 
@@ -1457,6 +1545,10 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         .steam-review-score.very-negative,
         .steam-review-score.overwhelmingly-negative {
           color: #ef4444;
+        }
+
+        .steam-review-score.unavailable {
+          color: rgba(255, 255, 255, 0.5);
         }
 
         .store-item-body {

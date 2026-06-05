@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   autoFetchArtwork: (game) => ipcRenderer.invoke('steamgriddb-auto-fetch-artwork', game),
   getCachedArtwork: (gameId) => ipcRenderer.invoke('get-cached-artwork', gameId),
   clearArtworkCache: () => ipcRenderer.invoke('clear-artwork-cache'),
+  resolveSteamAppId: (title) => ipcRenderer.invoke('resolve-steam-app-id', title),
   fetchSteamDetails: (steamAppId) => ipcRenderer.invoke('fetch-steam-details', steamAppId),
   fetchSteamReviews: (steamAppId) => ipcRenderer.invoke('fetch-steam-reviews', steamAppId),
   fetchItadJson: (url, apiKey, options) => ipcRenderer.invoke('itad-fetch-json', url, apiKey, options),

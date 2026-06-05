@@ -18,6 +18,7 @@ import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
 import { fetchItadBestDeals } from './utils/itad';
 import { fetchRawgPopularGamesBrowser, searchRawgGamesBrowser } from './utils/rawg';
+import { fetchSteamReviewSummaryBrowser, resolveSteamAppIdBrowser } from './utils/steam';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -86,6 +87,7 @@ export default function App() {
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
   const storeReviewsHydratedRef = useRef(false);
+  const storeSteamMetadataHydratedRef = useRef(new Set());
   const popularStoreHydratedRef = useRef(false);
   const itadDealsHydratedRef = useRef(false);
   const hltbLookupAttemptedRef = useRef(new Set());
@@ -119,7 +121,7 @@ export default function App() {
           if (loadedData && Array.isArray(loadedData) && loadedData.length > 0) {
             const hydratedData = loadedData.map(applySeededHltbToGame);
             setGames(hydratedData);
-            setSelectedGame(hydratedData[0]);
+            setSelectedGame(hydratedData[0] || null);
             if (JSON.stringify(hydratedData) !== JSON.stringify(loadedData)) {
               await window.electronAPI.saveDatabase(hydratedData);
             }
@@ -127,14 +129,14 @@ export default function App() {
             // Save defaults if file is empty
             const seededDefaults = defaultGames.map(applySeededHltbToGame);
             setGames(seededDefaults);
-            setSelectedGame(seededDefaults[0]);
+            setSelectedGame(seededDefaults[0] || null);
             await window.electronAPI.saveDatabase(seededDefaults);
           }
         } catch (e) {
           console.error("Database load error, falling back to mock:", e);
           const seededDefaults = defaultGames.map(applySeededHltbToGame);
           setGames(seededDefaults);
-          setSelectedGame(seededDefaults[0]);
+          setSelectedGame(seededDefaults[0] || null);
         }
       } else {
         // Web Browser Sandbox Loading
@@ -142,12 +144,12 @@ export default function App() {
         if (localCache) {
           const parsed = JSON.parse(localCache).map(applySeededHltbToGame);
           setGames(parsed);
-          setSelectedGame(parsed[0]);
+          setSelectedGame(parsed[0] || null);
           localStorage.setItem('nexus_games_cache', JSON.stringify(parsed));
         } else {
           const seededDefaults = defaultGames.map(applySeededHltbToGame);
           setGames(seededDefaults);
-          setSelectedGame(seededDefaults[0]);
+          setSelectedGame(seededDefaults[0] || null);
         }
       }
     }
@@ -387,20 +389,7 @@ export default function App() {
           if (window.electronAPI?.fetchSteamReviews) {
             reviewScore = await window.electronAPI.fetchSteamReviews(item.steamAppId);
           } else {
-            const res = await fetch(`https://store.steampowered.com/appreviews/${item.steamAppId}?json=1&language=all&purchase_type=all&num_per_page=0`);
-            const data = await res.json();
-            const summary = data?.query_summary;
-            if (summary?.review_score_desc && summary.total_reviews > 0) {
-              reviewScore = {
-                steamAppId: String(item.steamAppId),
-                label: summary.review_score_desc,
-                totalReviews: Number(summary.total_reviews || 0),
-                totalPositive: Number(summary.total_positive || 0),
-                reviewScore: Number(summary.review_score || 0),
-                positivePercent: Math.round((Number(summary.total_positive || 0) / Number(summary.total_reviews || 1)) * 100),
-                source: 'steam'
-              };
-            }
+            reviewScore = await fetchSteamReviewSummaryBrowser(item.steamAppId);
           }
 
           if (reviewScore?.label) {
@@ -418,6 +407,74 @@ export default function App() {
 
     hydrateStoreReviews();
   }, []);
+
+  useEffect(() => {
+    const candidates = popularStoreGames.filter(item => (
+      item?.source === 'rawg' &&
+      item.title &&
+      !storeSteamMetadataHydratedRef.current.has(item.id) &&
+      (!item.steamAppId || !item.steamReviewScore)
+    ));
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+
+    async function hydratePopularSteamMetadata() {
+      const updates = {};
+
+      for (const item of candidates) {
+        storeSteamMetadataHydratedRef.current.add(item.id);
+
+        try {
+          let steamAppId = item.steamAppId || null;
+          let match = null;
+
+          if (!steamAppId) {
+            match = window.electronAPI?.resolveSteamAppId
+              ? await window.electronAPI.resolveSteamAppId(item.title)
+              : await resolveSteamAppIdBrowser(item.title);
+
+            if (match?.error) {
+              throw new Error(match.error);
+            }
+            steamAppId = match?.steamAppId || null;
+          }
+
+          let reviewScore = item.steamReviewScore || null;
+          if (steamAppId && !reviewScore) {
+            reviewScore = window.electronAPI?.fetchSteamReviews
+              ? await window.electronAPI.fetchSteamReviews(steamAppId)
+              : await fetchSteamReviewSummaryBrowser(steamAppId);
+          }
+
+          if (cancelled) return;
+
+          if (steamAppId || reviewScore?.label) {
+            updates[item.id] = {
+              steamAppId,
+              steamReviewScore: reviewScore || item.steamReviewScore || null,
+              steamMatchName: match?.name || item.steamMatchName || null,
+              steamMatchScore: match?.matchScore ?? item.steamMatchScore ?? null
+            };
+          }
+        } catch (error) {
+          addDiagnostic('SteamSearch', 'warn', `Steam metadata skipped ${item.title}: ${error.message}`);
+        }
+      }
+
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setPopularStoreGames(prevGames => prevGames.map(game =>
+          updates[game.id] ? { ...game, ...updates[game.id] } : game
+        ));
+      }
+    }
+
+    hydratePopularSteamMetadata();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [popularStoreGames]);
 
   useEffect(() => {
     if (!window.electronAPI?.autoFetchHowLongToBeat || games.length === 0) return;
@@ -839,7 +896,7 @@ export default function App() {
   const handleResetDatabase = async () => {
     const seededDefaults = defaultGames.map(applySeededHltbToGame);
     setGames(seededDefaults);
-    setSelectedGame(seededDefaults[0]);
+    setSelectedGame(seededDefaults[0] || null);
     if (window.electronAPI) {
       await window.electronAPI.saveDatabase(seededDefaults);
     } else {

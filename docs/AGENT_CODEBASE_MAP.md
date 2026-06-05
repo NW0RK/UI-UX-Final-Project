@@ -46,11 +46,12 @@ npm run build
 | `src/index.css` | Global styles, theme variables, focus styles, layout, and most component CSS. | Visual changes, theme variables, focus/controller styling, responsive layout. |
 | `src/components/` | React UI components. See component table below. | Component UI, props, interaction, and local behavior changes. |
 | `src/hooks/useUnifiedInput.js` | Keyboard/gamepad navigation and focus management. | Controller mappings, focus rules, or `data-controller-*` behavior changes. |
-| `src/utils/mockDatabase.js` | Default library games, store catalog, executable metadata matching. | Catalog entries, game record shape, import defaults. |
+| `src/utils/mockDatabase.js` | Empty first-run/reset game seeds, empty store catalog fallback, executable metadata fallback. | Catalog entries, game record shape, import defaults. |
 | `src/utils/steamgriddb.js` | Renderer-side helpers for applying and checking artwork state. | Artwork field mapping or fetch eligibility changes. |
 | `src/utils/hltb.js` | Renderer-side seeded HowLongToBeat data and formatting helpers. | HLTB data shape, stale rules, display text. |
 | `src/utils/itad.js` | Renderer-side IsThereAnyDeal helpers, local API key reads, API normalization, seeded fallback history. | Store price insights, ITAD auth/storage, history formatting. |
 | `src/utils/rawg.js` | Renderer-side RAWG helpers, browser fallback fetches, game/screenshot normalization. | RAWG feed, search, detail, screenshot, or browser fallback behavior changes. |
+| `src/utils/steam.js` | Renderer-side Steam search/details/review helpers and browser fallbacks. | Steam App ID resolution, Steam details, banner selection, or review normalization changes. |
 | `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
@@ -103,7 +104,7 @@ Current IPC groups:
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgPopularGames`, `fetchRawgScreenshots`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam details/reviews handlers, RAWG search/popular/screenshots/details handlers, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgPopularGames`, `fetchRawgScreenshots`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, RAWG search/popular/screenshots/details handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | Settings/API key | `saveApiKey`, `getApiKey`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
@@ -119,7 +120,7 @@ When adding IPC:
 
 ## Data Shape And Persistence
 
-Primary game records come from `src/utils/mockDatabase.js` and are later persisted.
+Primary game records can be seeded from `src/utils/mockDatabase.js` and are later persisted. The bundled first-run/reset seeds are currently empty, so user records are expected to come from imports, scans, or store/discovery ownership actions.
 
 Common fields include:
 
@@ -157,12 +158,12 @@ HowLongToBeat:
 
 Store and pricing:
 
-- Store search/detail fallback data starts in `storeCatalog`; the default store landing view is hydrated from RAWG popular games and ITAD best deals.
+- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from RAWG popular games and ITAD best deals.
 - `App.jsx` merges owned status from the saved library.
 - Store landing uses `fetchRawgPopularGames` or `src/utils/rawg.js` browser fallbacks for the left popular-games feed and `src/utils/itad.js` for the right best-deals feed.
 - Top-bar searches route to the dedicated `search` view, combining local library/store matches with RAWG discovery results from `searchRawgGames`; selecting a store/RAWG result opens `StoreItemPage` without saving until the user marks it owned.
-- `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews`.
-- `StoreItemPage.jsx` fetches Steam details through Electron, automatically looks up RAWG screenshots by RAWG ID or title when entering a game detail page through IPC or `src/utils/rawg.js`, and loads ITAD insights through `src/utils/itad.js`.
+- `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves RAWG popular-feed titles to Steam App IDs before showing Steam review ratings.
+- `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to RAWG screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
 - `StoreItemPage.jsx` fetches RAWG details for RAWG-backed items through `fetchRawgGameDetails` and displays RAWG attribution.
 
 Import and launch:

@@ -70,16 +70,15 @@ export default function StoreGrid({
       );
     }
 
-    const reviewScore = getSteamReviewScore(item.steamReviewScore || item.rating);
+    const reviewScore = item.steamReviewScore ? getSteamReviewScore(item.steamReviewScore) : null;
     return (
       <div className="store-rating-meta">
-        <span>{item.source === 'rawg' ? 'Community Rating' : 'Steam Reviews'}</span>
-        <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
-        {reviewScore.source === 'steam' && reviewScore.totalReviews > 0 && (
+        <span>Steam Reviews</span>
+        <strong className={`steam-review-score ${reviewScore?.className || 'unavailable'}`}>
+          {reviewScore?.label || (item.steamAppId ? 'Loading Steam Reviews' : 'Steam Match Pending')}
+        </strong>
+        {reviewScore?.source === 'steam' && reviewScore.totalReviews > 0 && (
           <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} reviews</small>
-        )}
-        {item.source === 'rawg' && item.ageRating && (
-          <small>{item.ageRating}</small>
         )}
       </div>
     );
@@ -575,6 +574,10 @@ export default function StoreGrid({
         .steam-review-score.very-negative,
         .steam-review-score.overwhelmingly-negative {
           color: #ef4444;
+        }
+
+        .steam-review-score.unavailable {
+          color: rgba(255, 255, 255, 0.42);
         }
 
         .store-grid {

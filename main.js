@@ -773,6 +773,52 @@ function scoreSteamGridDBMatch(query, result) {
   return Math.max(0, Math.min(99, score));
 }
 
+function scoreSteamStoreMatch(query, result) {
+  const normalizedQuery = normalizeGameTitle(query);
+  const normalizedName = normalizeGameTitle(result?.name);
+  if (!normalizedQuery || !normalizedName) return 0;
+  if (normalizedQuery === normalizedName) return 100;
+
+  const queryWords = normalizedQuery.split(' ');
+  const nameWords = normalizedName.split(' ');
+  const nameSet = new Set(nameWords);
+  const sharedWords = queryWords.filter(word => nameSet.has(word)).length;
+  const coverage = sharedWords / Math.max(1, new Set(queryWords).size);
+  const extraWordsPenalty = Math.max(0, nameWords.length - queryWords.length) * 3;
+
+  let score = Math.round(coverage * 76) - extraWordsPenalty;
+  if (normalizedName.includes(normalizedQuery)) score += 20;
+  if (normalizedQuery.includes(normalizedName)) score += 12;
+
+  return Math.max(0, Math.min(99, score));
+}
+
+async function resolveSteamAppByName(title) {
+  const searchTerm = String(title || '').trim();
+  if (searchTerm.length < 2) return null;
+
+  const searchUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(searchTerm)}&l=english&cc=US`;
+  const data = await fetchJson(searchUrl, {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  });
+
+  const matches = (Array.isArray(data?.items) ? data.items : [])
+    .filter(item => item?.id && item?.name)
+    .map(item => ({
+      steamAppId: String(item.id),
+      name: item.name,
+      tinyImage: item.tiny_image || null,
+      matchScore: scoreSteamStoreMatch(searchTerm, item),
+      source: 'steam'
+    }))
+    .sort((a, b) => b.matchScore - a.matchScore);
+
+  return matches.find(match => match.matchScore >= 45) || matches[0] || null;
+}
+
 async function searchSteamGridDBGames(term) {
   const searchTerm = String(term || '').trim();
   if (!searchTerm) return [];
@@ -1468,6 +1514,21 @@ ipcMain.handle('steamgriddb-auto-fetch-artwork', async (event, game) => {
 
 ipcMain.handle('get-cached-artwork', async (event, gameId) => {
   return getCachedArtworkPaths(gameId);
+});
+
+ipcMain.handle('resolve-steam-app-id', async (event, title) => {
+  try {
+    const match = await resolveSteamAppByName(title);
+    emitDiagnostic('SteamSearch', match ? 'info' : 'warn', match
+      ? `Matched "${title}" to Steam App ID ${match.steamAppId} (${match.name})`
+      : `No Steam match found for "${title}"`,
+      match
+    );
+    return match;
+  } catch (err) {
+    emitDiagnostic('SteamSearch', 'error', `Steam search failed for "${title}": ${err.message}`);
+    return { error: err.message };
+  }
 });
 
 ipcMain.handle('fetch-steam-details', async (event, steamAppId) => {

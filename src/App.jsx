@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import NavigationHeader from './components/NavigationHeader';
 import InteractiveCanvas from './components/InteractiveCanvas';
 import HorizontalLibrary from './components/HorizontalLibrary';
@@ -17,8 +17,8 @@ import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatab
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
 import { fetchItadBestDeals } from './utils/itad';
-import { fetchRawgPopularGamesBrowser, searchRawgGamesBrowser } from './utils/rawg';
-import { fetchSteamReviewSummaryBrowser, resolveSteamAppIdBrowser } from './utils/steam';
+import { fetchRawgGameDetailsBrowser, fetchRawgPopularGamesBrowser, fetchRawgScreenshotsBrowser, searchRawgGamesBrowser } from './utils/rawg';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -33,6 +33,108 @@ const DEFAULT_SETTINGS = {
   studioLogosEnabled: false,
   brandfetchClientId: ''
 };
+
+const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
+
+function normalizeStoreCacheTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .trim();
+}
+
+function getStoreItemCacheKey(item) {
+  if (!item) return null;
+
+  const steamAppId = String(item.steamAppId || '').trim();
+  if (/^\d+$/.test(steamAppId)) return `steam:${steamAppId}`;
+
+  const rawgId = String(item.rawgId || '').trim();
+  if (rawgId) return `rawg:${rawgId}`;
+
+  const itadId = String(item.itadId || '').trim();
+  if (itadId) return `itad:${itadId}`;
+
+  const title = normalizeStoreCacheTitle(item.title);
+  return title ? `title:${title}` : null;
+}
+
+function getStoreItemCacheAliases(item, resolvedSteamAppId = null) {
+  const aliases = new Set();
+  const steamAppId = String(resolvedSteamAppId || item?.steamAppId || '').trim();
+  if (/^\d+$/.test(steamAppId)) aliases.add(`steam:${steamAppId}`);
+  const rawgId = String(item?.rawgId || '').trim();
+  if (rawgId) aliases.add(`rawg:${rawgId}`);
+  const itadId = String(item?.itadId || '').trim();
+  if (itadId) aliases.add(`itad:${itadId}`);
+  const title = normalizeStoreCacheTitle(item?.title);
+  if (title) aliases.add(`title:${title}`);
+  return [...aliases];
+}
+
+function getSelectedStoreMedia(media) {
+  const movies = Array.isArray(media?.movies) ? media.movies : [];
+  const screenshots = Array.isArray(media?.screenshots) ? media.screenshots : [];
+
+  if (movies.length > 0) {
+    return {
+      type: 'video',
+      url: movies[0].mp4?.max || movies[0].mp4?.['480'] || movies[0].webm?.max,
+      thumbnail: movies[0].thumbnail
+    };
+  }
+
+  if (screenshots.length > 0) {
+    return { type: 'image', url: screenshots[0].path_full || screenshots[0].url };
+  }
+
+  return null;
+}
+
+function buildStorePrefetchMedia(item, steamAppId, steamDetails, rawgScreenshots = []) {
+  if (steamDetails && (steamDetails.screenshots?.length || steamDetails.movies?.length)) {
+    const media = {
+      screenshots: steamDetails.screenshots || [],
+      movies: steamDetails.movies || []
+    };
+    return {
+      media,
+      selectedMedia: getSelectedStoreMedia(media),
+      bannerUrl: getSteamStoreBannerUrl(steamDetails, steamAppId) || item?.bannerUrl || item?.coverUrl || null,
+      mediaSource: 'steam'
+    };
+  }
+
+  if (steamAppId) {
+    const steamImage = getSteamStoreBannerUrl(steamDetails, steamAppId);
+    const media = {
+      screenshots: steamImage ? [{ id: 'steam-hero', path_full: steamImage, path_thumbnail: steamImage }] : [],
+      movies: []
+    };
+    return {
+      media,
+      selectedMedia: getSelectedStoreMedia(media),
+      bannerUrl: steamImage || item?.bannerUrl || item?.coverUrl || null,
+      mediaSource: 'steam'
+    };
+  }
+
+  const rawgImage = item?.bannerUrl || item?.coverUrl || null;
+  const screenshots = rawgScreenshots.length
+    ? rawgScreenshots
+    : rawgImage
+      ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+      : [];
+  const media = { screenshots, movies: [] };
+
+  return {
+    media,
+    selectedMedia: getSelectedStoreMedia(media),
+    bannerUrl: rawgImage,
+    mediaSource: rawgScreenshots.length ? 'rawg' : 'fallback'
+  };
+}
 
 export default function App() {
   // --- Mode and Core States ---
@@ -83,6 +185,7 @@ export default function App() {
   const [rawgSearchResults, setRawgSearchResults] = useState([]);
   const [rawgSearchStatus, setRawgSearchStatus] = useState('idle');
   const [rawgSearchError, setRawgSearchError] = useState(null);
+  const [storeDetailCache, setStoreDetailCache] = useState({});
   const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
@@ -91,6 +194,8 @@ export default function App() {
   const popularStoreHydratedRef = useRef(false);
   const itadDealsHydratedRef = useRef(false);
   const hltbLookupAttemptedRef = useRef(new Set());
+  const storeDetailCacheRef = useRef({});
+  const storeDetailInFlightRef = useRef(new Map());
 
   const addDiagnostic = (area, level, message, details = null) => {
     setDiagnostics(prev => [{
@@ -101,6 +206,193 @@ export default function App() {
       timestamp: new Date().toISOString()
     }, ...prev].slice(0, 80));
   };
+
+  const mergeStoreDetailCache = useCallback((item, patch = {}, resolvedSteamAppId = null) => {
+    const aliases = getStoreItemCacheAliases(item, resolvedSteamAppId);
+    if (aliases.length === 0) return null;
+
+    const primaryKey = aliases[0];
+    const existing = aliases.reduce((merged, key) => ({
+      ...merged,
+      ...(storeDetailCacheRef.current[key] || {})
+    }), {});
+    const nextRecord = {
+      ...existing,
+      ...patch,
+      key: primaryKey,
+      aliases,
+      cachedAt: Date.now()
+    };
+
+    storeDetailCacheRef.current = aliases.reduce((cache, key) => {
+      cache[key] = nextRecord;
+      return cache;
+    }, { ...storeDetailCacheRef.current });
+
+    const entries = Object.entries(storeDetailCacheRef.current);
+    if (entries.length > MAX_STORE_DETAIL_CACHE_ENTRIES) {
+      const oldestKeys = entries
+        .sort(([, a], [, b]) => (a.cachedAt || 0) - (b.cachedAt || 0))
+        .slice(0, entries.length - MAX_STORE_DETAIL_CACHE_ENTRIES)
+        .map(([key]) => key);
+      oldestKeys.forEach(key => {
+        delete storeDetailCacheRef.current[key];
+      });
+    }
+
+    setStoreDetailCache({ ...storeDetailCacheRef.current });
+    return nextRecord;
+  }, []);
+
+  const prefetchStoreItemDetails = useCallback((item) => {
+    const initialKey = getStoreItemCacheKey(item);
+    if (!initialKey) return null;
+
+    const cached = storeDetailCacheRef.current[initialKey];
+    if (cached?.status === 'ready' && cached?.mediaLoaded && (cached?.steamMetadataLoaded || cached?.rawgDetailsLoaded || cached?.steamLookupStatus === 'missing')) {
+      return Promise.resolve(cached);
+    }
+
+    if (storeDetailInFlightRef.current.has(initialKey)) {
+      return storeDetailInFlightRef.current.get(initialKey);
+    }
+
+    const request = (async () => {
+      let resolvedSteamAppId = String(item?.steamAppId || '').trim();
+      if (!/^\d+$/.test(resolvedSteamAppId)) resolvedSteamAppId = null;
+      const patch = {
+        status: 'loading',
+        itemSnapshot: item,
+        errors: []
+      };
+
+      mergeStoreDetailCache(item, patch, resolvedSteamAppId);
+
+      try {
+        if (!resolvedSteamAppId && item?.title) {
+          try {
+            const match = window.electronAPI?.resolveSteamAppId
+              ? await window.electronAPI.resolveSteamAppId(item.title)
+              : await resolveSteamAppIdBrowser(item.title);
+
+            if (match?.error) {
+              patch.errors.push({ source: 'steam-resolve', message: match.error });
+              patch.steamLookupStatus = 'error';
+            } else {
+              resolvedSteamAppId = match?.steamAppId || null;
+              patch.resolvedSteamAppId = resolvedSteamAppId;
+              patch.steamLookupStatus = resolvedSteamAppId ? 'ready' : 'missing';
+              patch.steamMatchName = match?.name || item.steamMatchName || null;
+              patch.steamMatchScore = match?.matchScore ?? item.steamMatchScore ?? null;
+            }
+          } catch (error) {
+            patch.errors.push({ source: 'steam-resolve', message: error.message });
+            patch.steamLookupStatus = 'error';
+          }
+        } else {
+          patch.resolvedSteamAppId = resolvedSteamAppId;
+          patch.steamLookupStatus = resolvedSteamAppId ? 'ready' : 'missing';
+        }
+
+        if (resolvedSteamAppId) {
+          try {
+            const [details, reviews] = await Promise.all([
+              window.electronAPI?.fetchSteamDetails
+                ? window.electronAPI.fetchSteamDetails(resolvedSteamAppId)
+                : fetchSteamDetailsBrowser(resolvedSteamAppId),
+              window.electronAPI?.fetchSteamReviews
+                ? window.electronAPI.fetchSteamReviews(resolvedSteamAppId)
+                : fetchSteamReviewSummaryBrowser(resolvedSteamAppId)
+            ]);
+
+            patch.steamDetails = details || null;
+            patch.steamReviewScore = reviews || null;
+            patch.steamMetadataLoaded = true;
+          } catch (error) {
+            patch.errors.push({ source: 'steam-metadata', message: error.message });
+            patch.steamMetadataLoaded = false;
+          }
+        }
+
+        if (item?.rawgId && item.source === 'rawg') {
+          try {
+            const details = window.electronAPI?.fetchRawgGameDetails
+              ? await window.electronAPI.fetchRawgGameDetails(item.rawgId)
+              : await fetchRawgGameDetailsBrowser(item.rawgId);
+
+            if (details?.error) {
+              patch.rawgDetailsError = details.error;
+              patch.errors.push({ source: 'rawg-details', message: details.error });
+            } else {
+              patch.rawgDetails = details;
+              patch.rawgDetailsLoaded = true;
+            }
+          } catch (error) {
+            patch.rawgDetailsError = error.message;
+            patch.errors.push({ source: 'rawg-details', message: error.message });
+          }
+        }
+
+        let rawgScreenshots = [];
+        const needsRawgScreenshots = !resolvedSteamAppId || !patch.steamDetails?.screenshots?.length;
+        if (needsRawgScreenshots && (item?.rawgId || item?.title)) {
+          try {
+            const payload = {
+              rawgId: item.rawgId,
+              title: item.title
+            };
+            const screenshots = window.electronAPI?.fetchRawgScreenshots
+              ? await window.electronAPI.fetchRawgScreenshots(payload)
+              : await fetchRawgScreenshotsBrowser(payload);
+
+            if (screenshots?.error) {
+              patch.errors.push({ source: 'rawg-screenshots', message: screenshots.error });
+            } else {
+              rawgScreenshots = Array.isArray(screenshots) ? screenshots : [];
+              patch.rawgScreenshots = rawgScreenshots;
+            }
+          } catch (error) {
+            patch.errors.push({ source: 'rawg-screenshots', message: error.message });
+          }
+        }
+
+        const mediaPatch = buildStorePrefetchMedia(
+          patch.rawgDetails ? { ...item, ...patch.rawgDetails } : item,
+          resolvedSteamAppId,
+          patch.steamDetails,
+          rawgScreenshots
+        );
+
+        const finalRecord = mergeStoreDetailCache(item, {
+          ...patch,
+          ...mediaPatch,
+          mediaLoaded: true,
+          status: 'ready'
+        }, resolvedSteamAppId);
+
+        if (finalRecord?.aliases) {
+          finalRecord.aliases.forEach(alias => {
+            if (alias !== initialKey) {
+              storeDetailInFlightRef.current.delete(alias);
+            }
+          });
+        }
+
+        return finalRecord;
+      } catch (error) {
+        return mergeStoreDetailCache(item, {
+          ...patch,
+          status: 'error',
+          errors: [...patch.errors, { source: 'prefetch', message: error.message }]
+        }, resolvedSteamAppId);
+      } finally {
+        storeDetailInFlightRef.current.delete(initialKey);
+      }
+    })();
+
+    storeDetailInFlightRef.current.set(initialKey, request);
+    return request;
+  }, [mergeStoreDetailCache]);
 
   // --- System Diagnostic Metrics ---
   const [cpuUsage, setCpuUsage] = useState(12);
@@ -998,6 +1290,7 @@ export default function App() {
   };
 
   const handleSelectStoreItem = (item, returnView = activeView) => {
+    prefetchStoreItemDetails(item);
     setSelectedStoreItem(item);
     setStoreReturnView(returnView === 'search' ? 'search' : 'store');
     setActiveView('store-item');
@@ -1173,6 +1466,10 @@ export default function App() {
   const activeStoreItem = selectedStoreItem
     ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
     : null;
+  const activeStoreItemCacheKey = getStoreItemCacheKey(activeStoreItem);
+  const activeStoreItemCachedDetails = activeStoreItemCacheKey
+    ? storeDetailCache[activeStoreItemCacheKey]
+    : null;
 
   const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode;
   const primaryViews = ['store', 'library', 'favourites'];
@@ -1343,6 +1640,7 @@ export default function App() {
             dealGames={syncedItadDeals}
             ownedGames={games}
             onSelectItem={handleSelectStoreItem}
+            onPrefetchItem={prefetchStoreItemDetails}
             searchQuery=""
             popularStatus={popularStoreStatus}
             popularError={popularStoreError}
@@ -1359,6 +1657,7 @@ export default function App() {
             rawgSearchStatus={rawgSearchStatus}
             rawgSearchError={rawgSearchError}
             onSelectItem={(item) => handleSelectStoreItem(item, 'search')}
+            onPrefetchItem={prefetchStoreItemDetails}
             onSelectLibraryGame={handleSelectSearchLibraryGame}
             onLaunchGame={handleLaunchGame}
           />
@@ -1367,6 +1666,9 @@ export default function App() {
         {activeView === 'store-item' && (
           <StoreItemPage 
             item={activeStoreItem}
+            cachedDetails={activeStoreItemCachedDetails}
+            onCacheDetails={mergeStoreDetailCache}
+            onPrefetchItem={prefetchStoreItemDetails}
             ownedGames={games}
             onBack={handleBackToStore}
             onMarkOwned={handleMarkOwned}

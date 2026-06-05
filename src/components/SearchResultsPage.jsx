@@ -10,6 +10,7 @@ export default function SearchResultsPage({
   rawgSearchStatus = 'idle',
   rawgSearchError = null,
   onSelectItem,
+  onPrefetchItem = () => {},
   onSelectLibraryGame,
   onLaunchGame
 }) {
@@ -34,6 +35,13 @@ export default function SearchResultsPage({
     event.stopPropagation();
     audioEngine.playClickPulse();
     onLaunchGame(item);
+  };
+
+  const handleResultPreview = (item) => {
+    audioEngine.playHoverTick();
+    if (item.resultType !== 'library') {
+      onPrefetchItem(item);
+    }
   };
 
   const renderSourceBadge = (item) => {
@@ -79,7 +87,8 @@ export default function SearchResultsPage({
                 data-controller-confirm-label={`View ${item.title}`}
                 data-controller-default={index === 0 ? 'true' : undefined}
                 onClick={() => handleResultClick(item)}
-                onFocus={audioEngine.playHoverTick}
+                onMouseEnter={() => handleResultPreview(item)}
+                onFocus={() => handleResultPreview(item)}
               >
                 <div className="search-result-art">
                   {item.coverUrl ? (

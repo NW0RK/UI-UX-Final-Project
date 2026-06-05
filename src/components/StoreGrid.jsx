@@ -15,7 +15,8 @@ export default function StoreGrid({
   dealsStatus = 'idle',
   dealsError = null,
   rawgSearchStatus = 'idle',
-  rawgSearchError = null
+  rawgSearchError = null,
+  onPrefetchItem = () => {}
 }) {
   const normalizedQuery = searchQuery.toLowerCase();
   const hasSearch = normalizedQuery.trim().length > 0;
@@ -33,6 +34,11 @@ export default function StoreGrid({
   const handleItemClick = (item) => {
     audioEngine.playClickPulse();
     onSelectItem(item);
+  };
+
+  const handleItemPreview = (item) => {
+    audioEngine.playHoverTick();
+    onPrefetchItem(item);
   };
 
   const isOwned = (item) => (
@@ -94,7 +100,8 @@ export default function StoreGrid({
       data-controller-confirm-label={`View ${item.title}`}
       data-controller-default={section === 'popular' && index === 0 ? 'true' : undefined}
       onClick={() => handleItemClick(item)}
-      onFocus={audioEngine.playHoverTick}
+      onMouseEnter={() => handleItemPreview(item)}
+      onFocus={() => handleItemPreview(item)}
     >
       {renderImage(item)}
       <div className="store-feed-card-info">
@@ -118,7 +125,8 @@ export default function StoreGrid({
       data-controller-confirm-label={`View ${item.title}`}
       data-controller-default={index === 0 ? 'true' : undefined}
       onClick={() => handleItemClick(item)}
-      onFocus={audioEngine.playHoverTick}
+      onMouseEnter={() => handleItemPreview(item)}
+      onFocus={() => handleItemPreview(item)}
     >
       {renderImage(item)}
       <div className="store-card-info">

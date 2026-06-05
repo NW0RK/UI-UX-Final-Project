@@ -44,7 +44,7 @@ async function rawgFetchJson(endpoint, params = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`RAWG request failed: ${response.status}`);
+    throw new Error(`Discovery request failed: ${response.status}`);
   }
 
   const data = await response.json();
@@ -86,7 +86,7 @@ export function normalizeRawgGame(raw, { includeDescription = false } = {}) {
     rating: Number(raw.rating || 0) || 0,
     ageRating: raw.esrb_rating?.name || 'Unrated',
     releaseDate: raw.released || 'TBA',
-    description: description || `RAWG metadata for ${raw.name}. Open details to load the full game profile.`,
+    description: description || `Open details to load the full game profile for ${raw.name}.`,
     playtime: 0,
     lastPlayed: 'Never',
     progress: 0,
@@ -148,13 +148,13 @@ export async function fetchRawgPopularGamesBrowser() {
     .filter(Boolean)
     .map(game => ({
       ...game,
-      discoverySource: 'RAWG Popular'
+      discoverySource: 'Popular discovery'
     }));
 }
 
 export async function fetchRawgGameDetailsBrowser(rawgId) {
   const id = String(rawgId || '').trim();
-  if (!id) return { error: 'Missing RAWG game id' };
+  if (!id) return { error: 'Missing game id' };
 
   const data = await rawgFetchJson(`/games/${encodeURIComponent(id)}`);
   return normalizeRawgGame(data, { includeDescription: true });

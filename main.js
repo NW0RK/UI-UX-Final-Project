@@ -274,7 +274,7 @@ function sanitizeGameId(value) {
 
 async function rawgFetchJson(endpoint, params = {}) {
   const apiKey = getRawgApiKeyFromConfig();
-  if (!apiKey) throw new Error('RAWG API key is not configured');
+  if (!apiKey) throw new Error('Discovery API key is not configured');
 
   const url = new URL(`${RAWG_BASE_URL}${endpoint}`);
   url.searchParams.set('key', apiKey);
@@ -284,7 +284,7 @@ async function rawgFetchJson(endpoint, params = {}) {
     }
   });
 
-  emitDiagnostic('RAWG', 'info', `Requesting ${endpoint}`);
+  emitDiagnostic('Discovery', 'info', `Requesting ${endpoint}`);
   const data = await fetchJson(url.href, {
     headers: {
       'Accept': 'application/json',
@@ -330,7 +330,7 @@ function normalizeRawgGame(raw, { includeDescription = false } = {}) {
     rating: Number(raw.rating || 0) || 0,
     ageRating: raw.esrb_rating?.name || 'Unrated',
     releaseDate: raw.released || 'TBA',
-    description: description || `RAWG metadata for ${raw.name}. Open details to load the full game profile.`,
+    description: description || `Open details to load the full game profile for ${raw.name}.`,
     playtime: 0,
     lastPlayed: 'Never',
     progress: 0,
@@ -378,7 +378,7 @@ async function fetchPopularRawgGames() {
     .filter(Boolean)
     .map(game => ({
       ...game,
-      discoverySource: 'RAWG Popular'
+      discoverySource: 'Popular discovery'
     }));
 }
 
@@ -415,7 +415,7 @@ async function fetchRawgScreenshots(game) {
 
 async function fetchRawgGameDetails(rawgId) {
   const id = String(rawgId || '').trim();
-  if (!id) return { error: 'Missing RAWG game id' };
+  if (!id) return { error: 'Missing game id' };
 
   const data = await rawgFetchJson(`/games/${encodeURIComponent(id)}`);
   return normalizeRawgGame(data, { includeDescription: true });
@@ -1229,12 +1229,12 @@ ipcMain.handle('hltb-auto-fetch', async (event, game) => {
 ipcMain.handle('rawg-search-games', async (event, term) => {
   try {
     const results = await searchRawgGames(term);
-    emitDiagnostic('RAWG', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
+    emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
       topMatch: results[0] ? { id: results[0].rawgId, name: results[0].title } : null
     });
     return results;
   } catch (err) {
-    emitDiagnostic('RAWG', 'error', `Search failed for "${term}": ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Search failed for "${term}": ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1242,10 +1242,10 @@ ipcMain.handle('rawg-search-games', async (event, term) => {
 ipcMain.handle('rawg-popular-games', async () => {
   try {
     const results = await fetchPopularRawgGames();
-    emitDiagnostic('RAWG', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
+    emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
     return results;
   } catch (err) {
-    emitDiagnostic('RAWG', 'error', `Popular feed failed: ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Popular feed failed: ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1253,10 +1253,10 @@ ipcMain.handle('rawg-popular-games', async () => {
 ipcMain.handle('rawg-fetch-screenshots', async (event, game) => {
   try {
     const screenshots = await fetchRawgScreenshots(game);
-    emitDiagnostic('RAWG', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.rawgId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
+    emitDiagnostic('Discovery', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.rawgId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
     return screenshots;
   } catch (err) {
-    emitDiagnostic('RAWG', 'error', `Screenshot lookup failed for "${game?.title || game?.rawgId || 'unknown'}": ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Screenshot lookup failed for "${game?.title || game?.rawgId || 'unknown'}": ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1265,7 +1265,7 @@ ipcMain.handle('rawg-fetch-game-details', async (event, rawgId) => {
   try {
     return await fetchRawgGameDetails(rawgId);
   } catch (err) {
-    emitDiagnostic('RAWG', 'error', `Details lookup failed for RAWG id ${rawgId}: ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${rawgId}: ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1528,12 +1528,12 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}
   try {
     const target = new URL(requestUrl);
     if (target.protocol !== 'https:' || target.hostname !== 'api.isthereanydeal.com') {
-      return { error: 'Blocked non-ITAD request.' };
+      return { error: 'Blocked unsupported price request.' };
     }
 
     const trimmedKey = String(apiKey || '').trim();
     if (!trimmedKey) {
-      return { error: 'Missing ITAD API key.' };
+      return { error: 'Missing price API key.' };
     }
 
     const method = String(options?.method || 'GET').toUpperCase();
@@ -1547,7 +1547,7 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}
     }
 
     if (method !== 'GET') {
-      return { error: 'Unsupported ITAD request method.' };
+      return { error: 'Unsupported price request method.' };
     }
 
     const res = await httpsGet(target.href, {
@@ -1567,13 +1567,13 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}
         try {
           parsed = data ? JSON.parse(data) : null;
         } catch (e) {
-          reject(new Error(`Invalid ITAD JSON response: ${e.message}`));
+          reject(new Error(`Invalid price JSON response: ${e.message}`));
           return;
         }
 
         if (res.statusCode < 200 || res.statusCode >= 300) {
           resolve({
-            error: parsed?.message || parsed?.reason_phrase || `ITAD HTTP ${res.statusCode}`,
+            error: parsed?.message || parsed?.reason_phrase || `Price HTTP ${res.statusCode}`,
             statusCode: res.statusCode
           });
           return;
@@ -1584,7 +1584,7 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}
       res.on('error', reject);
     });
   } catch (err) {
-    emitDiagnostic('ITAD', 'error', `ITAD request failed: ${err.message}`, { requestUrl });
+    emitDiagnostic('Prices', 'error', `Price request failed: ${err.message}`, { requestUrl });
     return { error: err.message };
   }
 });

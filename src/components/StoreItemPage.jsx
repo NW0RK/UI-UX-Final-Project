@@ -259,7 +259,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
   const [rawgDetailsError, setRawgDetailsError] = useState(null);
   const [itadGameId, setItadGameId] = useState(null);
   const [chartPoints, setChartPoints] = useState([]);
-  const [highchartsStatus, setHighchartsStatus] = useState('Loading ITAD price history...');
+  const [highchartsStatus, setHighchartsStatus] = useState('Loading price history...');
   const [chartThemeRevision, setChartThemeRevision] = useState(0);
   const highchartsContainerRef = useRef(null);
   const highchartsInstanceRef = useRef(null);
@@ -317,12 +317,12 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           ? await window.electronAPI.fetchRawgScreenshots(payload)
           : await fetchRawgScreenshotsBrowser(payload);
         if (screenshots?.error) {
-          console.warn('RAWG screenshot lookup failed:', screenshots.error);
+          console.warn('Screenshot lookup failed:', screenshots.error);
           return [];
         }
         return Array.isArray(screenshots) ? screenshots : [];
       } catch (error) {
-        console.warn('RAWG screenshot lookup failed:', error);
+        console.warn('Screenshot lookup failed:', error);
         return [];
       }
     }
@@ -479,16 +479,16 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     setChartPoints([]);
 
     if (!activeItem.steamAppId) {
-      setHighchartsStatus('Missing Steam App ID for ITAD price history.');
+      setHighchartsStatus('Missing Steam App ID for price history.');
       return () => { active = false; };
     }
 
     if (!hasItadApiKey()) {
-      setHighchartsStatus('Missing ITAD API key. Add nexus_itad_api_key to load live price history.');
+      setHighchartsStatus('Missing price API key. Add nexus_itad_api_key to load live price history.');
       return () => { active = false; };
     }
 
-    setHighchartsStatus('Matching Steam App ID with ITAD...');
+    setHighchartsStatus('Matching Steam App ID with price history...');
 
     lookupItadGameBySteamAppId(activeItem.steamAppId)
       .then((lookup) => {
@@ -496,8 +496,8 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
         setItadGameId(lookup.id);
       })
       .catch((error) => {
-        console.error('ITAD lookup failed:', error);
-        if (active) setHighchartsStatus(error.message || 'ITAD lookup failed for this Steam App ID.');
+        console.error('Price lookup failed:', error);
+        if (active) setHighchartsStatus(error.message || 'Price lookup failed for this Steam App ID.');
       });
 
     return () => { active = false; };
@@ -508,7 +508,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     let active = true;
 
     async function loadChartHistory() {
-      setHighchartsStatus('Loading ITAD price history...');
+      setHighchartsStatus('Loading price history...');
 
       try {
         const result = await fetchItadHistory(itadGameId, { country: 'US' });
@@ -518,19 +518,19 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           highchartsInstanceRef.current?.destroy();
           highchartsInstanceRef.current = null;
           setChartPoints([]);
-          setHighchartsStatus('No valid ITAD price changes found.');
+          setHighchartsStatus('No valid price changes found.');
           return;
         }
 
         setChartPoints(result.points);
         setHighchartsStatus('');
       } catch (error) {
-        console.error('ITAD history fetch failed:', error);
+        console.error('Price history fetch failed:', error);
         if (!active) return;
         highchartsInstanceRef.current?.destroy();
         highchartsInstanceRef.current = null;
         setChartPoints([]);
-        setHighchartsStatus(error.message || 'ITAD price history could not be loaded.');
+        setHighchartsStatus(error.message || 'Price history could not be loaded.');
       }
     }
 
@@ -833,13 +833,13 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       localStorage.setItem('nexus_itad_api_key', itadApiKey.trim());
       setItadApiKeySaved(true);
       setItadSyncMessage(itadApiKey.trim()
-        ? 'ITAD API key saved. Live price history is ready to refresh.'
-        : 'ITAD API key cleared. Price history will use preview data.'
+        ? 'Price API key saved. Live price history is ready to refresh.'
+        : 'Price API key cleared. Price history will use preview data.'
       );
       setItadApiKeyRevision(revision => revision + 1);
       setTimeout(() => setItadApiKeySaved(false), 2000);
     } catch {
-      setItadSyncMessage('Could not save the ITAD API key in this browser session.');
+      setItadSyncMessage('Could not save the price API key in this browser session.');
     }
   };
 
@@ -863,7 +863,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
     } else {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
-    setItadSyncMessage(itadOAuthStatus.hasClientId ? 'OAuth opened. Sync will unlock after authorization completes.' : 'ITAD app setup opened. OAuth credentials are required before sync can run.');
+    setItadSyncMessage(itadOAuthStatus.hasClientId ? 'OAuth opened. Sync will unlock after authorization completes.' : 'Price app setup opened. OAuth credentials are required before sync can run.');
     setItadOAuthStatus(getItadOAuthStatus());
   };
 
@@ -908,7 +908,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
             )}
           </div>
           <div className="store-item-review-score">
-            <span>{isRawgItem ? 'RAWG Rating' : 'Steam Reviews'}</span>
+            <span>{isRawgItem ? 'Community Rating' : 'Steam Reviews'}</span>
             <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
             {reviewScore.source === 'steam' && reviewScore.totalReviews > 0 && (
               <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} user reviews</small>
@@ -921,19 +921,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
       <div className="store-item-body">
         <div className="store-item-left">
           <h3 className="store-item-section-title">About This Game</h3>
-          {loadingRawgDetails && <div className="rawg-status-line">Loading RAWG game profile...</div>}
-          {rawgDetailsError && <div className="rawg-status-line error">RAWG details unavailable: {rawgDetailsError}</div>}
+          {loadingRawgDetails && <div className="rawg-status-line">Loading game profile...</div>}
+          {rawgDetailsError && <div className="rawg-status-line error">Game details unavailable: {rawgDetailsError}</div>}
           <p className="store-item-description">{aboutText}</p>
-          {isRawgItem && (
-            <a
-              className="rawg-attribution"
-              href={activeItem.rawgUrl || 'https://rawg.io/'}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Game metadata provided by RAWG
-            </a>
-          )}
 
           <div className="store-item-showcase-row">
             <div className="store-item-screenshots-panel">
@@ -1059,9 +1049,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
               <div>
                 <h3 className="store-item-section-title">
                   <LineChart size={16} />
-                  <span>ITAD Price Intelligence</span>
+                  <span>Price Intelligence</span>
                 </h3>
-                <p className="itad-source">{loadingItad ? 'Checking IsThereAnyDeal...' : itadInsights?.source}</p>
+                <p className="itad-source">{loadingItad ? 'Checking prices...' : itadInsights?.source}</p>
               </div>
               <div className="itad-appid-pill">
                 <span>Steam App ID</span>
@@ -1094,7 +1084,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                   </div>
                 </div>
 
-                <div className="itad-chart" aria-label="ITAD price history chart">
+                <div className="itad-chart" aria-label="Price history chart">
                   <div ref={highchartsContainerRef} className="itad-highcharts-container" />
                   {highchartsStatus && <div className="itad-highcharts-status">{highchartsStatus}</div>}
                 </div>
@@ -1240,9 +1230,9 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
           <div className="itad-sync-card">
             <div className="itad-sync-title">
               <KeyRound size={16} />
-              <span>ITAD Sync</span>
+              <span>Price Sync</span>
             </div>
-            <p>{itadOAuthStatus.isConnected ? 'Waitlist and collection sync can pull directly from IsThereAnyDeal.' : 'Connect IsThereAnyDeal OAuth to sync waitlists and collections into Nexus.'}</p>
+            <p>{itadOAuthStatus.isConnected ? 'Waitlist and collection sync can pull directly from the price service.' : 'Connect price-service OAuth to sync waitlists and collections into Nexus.'}</p>
             <div className="itad-api-key-row">
               <input
                 type="password"
@@ -1252,7 +1242,7 @@ export default function StoreItemPage({ item, ownedGames, onBack, onMarkOwned, o
                   setItadApiKey(e.target.value);
                   setItadApiKeySaved(false);
                 }}
-                placeholder="ITAD API key..."
+                placeholder="Price API key..."
                 autoComplete="off"
               />
               <button className="glow-btn itad-api-key-save-btn" onClick={handleSaveItadApiKey}>

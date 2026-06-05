@@ -29,7 +29,7 @@ function createSeededHistory(item) {
   const lowest = history.reduce((low, point) => point.amount < low.amount ? point : low, history[0]);
 
   return {
-    source: 'Seeded ITAD preview',
+    source: 'Preview price data',
     itadId: item.steamAppId ? `steam-app/${item.steamAppId}` : null,
     current: { amount: current, formatted: currency(current), shop: STORE_NAMES[seed % STORE_NAMES.length] },
     regular: { amount: regular, formatted: currency(regular) },
@@ -48,14 +48,14 @@ function createSeededHistory(item) {
         title: `${item.genre || 'Curated'} picks collection`,
         shop: 'Humble',
         price: currency(Math.max(9.99, lowest.amount + 7)),
-        expiry: 'Tracked by ITAD'
+        expiry: 'Tracked price'
       }
     ],
     giveaways: [
       {
         id: `${item.id}-giveaway`,
         title: seed % 3 === 0 ? `${item.title} trial weekend` : 'No active giveaway for this title',
-        shop: seed % 3 === 0 ? 'Steam' : 'ITAD',
+        shop: seed % 3 === 0 ? 'Steam' : 'Tracked shop',
         status: seed % 3 === 0 ? 'Live' : 'Watching'
       }
     ]
@@ -88,7 +88,7 @@ async function fetchJson(url, options = {}) {
   }
 
   const response = await fetch(requestUrl, options);
-  if (!response.ok) throw new Error(`ITAD request failed: ${response.status}`);
+  if (!response.ok) throw new Error(`Price request failed: ${response.status}`);
   return response.json();
 }
 
@@ -116,8 +116,8 @@ function normalizeItadDeal(item) {
     genre: 'Store Deal',
     rating: 0,
     ageRating: item.mature ? 'Mature' : 'Unrated',
-    releaseDate: 'Tracked by ITAD',
-    description: `${item.title} is currently discounted through ${shop}${Number.isFinite(cut) && cut > 0 ? ` with ${cut}% off` : ''}. Price and availability are provided by IsThereAnyDeal.`,
+    releaseDate: 'Tracked price',
+    description: `${item.title} is currently discounted through ${shop}${Number.isFinite(cut) && cut > 0 ? ` with ${cut}% off` : ''}. Price and availability are provided by the store feed.`,
     playtime: 0,
     lastPlayed: 'Never',
     progress: 0,
@@ -134,7 +134,7 @@ function normalizeItadDeal(item) {
     tags: [
       Number.isFinite(cut) && cut > 0 ? `${cut}% off` : 'Deal',
       shop,
-      'ITAD'
+      'Deal feed'
     ],
     steamAppId: null,
     artworkFetched: false,
@@ -143,9 +143,9 @@ function normalizeItadDeal(item) {
     itadDeal: {
       shop,
       cut,
-      price: Number.isFinite(priceAmount) ? currency(priceAmount, currencyCode) : 'See ITAD',
+      price: Number.isFinite(priceAmount) ? currency(priceAmount, currencyCode) : 'See price',
       regular: Number.isFinite(regularAmount) ? currency(regularAmount, regular.currency || currencyCode) : null,
-      expiry: expiry ? `Ends ${expiry}` : 'Tracked by ITAD',
+      expiry: expiry ? `Ends ${expiry}` : 'Tracked price',
       url: deal.url || null
     }
   };
@@ -153,7 +153,7 @@ function normalizeItadDeal(item) {
 
 export async function fetchItadBestDeals({ country = 'US', limit = 10 } = {}) {
   const apiKey = getStoredApiKey();
-  if (!apiKey) throw new Error('Missing ITAD API key.');
+  if (!apiKey) throw new Error('Missing price API key.');
 
   const dealsUrl = new URL(`${ITAD_API_BASE}/deals/v2`);
   dealsUrl.searchParams.set('country', country);
@@ -202,21 +202,21 @@ export function hasItadApiKey() {
 
 export async function lookupItadGameBySteamAppId(steamAppId) {
   const apiKey = getStoredApiKey();
-  if (!apiKey) throw new Error('Missing ITAD API key.');
+  if (!apiKey) throw new Error('Missing price API key.');
   if (!steamAppId) throw new Error('Missing Steam App ID.');
 
   const lookupUrl = new URL(`${ITAD_API_BASE}/games/lookup/v1`);
   lookupUrl.searchParams.set('appid', steamAppId);
   const lookup = await fetchJson(lookupUrl, { headers: authHeaders(apiKey) });
   const itadId = lookup?.id || lookup?.game?.id;
-  if (!itadId) throw new Error('ITAD could not match this Steam App ID.');
+  if (!itadId) throw new Error('Price service could not match this Steam App ID.');
   return { ...lookup, id: itadId };
 }
 
 export async function fetchItadHistory(itadId, { country = 'US' } = {}) {
   const apiKey = getStoredApiKey();
-  if (!apiKey) throw new Error('Missing ITAD API key.');
-  if (!itadId) throw new Error('Missing ITAD game ID.');
+  if (!apiKey) throw new Error('Missing price API key.');
+  if (!itadId) throw new Error('Missing price-service game ID.');
 
   const historyUrl = new URL(`${ITAD_API_BASE}/games/history/v2`);
   historyUrl.searchParams.set('id', itadId);
@@ -239,8 +239,8 @@ function normalizeBundles(bundles = []) {
       id: bundle.id,
       title: bundle.title,
       shop: bundle.page?.name || 'Bundle',
-      price: Number.isFinite(amount) ? currency(amount, code) : 'See ITAD',
-      expiry: bundle.expiry ? `Ends ${new Date(bundle.expiry).toLocaleDateString()}` : 'Tracked by ITAD',
+      price: Number.isFinite(amount) ? currency(amount, code) : 'See price',
+      expiry: bundle.expiry ? `Ends ${new Date(bundle.expiry).toLocaleDateString()}` : 'Tracked price',
       url: bundle.details || bundle.url
     };
   });
@@ -273,7 +273,7 @@ export async function getItadStoreInsights(item) {
 
     return {
       ...seeded,
-      source: 'IsThereAnyDeal API',
+      source: 'Live price data',
       itadId,
       current,
       lowestEver: lowest,
@@ -281,7 +281,7 @@ export async function getItadStoreInsights(item) {
       bundles: normalizeBundles(bundles).length ? normalizeBundles(bundles) : seeded.bundles
     };
   } catch (error) {
-    console.warn('Falling back to seeded ITAD data:', error);
+    console.warn('Falling back to seeded price data:', error);
     return seeded;
   }
 }
@@ -323,7 +323,7 @@ export async function syncItadUserLibrary() {
   })();
 
   if (!accessToken) {
-    return { ok: false, message: 'Connect ITAD OAuth before syncing.' };
+    return { ok: false, message: 'Connect price-service OAuth before syncing.' };
   }
 
   try {

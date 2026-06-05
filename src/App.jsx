@@ -216,7 +216,7 @@ export default function App() {
           setRawgSearchResults([]);
           setRawgSearchStatus('error');
           setRawgSearchError(results.error);
-          addDiagnostic('RAWG', 'warn', `RAWG search failed for ${term}: ${results.error}`);
+          addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${results.error}`);
           return;
         }
 
@@ -227,7 +227,7 @@ export default function App() {
         setRawgSearchResults([]);
         setRawgSearchStatus('error');
         setRawgSearchError(error.message);
-        addDiagnostic('RAWG', 'warn', `RAWG search failed for ${term}: ${error.message}`);
+        addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${error.message}`);
       }
     }, 450);
 
@@ -257,7 +257,7 @@ export default function App() {
           setPopularStoreGames([]);
           setPopularStoreStatus('error');
           setPopularStoreError(results.error);
-          addDiagnostic('RAWG', 'warn', `Popular store feed failed: ${results.error}`);
+          addDiagnostic('Discovery', 'warn', `Popular store feed failed: ${results.error}`);
           return;
         }
 
@@ -268,7 +268,7 @@ export default function App() {
         setPopularStoreGames([]);
         setPopularStoreStatus('error');
         setPopularStoreError(error.message);
-        addDiagnostic('RAWG', 'warn', `Popular store feed failed: ${error.message}`);
+        addDiagnostic('Discovery', 'warn', `Popular store feed failed: ${error.message}`);
       }
     }
 
@@ -298,9 +298,9 @@ export default function App() {
       } catch (error) {
         if (cancelled) return;
         setItadDealGames([]);
-        setItadDealsStatus(error.message === 'Missing ITAD API key.' ? 'missing-key' : 'error');
+        setItadDealsStatus(error.message === 'Missing price API key.' ? 'missing-key' : 'error');
         setItadDealsError(error.message);
-        addDiagnostic('ITAD', 'warn', `Best deals feed unavailable: ${error.message}`);
+        addDiagnostic('Prices', 'warn', `Best deals feed unavailable: ${error.message}`);
       }
     }
 

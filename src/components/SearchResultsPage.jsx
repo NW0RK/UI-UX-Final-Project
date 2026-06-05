@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ExternalLink, Search } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
 
@@ -39,12 +39,7 @@ export default function SearchResultsPage({
   const renderSourceBadge = (item) => {
     if (item.resultType === 'library') return <span className="search-source-chip owned">Library</span>;
     if (item.source === 'rawg') {
-      return (
-        <span className="search-source-chip">
-          <ExternalLink size={11} />
-          RAWG
-        </span>
-      );
+      return <span className="search-source-chip">Discovery</span>;
     }
     return <span className="search-source-chip">Store</span>;
   };
@@ -57,18 +52,18 @@ export default function SearchResultsPage({
           <h1>{query.trim() ? `Results for "${query.trim()}"` : 'Search Games'}</h1>
         </div>
         <span className="search-results-count">
-          {isSearching ? 'Searching RAWG...' : `${results.length} result${results.length === 1 ? '' : 's'}`}
+          {isSearching ? 'Searching discovery...' : `${results.length} result${results.length === 1 ? '' : 's'}`}
         </span>
       </div>
 
       {rawgSearchError && (
-        <div className="search-results-note">RAWG search unavailable: {rawgSearchError}</div>
+        <div className="search-results-note">Discovery search unavailable: {rawgSearchError}</div>
       )}
 
       {results.length === 0 ? (
         <div className="search-results-empty">
           <Search size={22} />
-          <span>{isSearching ? 'Searching RAWG...' : 'No games matched your search.'}</span>
+          <span>{isSearching ? 'Searching discovery...' : 'No games matched your search.'}</span>
         </div>
       ) : (
         <div className="search-results-grid">
@@ -109,7 +104,7 @@ export default function SearchResultsPage({
                     {item.ageRating && <span>{item.ageRating}</span>}
                   </div>
                   <div className="search-result-rating">
-                    <span>{item.source === 'rawg' ? 'RAWG Rating' : 'Rating'}</span>
+                    <span>{item.source === 'rawg' ? 'Community Rating' : 'Rating'}</span>
                     <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
                   </div>
                   {item.resultType === 'library' && (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BadgePercent, Check, ExternalLink, Flame, Search, ShoppingCart } from 'lucide-react';
+import { BadgePercent, Check, Flame, Search, ShoppingCart } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
 
@@ -59,28 +59,6 @@ export default function StoreGrid({
     </div>
   );
 
-  const renderSourceBadge = (item) => {
-    if (item.source === 'itad') {
-      return (
-        <span className="store-source-chip deal">
-          <BadgePercent size={11} />
-          ITAD
-        </span>
-      );
-    }
-
-    if (item.source === 'rawg') {
-      return (
-        <span className="store-source-chip">
-          <ExternalLink size={11} />
-          RAWG
-        </span>
-      );
-    }
-
-    return null;
-  };
-
   const renderMeta = (item) => {
     if (item.source === 'itad' && item.itadDeal) {
       return (
@@ -95,7 +73,7 @@ export default function StoreGrid({
     const reviewScore = getSteamReviewScore(item.steamReviewScore || item.rating);
     return (
       <div className="store-rating-meta">
-        <span>{item.source === 'rawg' ? 'RAWG Rating' : 'Steam Reviews'}</span>
+        <span>{item.source === 'rawg' ? 'Community Rating' : 'Steam Reviews'}</span>
         <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
         {reviewScore.source === 'steam' && reviewScore.totalReviews > 0 && (
           <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} reviews</small>
@@ -122,7 +100,6 @@ export default function StoreGrid({
       {renderImage(item)}
       <div className="store-feed-card-info">
         <div className="store-card-topline">
-          {renderSourceBadge(item)}
           {item.source === 'itad' && item.itadDeal?.shop && <span className="store-shop-chip">{item.itadDeal.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
@@ -146,7 +123,9 @@ export default function StoreGrid({
     >
       {renderImage(item)}
       <div className="store-card-info">
-        <div className="store-card-topline">{renderSourceBadge(item)}</div>
+        <div className="store-card-topline">
+          {item.source === 'itad' && item.itadDeal?.shop && <span className="store-shop-chip">{item.itadDeal.shop}</span>}
+        </div>
         <div className="store-card-title">{item.title}</div>
         <div className="store-card-developer">{item.developer}</div>
         {renderMeta(item)}
@@ -160,7 +139,7 @@ export default function StoreGrid({
     }
 
     if (status === 'missing-key') {
-      return <div className="store-feed-status">Add an ITAD API key from a store item page to load live deals.</div>;
+      return <div className="store-feed-status">Add a price API key from a store item page to load live deals.</div>;
     }
 
     if (status === 'error') {
@@ -179,14 +158,14 @@ export default function StoreGrid({
         </div>
         <span className="store-count">
           {hasSearch
-            ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingRawg ? ' - searching RAWG' : ''}`
+            ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingRawg ? ' - searching discovery' : ''}`
             : 'RAWG popularity and ITAD deals'}
         </span>
       </div>
 
       {rawgSearchError && hasSearch && (
         <div className="store-search-note">
-          RAWG search unavailable: {rawgSearchError}
+          Discovery search unavailable: {rawgSearchError}
         </div>
       )}
 
@@ -195,7 +174,7 @@ export default function StoreGrid({
           {filtered.length === 0 && (
             <div className="store-empty">
               <Search size={18} />
-              <span>{isSearchingRawg ? 'Searching RAWG...' : 'No titles match your search.'}</span>
+              <span>{isSearchingRawg ? 'Searching discovery...' : 'No titles match your search.'}</span>
             </div>
           )}
           <div className="store-grid">

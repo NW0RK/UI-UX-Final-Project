@@ -55,6 +55,7 @@ npm run build
 | `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
+| `docs/LLM_DESIGN_CONTEXT.md` | Saved product/design context for LLM-assisted UI, UX, product, and frontend work. | Product positioning, design language, interaction expectations, or LLM design guidance changes. |
 | `deprecated_features/` | Archived image trimming code and notes. | Only when restoring or documenting deprecated trimming behavior. |
 | Root asset folders | Controller button/icon packs and audio assets. | Asset lookup, controller hints, or media licensing changes. |
 

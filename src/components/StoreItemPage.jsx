@@ -5,7 +5,7 @@ import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 import { getSteamReviewScore } from '../utils/steamReviews';
 import { fetchRawgGameDetailsBrowser, fetchRawgScreenshotsBrowser } from '../utils/rawg';
-import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
+import { cleanSteamDescription, fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
 
 const HIGHCHARTS_VERSION = '12.6.0';
 let highchartsLoaderPromise = null;
@@ -181,22 +181,6 @@ function getCuratedMockMedia(gameId, title) {
       }
     ]
   };
-}
-
-function cleanSteamDescription(value) {
-  if (!value) return '';
-  const withLineBreaks = value
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/li>/gi, '\n');
-
-  if (typeof document !== 'undefined') {
-    const node = document.createElement('div');
-    node.innerHTML = withLineBreaks;
-    return node.textContent.replace(/\n{3,}/g, '\n\n').trim();
-  }
-
-  return withLineBreaks.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function getThemeValue(name, fallback) {
@@ -1220,11 +1204,6 @@ export default function StoreItemPage({
 
           <div className="store-item-showcase-row">
             <div className="store-item-screenshots-panel">
-              <h3 className="store-item-section-title">
-                <ImageIcon size={16} />
-                <span>Screenshots & Gallery</span>
-              </h3>
-
               {(() => {
                 const combinedMedia = [];
                 if (media.screenshots) {
@@ -1858,7 +1837,7 @@ export default function StoreItemPage({
 
         .store-item-showcase-row {
           display: grid;
-          grid-template-columns: minmax(300px, 1.08fr) minmax(240px, 0.92fr);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 18px;
           align-items: stretch;
           margin-bottom: 22px;

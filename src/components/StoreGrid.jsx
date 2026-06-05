@@ -109,7 +109,7 @@ export default function StoreGrid({
           {item.source === 'itad' && item.itadDeal?.shop && <span className="store-shop-chip">{item.itadDeal.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
-        <div className="store-card-developer">{item.developer}</div>
+        {item.source !== 'rawg' && <div className="store-card-developer">{item.developer}</div>}
         {renderMeta(item)}
       </div>
     </div>
@@ -134,7 +134,7 @@ export default function StoreGrid({
           {item.source === 'itad' && item.itadDeal?.shop && <span className="store-shop-chip">{item.itadDeal.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
-        <div className="store-card-developer">{item.developer}</div>
+        {item.source !== 'rawg' && <div className="store-card-developer">{item.developer}</div>}
         {renderMeta(item)}
       </div>
     </div>

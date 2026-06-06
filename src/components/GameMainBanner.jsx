@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Star, Flame, Clock, Hourglass, Move } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Star, Flame, Clock, Hourglass, Move, Sparkles } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { analyzeBannerTitlePlacement, normalizeBannerLayout } from '../utils/bannerPlacement';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
 import { getPrimaryHltbText } from '../utils/hltb';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
@@ -28,19 +29,18 @@ export default function GameMainBanner({
   const setEditMode = controlledSetEditMode !== undefined ? controlledSetEditMode : setLocalEditMode;
 
   // Layout state initialized from game
-  const initialLayout = game?.bannerLayout || {
-    leftPercent: 65,
-    topPercent: 30,
-    width: 400,
-    height: 120
-  };
+  const initialLayout = normalizeBannerLayout(game?.bannerLayout);
 
   const [activeLayout, setActiveLayout] = useState(initialLayout);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [autoPlacementStatus, setAutoPlacementStatus] = useState('idle');
 
   const bannerRef = useRef(null);
+  const backdropImgRef = useRef(null);
+  const contentRef = useRef(null);
   const titleRef = useRef(null);
+  const autoPlacementGameRef = useRef(null);
   
   // Keep a ref of the layout to avoid stale closure state in mouse event handlers
   const layoutRef = useRef(activeLayout);
@@ -50,14 +50,10 @@ export default function GameMainBanner({
 
   // Sync state when game changes
   useEffect(() => {
-    const updated = game?.bannerLayout || {
-      leftPercent: 65,
-      topPercent: 30,
-      width: 400,
-      height: 120
-    };
+    const updated = normalizeBannerLayout(game?.bannerLayout);
     setActiveLayout(updated);
     layoutRef.current = updated;
+    setAutoPlacementStatus('idle');
   }, [game?.id, game?.bannerLayout]);
 
   useEffect(() => {
@@ -79,6 +75,72 @@ export default function GameMainBanner({
       if (h.resizeEnd) document.removeEventListener('mouseup', h.resizeEnd);
     };
   }, []);
+
+  const getReservedRects = useCallback(() => {
+    const bannerRect = bannerRef.current?.getBoundingClientRect();
+    const contentRect = contentRef.current?.getBoundingClientRect();
+    if (!bannerRect || !contentRect) return [];
+
+    return [{
+      x: Math.max(0, contentRect.left - bannerRect.left - 24),
+      y: Math.max(0, contentRect.top - bannerRect.top - 24),
+      width: Math.min(bannerRect.width, contentRect.width + 48),
+      height: Math.min(bannerRect.height, contentRect.height + 48)
+    }];
+  }, []);
+
+  const applyAutoPlacement = useCallback(async ({ persist = false } = {}) => {
+    const image = backdropImgRef.current;
+    const bannerRect = bannerRef.current?.getBoundingClientRect();
+
+    if (!game?.bannerUrl || !image || !bannerRect?.width || !bannerRect?.height) {
+      return null;
+    }
+
+    if (!image.complete || !image.naturalWidth) {
+      return null;
+    }
+
+    setAutoPlacementStatus('analyzing');
+
+    try {
+      const nextLayout = analyzeBannerTitlePlacement({
+        image,
+        containerWidth: bannerRect.width,
+        containerHeight: bannerRect.height,
+        preferredLayout: layoutRef.current,
+        reservedRects: getReservedRects()
+      });
+
+      setActiveLayout(nextLayout);
+      layoutRef.current = nextLayout;
+      setAutoPlacementStatus('ready');
+
+      if (persist && onUpdateGameBannerLayout) {
+        await onUpdateGameBannerLayout(game.id, nextLayout);
+      }
+
+      return nextLayout;
+    } catch (error) {
+      setAutoPlacementStatus('blocked');
+      return null;
+    }
+  }, [game?.bannerUrl, game?.id, getReservedRects, onUpdateGameBannerLayout]);
+
+  useEffect(() => {
+    if (!game?.id || !game?.bannerUrl || game?.bannerLayout) return;
+    if (autoPlacementGameRef.current === game.id) return;
+
+    const frame = requestAnimationFrame(() => {
+      applyAutoPlacement({ persist: false }).then((layout) => {
+        if (layout) {
+          autoPlacementGameRef.current = game.id;
+        }
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [applyAutoPlacement, game?.bannerLayout, game?.bannerUrl, game?.id]);
 
   if (!game) return null;
 
@@ -206,6 +268,21 @@ export default function GameMainBanner({
     const mins = Math.floor((seconds % 3600) / 60);
     if (hrs === 0) return `${mins} mins`;
     return `${hrs}h ${mins}m`;
+  };
+
+  const handleBackdropLoad = () => {
+    if (!game?.bannerLayout) {
+      applyAutoPlacement({ persist: false }).then((layout) => {
+        if (layout) {
+          autoPlacementGameRef.current = game.id;
+        }
+      });
+    }
+  };
+
+  const handleAutoPlacementClick = () => {
+    audioEngine.playClickPulse();
+    applyAutoPlacement({ persist: true });
   };
 
   // Drag start handler
@@ -390,10 +467,12 @@ export default function GameMainBanner({
       <div className="backdrop-image-mask">
           {game.bannerUrl ? (
             <img 
+              ref={backdropImgRef}
               src={game.bannerUrl} 
               alt={game.title} 
               className={`banner-backdrop-img${parallaxClass}`} 
               key={game.id}
+              onLoad={handleBackdropLoad}
             />
           ) : (
             <div className={`banner-backdrop-img banner-art-placeholder${parallaxClass}`} key={game.id}>
@@ -404,7 +483,7 @@ export default function GameMainBanner({
       </div>
 
       {/* Floating Info Overlay Sheet */}
-      <div className="banner-content-box" key={`banner-content-${bannerTransitionKey}`}>
+      <div className="banner-content-box" ref={contentRef} key={`banner-content-${bannerTransitionKey}`}>
         {/* Developer & Developer Meta */}
         <div className="developer-meta banner-transition-item transition-developer">
           <span className={`developer-name ${visibleStudioLogoUrl ? 'developer-name-with-logo' : ''} ${developerLogoBadgeClass}`}>
@@ -452,6 +531,18 @@ export default function GameMainBanner({
             >
               <Move size={14} className="edit-icon" />
               <span>Done Customizing Title</span>
+            </button>
+            <button
+              className={`glow-btn action-pill-btn banner-edit-btn auto-place-btn ${autoPlacementStatus === 'ready' ? 'auto-ready' : ''}`}
+              onClick={handleAutoPlacementClick}
+              onMouseEnter={audioEngine.playHoverTick}
+              disabled={autoPlacementStatus === 'analyzing' || !game.bannerUrl}
+              title={autoPlacementStatus === 'blocked'
+                ? 'Auto placement needs readable cached artwork or a same-origin image'
+                : 'Find the clearest readable title position'}
+            >
+              <Sparkles size={14} className="edit-icon" />
+              <span>{autoPlacementStatus === 'analyzing' ? 'Analyzing...' : 'Auto Place Title'}</span>
             </button>
           </div>
         )}
@@ -517,7 +608,7 @@ export default function GameMainBanner({
       {/* DRAGGABLE & RESIZABLE TITLE CONTAINER */}
       <div 
         ref={titleRef}
-        className={`banner-title-container ${editMode ? 'edit-mode-active' : ''} ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
+        className={`banner-title-container tone-${activeLayout.textTone || 'light'} contrast-${activeLayout.overlayStrength || 'soft'} ${editMode ? 'edit-mode-active' : ''} ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
         style={{
           position: 'absolute',
           left: `${activeLayout.leftPercent}%`,
@@ -786,6 +877,41 @@ export default function GameMainBanner({
           overflow: visible;
           padding: 10px;
           box-sizing: border-box;
+          border-radius: 8px;
+          isolation: isolate;
+        }
+
+        .banner-title-container::before {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 10px;
+          background: rgba(5, 7, 12, 0);
+          opacity: 0;
+          pointer-events: none;
+          z-index: -1;
+          transition: opacity 0.3s ease, background 0.3s ease;
+        }
+
+        .banner-title-container.contrast-medium::before,
+        .banner-title-container.contrast-strong::before {
+          opacity: 1;
+        }
+
+        .banner-title-container.contrast-medium::before {
+          background: rgba(5, 7, 12, 0.18);
+          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+        }
+
+        .banner-title-container.contrast-strong::before {
+          background: rgba(5, 7, 12, 0.32);
+          box-shadow: 0 18px 56px rgba(0, 0, 0, 0.28);
+        }
+
+        .banner-title-container.tone-dark.contrast-medium::before,
+        .banner-title-container.tone-dark.contrast-strong::before {
+          background: rgba(255, 255, 255, 0.22);
+          box-shadow: 0 14px 42px rgba(255, 255, 255, 0.08);
         }
 
         .banner-title-container.edit-mode-active {
@@ -980,6 +1106,17 @@ export default function GameMainBanner({
           box-shadow: var(--accent-glow);
         }
 
+        .auto-place-btn.auto-ready {
+          color: #66c0f4;
+          border-color: rgba(102, 192, 244, 0.32);
+          background: rgba(102, 192, 244, 0.08);
+        }
+
+        .auto-place-btn:disabled {
+          opacity: 0.56;
+          cursor: wait;
+        }
+
         .banner-logo-img {
           width: 100%;
           height: 100%;
@@ -987,6 +1124,10 @@ export default function GameMainBanner({
           filter: drop-shadow(0 0 25px rgba(0, 0, 0, 0.85));
           flex-shrink: 0;
           pointer-events: none;
+        }
+
+        .banner-title-container.tone-dark .banner-logo-img {
+          filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.56)) drop-shadow(0 5px 16px rgba(0, 0, 0, 0.5));
         }
 
         .banner-game-title {
@@ -1009,6 +1150,11 @@ export default function GameMainBanner({
           max-height: 100%;
           user-select: none;
           pointer-events: none;
+        }
+
+        .banner-title-container.tone-dark .banner-game-title {
+          color: #07070a;
+          text-shadow: 0 0 24px rgba(255, 255, 255, 0.88), 0 2px 14px rgba(255, 255, 255, 0.58);
         }
 
         .developer-meta {

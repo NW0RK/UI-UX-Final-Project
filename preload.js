@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fetchSteamDetails: (steamAppId) => ipcRenderer.invoke('fetch-steam-details', steamAppId),
   fetchSteamReviews: (steamAppId) => ipcRenderer.invoke('fetch-steam-reviews', steamAppId),
   fetchItadJson: (url, apiKey, options) => ipcRenderer.invoke('itad-fetch-json', url, apiKey, options),
+  fetchCheapSharkJson: (url, options) => ipcRenderer.invoke('cheapshark-fetch-json', url, options),
   searchHowLongToBeat: (term) => ipcRenderer.invoke('hltb-search', term),
   autoFetchHowLongToBeat: (game) => ipcRenderer.invoke('hltb-auto-fetch', game),
   searchRawgGames: (term) => ipcRenderer.invoke('rawg-search-games', term),

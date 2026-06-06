@@ -50,10 +50,12 @@ npm run build
 | `src/utils/steamgriddb.js` | Renderer-side helpers for applying and checking artwork state. | Artwork field mapping or fetch eligibility changes. |
 | `src/utils/hltb.js` | Renderer-side seeded HowLongToBeat data and formatting helpers. | HLTB data shape, stale rules, display text. |
 | `src/utils/itad.js` | Renderer-side IsThereAnyDeal helpers, local API key reads, API normalization, seeded fallback history. | Store price insights, ITAD auth/storage, history formatting. |
+| `src/utils/cheapshark.js` | Renderer-side CheapShark best-deal helpers and API normalization through the Electron proxy when available. | CheapShark deal fields, source labels, or request behavior. |
 | `src/utils/rawg.js` | Renderer-side RAWG helpers, browser fallback fetches, game/screenshot normalization. | RAWG feed, search, detail, screenshot, or browser fallback behavior changes. |
 | `src/utils/steam.js` | Renderer-side Steam search/details/review helpers and browser fallbacks. | Steam App ID resolution, Steam details, banner selection, or review normalization changes. |
 | `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
+| `src/utils/bannerPlacement.js` | Browser-side Library banner title placement analysis: saliency-style masking, maximum empty rectangle selection, and contrast tone selection. | Banner title auto-placement, safe-region scoring, or layout contrast behavior changes. |
 | `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
 | `docs/LLM_DESIGN_CONTEXT.md` | Saved product/design context for LLM-assisted UI, UX, product, and frontend work. | Product positioning, design language, interaction expectations, or LLM design guidance changes. |
 | `deprecated_features/` | Archived image trimming code and notes. | Only when restoring or documenting deprecated trimming behavior. |
@@ -65,10 +67,10 @@ npm run build
 | --- | --- | --- |
 | `NavigationHeader.jsx` | Top navigation, search, view tabs, window buttons, profile entry. | Calls window controls through `window.electronAPI`; active view labels come from `App.jsx`. |
 | `InteractiveCanvas.jsx` | Ambient canvas background driven by theme, speed, density. | Receives settings from `App.jsx`. |
-| `GameMainBanner.jsx` | Primary selected-game hero, launch/favorite/edit/remove actions, banner positioning. | Uses HLTB and Brandfetch helpers; includes `LibraryOverflowMenu`. |
+| `GameMainBanner.jsx` | Primary selected-game hero, launch/favorite/edit/remove actions, manual title positioning, and automatic safe-title placement. | Uses HLTB, Brandfetch, and banner placement helpers; includes `LibraryOverflowMenu`. |
 | `HorizontalLibrary.jsx` | Horizontal library cards for the main library view. | Uses `data-controller-*` selection attributes. |
 | `FavouritesTrophyRoom.jsx` | Favorites view with trophy-room style cards. | Uses `data-controller-*` selection attributes and local injected styles. |
-| `StoreGrid.jsx` | Store landing view with RAWG popular games, ITAD best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
+| `StoreGrid.jsx` | Store landing view with RAWG popular games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
 | `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and RAWG discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
 | `StoreItemPage.jsx` | Store detail view, Steam/RAWG media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and RAWG detail/media IPC, and executable picker. |
 | `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
@@ -87,7 +89,7 @@ npm run build
 - `NavigationHeader` changes top-level views and search text.
 - `GameMainBanner` plus `HorizontalLibrary` render the library view.
 - `FavouritesTrophyRoom` renders favorite games.
-- `StoreGrid` renders the split RAWG popular-games and ITAD best-deals store landing view.
+- `StoreGrid` renders the split RAWG popular-games and ITAD/CheapShark best-deals store landing view.
 - `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and RAWG discovery matches.
 - `StoreItemPage` renders one store or search item detail.
 - `ControlCenter`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
@@ -108,6 +110,7 @@ Current IPC groups:
 | Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgPopularGames`, `fetchRawgScreenshots`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, RAWG search/popular/screenshots/details handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
+| CheapShark | `fetchCheapSharkJson` | `cheapshark-fetch-json` |
 | Settings/API key | `saveApiKey`, `getApiKey`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
 | Diagnostics | `onDiagnosticEvent` | `diagnostic-event` |
 
@@ -127,7 +130,7 @@ Common fields include:
 
 - Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`.
 - Library state: `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `timeToComplete`, `nextAchievement`, `exePath`.
-- Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`.
+- Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
 - Integrations: `hltb` for HowLongToBeat data; `rawgId`, `rawgSlug`, `rawgUrl`, and `source: 'rawg'` for RAWG-backed discovery/library records; transient store items can include `steamReviewScore` from Steam review summaries.
 
 Persistence locations:
@@ -159,9 +162,9 @@ HowLongToBeat:
 
 Store and pricing:
 
-- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from RAWG popular games and ITAD best deals.
+- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from RAWG popular games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
-- Store landing uses `fetchRawgPopularGames` or `src/utils/rawg.js` browser fallbacks for the left popular-games feed and `src/utils/itad.js` for the right best-deals feed.
+- Store landing uses `fetchRawgPopularGames` or `src/utils/rawg.js` browser fallbacks for the left popular-games feed and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed.
 - Top-bar searches route to the dedicated `search` view, combining local library/store matches with RAWG discovery results from `searchRawgGames`; selecting a store/RAWG result opens `StoreItemPage` without saving until the user marks it owned.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves RAWG popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to RAWG screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.

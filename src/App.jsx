@@ -16,6 +16,7 @@ import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
+import { fetchCheapSharkBestDeals } from './utils/cheapshark';
 import { fetchItadBestDeals } from './utils/itad';
 import { fetchRawgGameDetailsBrowser, fetchRawgPopularGamesBrowser, fetchRawgScreenshotsBrowser, searchRawgGamesBrowser } from './utils/rawg';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
@@ -68,6 +69,8 @@ function getStoreItemCacheAliases(item, resolvedSteamAppId = null) {
   if (rawgId) aliases.add(`rawg:${rawgId}`);
   const itadId = String(item?.itadId || '').trim();
   if (itadId) aliases.add(`itad:${itadId}`);
+  const cheapsharkGameId = String(item?.cheapsharkGameId || '').trim();
+  if (cheapsharkGameId) aliases.add(`cheapshark:${cheapsharkGameId}`);
   const title = normalizeStoreCacheTitle(item?.title);
   if (title) aliases.add(`title:${title}`);
   return [...aliases];
@@ -583,19 +586,40 @@ export default function App() {
     setItadDealsError(null);
 
     async function hydrateItadDeals() {
-      try {
-        const deals = await fetchItadBestDeals({ country: 'US', limit: 10 });
-        if (cancelled) return;
+      const [itadResult, cheapsharkResult] = await Promise.allSettled([
+        fetchItadBestDeals({ country: 'US', limit: 10 }),
+        fetchCheapSharkBestDeals({ limit: 10 })
+      ]);
+      if (cancelled) return;
 
-        setItadDealGames(deals.map(applySeededHltbToGame));
-        setItadDealsStatus('ready');
-      } catch (error) {
-        if (cancelled) return;
-        setItadDealGames([]);
-        setItadDealsStatus(error.message === 'Missing price API key.' ? 'missing-key' : 'error');
-        setItadDealsError(error.message);
-        addDiagnostic('Prices', 'warn', `Best deals feed unavailable: ${error.message}`);
+      const deals = [];
+      const errors = [];
+      let missingItadKey = false;
+
+      if (itadResult.status === 'fulfilled') {
+        deals.push(...itadResult.value);
+      } else {
+        missingItadKey = itadResult.reason?.message === 'Missing price API key.';
+        errors.push(`ITAD: ${itadResult.reason?.message || 'Unavailable'}`);
       }
+
+      if (cheapsharkResult.status === 'fulfilled') {
+        deals.push(...cheapsharkResult.value);
+      } else {
+        errors.push(`CheapShark: ${cheapsharkResult.reason?.message || 'Unavailable'}`);
+      }
+
+      setItadDealGames(deals.map(applySeededHltbToGame));
+
+      if (deals.length > 0) {
+        setItadDealsStatus('ready');
+        setItadDealsError(errors.length ? errors.join(' | ') : null);
+      } else {
+        setItadDealsStatus(missingItadKey ? 'missing-key' : 'error');
+        setItadDealsError(errors.join(' | ') || 'No deal services returned results.');
+      }
+
+      errors.forEach(message => addDiagnostic('Prices', 'warn', `Best deals feed unavailable: ${message}`));
     }
 
     hydrateItadDeals();
@@ -1311,7 +1335,9 @@ export default function App() {
     const existing = games.find(g =>
       g.id === storeItem.id ||
       (storeItem.rawgId && g.rawgId === storeItem.rawgId) ||
-      (storeItem.itadId && g.itadId === storeItem.itadId)
+      (storeItem.itadId && g.itadId === storeItem.itadId) ||
+      (storeItem.cheapsharkGameId && g.cheapsharkGameId === storeItem.cheapsharkGameId) ||
+      (storeItem.steamAppId && String(g.steamAppId || '') === String(storeItem.steamAppId))
     );
     if (existing) {
       const updatedList = games.map(g =>
@@ -1426,10 +1452,14 @@ export default function App() {
   }));
   const ownedRawgIds = new Set(games.map(game => game.rawgId).filter(Boolean));
   const ownedItadIds = new Set(games.map(game => game.itadId).filter(Boolean));
+  const ownedCheapSharkIds = new Set(games.map(game => game.cheapsharkGameId).filter(Boolean));
+  const ownedSteamAppIds = new Set(games.map(game => String(game.steamAppId || '')).filter(Boolean));
   const isOwnedStoreItem = (item) => (
     games.some(game => game.id === item.id) ||
     (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
-    (item.itadId && ownedItadIds.has(item.itadId))
+    (item.itadId && ownedItadIds.has(item.itadId)) ||
+    (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
+    (item.steamAppId && ownedSteamAppIds.has(String(item.steamAppId)))
   );
   const syncedPopularGames = popularStoreGames.map(item => ({
     ...item,

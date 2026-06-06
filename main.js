@@ -1650,6 +1650,56 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}
   }
 });
 
+ipcMain.handle('cheapshark-fetch-json', async (event, requestUrl, options = {}) => {
+  try {
+    const target = new URL(requestUrl);
+    if (target.protocol !== 'https:' || target.hostname !== 'www.cheapshark.com' || !target.pathname.startsWith('/api/1.0/')) {
+      return { error: 'Blocked unsupported CheapShark request.' };
+    }
+
+    const method = String(options?.method || 'GET').toUpperCase();
+    if (method !== 'GET') {
+      return { error: 'Unsupported CheapShark request method.' };
+    }
+
+    const res = await httpsGet(target.href, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'NexusLauncher/1.0'
+      }
+    });
+
+    return await new Promise((resolve, reject) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Invalid CheapShark JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve({
+            error: parsed?.message || `CheapShark HTTP ${res.statusCode}`,
+            statusCode: res.statusCode
+          });
+          return;
+        }
+
+        resolve({ data: parsed });
+      });
+      res.on('error', reject);
+    });
+  } catch (err) {
+    emitDiagnostic('Prices', 'error', `CheapShark request failed: ${err.message}`, { requestUrl });
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('save-api-key', async (event, key) => {
   try {
     const configPath = getConfigPath();
@@ -1724,4 +1774,3 @@ ipcMain.handle('clear-artwork-cache', async () => {
     return { success: false, error: err.message };
   }
 });
-

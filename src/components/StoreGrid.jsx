@@ -29,6 +29,8 @@ export default function StoreGrid({
   const ownedIds = new Set(ownedGames.map(g => g.id));
   const ownedRawgIds = new Set(ownedGames.map(g => g.rawgId).filter(Boolean));
   const ownedItadIds = new Set(ownedGames.map(g => g.itadId).filter(Boolean));
+  const ownedCheapSharkIds = new Set(ownedGames.map(g => g.cheapsharkGameId).filter(Boolean));
+  const ownedSteamAppIds = new Set(ownedGames.map(g => String(g.steamAppId || '')).filter(Boolean));
   const isSearchingRawg = rawgSearchStatus === 'loading' && searchQuery.trim().length >= 3;
 
   const handleItemClick = (item) => {
@@ -44,7 +46,9 @@ export default function StoreGrid({
   const isOwned = (item) => (
     ownedIds.has(item.id) ||
     (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
-    (item.itadId && ownedItadIds.has(item.itadId))
+    (item.itadId && ownedItadIds.has(item.itadId)) ||
+    (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
+    (item.steamAppId && ownedSteamAppIds.has(String(item.steamAppId)))
   );
 
   const renderImage = (item) => (
@@ -66,12 +70,13 @@ export default function StoreGrid({
   );
 
   const renderMeta = (item) => {
-    if (item.source === 'itad' && item.itadDeal) {
+    const deal = item.itadDeal || item.cheapsharkDeal;
+    if (deal) {
       return (
         <div className="store-deal-meta">
-          <strong>{item.itadDeal.price}</strong>
-          {item.itadDeal.regular && <span>{item.itadDeal.regular}</span>}
-          {Number(item.itadDeal.cut) > 0 && <em>-{item.itadDeal.cut}%</em>}
+          <strong>{deal.price}</strong>
+          {deal.regular && <span>{deal.regular}</span>}
+          {Number(deal.cut) > 0 && <em>-{deal.cut}%</em>}
         </div>
       );
     }
@@ -93,7 +98,7 @@ export default function StoreGrid({
   const renderFeedCard = (item, index, section) => (
     <div
       key={`${section}-${item.id}`}
-      className={`store-feed-card ${isOwned(item) ? 'owned' : ''} ${item.source === 'itad' ? 'deal-card' : ''}`}
+      className={`store-feed-card ${isOwned(item) ? 'owned' : ''} ${item.itadDeal || item.cheapsharkDeal ? 'deal-card' : ''}`}
       role="button"
       tabIndex={0}
       data-controller-item="true"
@@ -106,7 +111,9 @@ export default function StoreGrid({
       {renderImage(item)}
       <div className="store-feed-card-info">
         <div className="store-card-topline">
-          {item.source === 'itad' && item.itadDeal?.shop && <span className="store-shop-chip">{item.itadDeal.shop}</span>}
+          {item.source === 'cheapshark' && <span className="store-source-chip deal">CheapShark</span>}
+          {item.source === 'itad' && <span className="store-source-chip deal">ITAD</span>}
+          {(item.itadDeal?.shop || item.cheapsharkDeal?.shop) && <span className="store-shop-chip">{item.itadDeal?.shop || item.cheapsharkDeal?.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
         {item.source !== 'rawg' && <div className="store-card-developer">{item.developer}</div>}
@@ -131,7 +138,9 @@ export default function StoreGrid({
       {renderImage(item)}
       <div className="store-card-info">
         <div className="store-card-topline">
-          {item.source === 'itad' && item.itadDeal?.shop && <span className="store-shop-chip">{item.itadDeal.shop}</span>}
+          {item.source === 'cheapshark' && <span className="store-source-chip deal">CheapShark</span>}
+          {item.source === 'itad' && <span className="store-source-chip deal">ITAD</span>}
+          {(item.itadDeal?.shop || item.cheapsharkDeal?.shop) && <span className="store-shop-chip">{item.itadDeal?.shop || item.cheapsharkDeal?.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
         {item.source !== 'rawg' && <div className="store-card-developer">{item.developer}</div>}
@@ -166,7 +175,7 @@ export default function StoreGrid({
         <span className="store-count">
           {hasSearch
             ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingRawg ? ' - searching discovery' : ''}`
-            : 'RAWG popularity and ITAD deals'}
+            : 'RAWG popularity, ITAD, and CheapShark deals'}
         </span>
       </div>
 
@@ -207,10 +216,10 @@ export default function StoreGrid({
             </div>
           </section>
 
-          <section className="store-feed-column" aria-label="Best deals from IsThereAnyDeal">
+          <section className="store-feed-column" aria-label="Best deals from IsThereAnyDeal and CheapShark">
             <div className="store-feed-heading">
               <div>
-                <span className="store-feed-kicker">IsThereAnyDeal</span>
+                <span className="store-feed-kicker">IsThereAnyDeal & CheapShark</span>
                 <div className="store-feed-title-row">
                   <h2>Best Deals</h2>
                   <BadgePercent size={18} />
@@ -220,7 +229,7 @@ export default function StoreGrid({
             <div className="store-feed-list">
               {dealGames.length > 0
                 ? dealGames.map((item, index) => renderFeedCard(item, index, 'deals'))
-                : renderStatus(dealsStatus, dealsError, 'Live deals will appear here when ITAD responds.', 'ITAD')}
+                : renderStatus(dealsStatus, dealsError, 'Live deals will appear here when price services respond.', 'Deal feeds')}
             </div>
           </section>
         </div>

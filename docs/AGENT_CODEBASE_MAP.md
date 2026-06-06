@@ -29,11 +29,12 @@ npm run build
 | Need | Command or file | Notes |
 | --- | --- | --- |
 | Install dependencies | `npm install` | Uses `package-lock.json`. |
-| Run desktop dev app | `npm run dev` | Starts Vite, waits on port `5173`, then launches Electron. |
+| Run desktop dev app | `npm run dev` | Starts Vite, waits on port `5173`, then launches Electron through `scripts/start-electron-dev.cjs`. |
 | Build renderer | `npm run build` | Baseline verification. Builds Vite output into `dist/`. |
 | Preview renderer only | `npm run preview` | Does not exercise Electron IPC. |
 | Script definitions | `package.json` | No test script currently exists. |
 | Vite config | `vite.config.js` | Uses React plugin, `base: './'`, strict dev port `5173`. |
+| Electron dev launcher | `scripts/start-electron-dev.cjs` | Spawns the installed Electron binary with editor-inherited `ELECTRON_RUN_AS_NODE` removed. |
 
 ## Source Map
 
@@ -41,6 +42,7 @@ npm run build
 | --- | --- | --- |
 | `main.js` | Electron main process: window creation, custom artwork protocol, native dialogs, filesystem persistence, executable scanning, process launch, external service calls, diagnostics, settings, cache clearing. | Native behavior, IPC, storage paths, scanners, artwork, HLTB, ITAD, RAWG, or launch behavior changes. |
 | `preload.js` | Context-isolated bridge exposing `window.electronAPI` to React. | Any IPC method is added, removed, renamed, or has signature changes. |
+| `scripts/start-electron-dev.cjs` | Development-only Electron launcher used by `npm run dev` to avoid inheriting `ELECTRON_RUN_AS_NODE` from editor shells. | Dev startup behavior changes. |
 | `src/main.jsx` | React root mount and global CSS import. | App bootstrap changes. |
 | `src/App.jsx` | Renderer state hub, view routing, settings sync, database hydration, artwork and HLTB hydration, import/edit/remove/launch handlers, controller callbacks. | Most app flows, game data mutations, settings, views, and modal wiring. |
 | `src/index.css` | Global styles, theme variables, focus styles, layout, and most component CSS. | Visual changes, theme variables, focus/controller styling, responsive layout. |

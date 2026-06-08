@@ -98,9 +98,9 @@ export function normalizeIgdbGame(raw, { includeDescription = false } = {}) {
   const coverUrl = igdbImageUrl(raw.cover?.image_id, 'cover_big_2x');
   const bannerUrl = igdbImageUrl(screenshots[0]?.image_id, 'screenshot_huge_2x') || coverUrl;
   const rating100 = Number(raw.total_rating || raw.rating || raw.aggregated_rating || 0) || 0;
-  const description = includeDescription
-    ? stripHtml(raw.summary || raw.storyline || '')
-    : stripHtml(raw.summary || '');
+  const summary = stripHtml(raw.summary || '');
+  const storyline = stripHtml(raw.storyline || '');
+  const description = summary;
 
   return {
     id: `igdb-${igdbId}`,
@@ -116,6 +116,8 @@ export function normalizeIgdbGame(raw, { includeDescription = false } = {}) {
     ageRating: formatAgeRating(raw.age_ratings),
     releaseDate: formatDate(raw.first_release_date),
     description: description || `Open details to load the full game profile for ${raw.name}.`,
+    igdbSummary: summary,
+    igdbStoryline: storyline,
     playtime: 0,
     lastPlayed: 'Never',
     progress: 0,

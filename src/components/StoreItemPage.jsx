@@ -258,6 +258,7 @@ export default function StoreItemPage({
   const [igdbDetails, setIgdbDetails] = useState(null);
   const [loadingIgdbDetails, setLoadingIgdbDetails] = useState(false);
   const [igdbDetailsError, setIgdbDetailsError] = useState(null);
+  const [storylineExpanded, setStorylineExpanded] = useState(false);
   const [itadGameId, setItadGameId] = useState(null);
   const [chartPoints, setChartPoints] = useState([]);
   const [highchartsStatus, setHighchartsStatus] = useState('Loading price history...');
@@ -276,6 +277,10 @@ export default function StoreItemPage({
     if (!item) return;
     onPrefetchItem(item);
   }, [item?.id, onPrefetchItem]);
+
+  useEffect(() => {
+    setStorylineExpanded(false);
+  }, [item?.id]);
 
   useEffect(() => {
     if (!item || !cachedDetails) return;
@@ -1126,7 +1131,7 @@ export default function StoreItemPage({
   };
 
   const aboutText = (() => {
-    // Strip HTML tags from Steam descriptions (they contain markup)
+    // Strip any lightweight markup/entities from external descriptions.
     const strip = (html) => {
       if (!html) return '';
       return String(html)
@@ -1162,30 +1167,26 @@ export default function StoreItemPage({
       return true;
     };
 
-    // Gather Steam details from component state OR from cache prop directly
-    const sd = steamDetails || cachedDetails?.steamDetails || null;
-
-    // Priority 1: Steam detailed_description (richest source)
-    const steamDetailed = strip(sd?.detailed_description);
-    if (isReal(steamDetailed)) return steamDetailed;
-
-    // Priority 2: Steam about_the_game (another rich field)
-    const steamAbout = strip(sd?.about_the_game);
-    if (isReal(steamAbout)) return steamAbout;
-
-    // Priority 3: Steam short_description
-    const steamShort = strip(sd?.short_description);
-    if (isReal(steamShort)) return steamShort;
-
-    // Priority 4: IGDB details description (from enrichment or cache)
-    const igdbDesc = igdbDetails?.description || cachedDetails?.igdbDetails?.description;
+    // Priority 1: IGDB details description (from enrichment or cache)
+    const igdbDesc = igdbDetails?.description ||
+      cachedDetails?.igdbDetails?.description ||
+      igdbDetails?.igdbSummary ||
+      cachedDetails?.igdbDetails?.igdbSummary;
     if (isReal(igdbDesc)) return igdbDesc;
 
-    // Priority 5: Item's own description (ITAD deal text, etc.)
+    // Priority 2: Item's own description (ITAD deal text, etc.)
     const itemDesc = activeItem?.description;
     if (isReal(itemDesc)) return itemDesc;
 
     return null;
+  })();
+
+  const storylineText = (() => {
+    const text = igdbDetails?.igdbStoryline ||
+      cachedDetails?.igdbDetails?.igdbStoryline ||
+      activeItem?.igdbStoryline ||
+      '';
+    return text && text !== aboutText ? text : '';
   })();
 
   // Debug: Log description sources on each render to diagnose empty descriptions
@@ -1195,8 +1196,6 @@ export default function StoreItemPage({
     aboutTextPreview: aboutText?.slice(0, 60) || '(null)',
     steamDetailsLoaded: !!steamDetails,
     cachedSteamDetails: !!cachedDetails?.steamDetails,
-    steamDetailed: !!(steamDetails?.detailed_description || cachedDetails?.steamDetails?.detailed_description),
-    steamShort: !!(steamDetails?.short_description || cachedDetails?.steamDetails?.short_description),
     igdbDetailsLoaded: !!igdbDetails,
     cachedIgdbDetails: !!cachedDetails?.igdbDetails,
     igdbDesc: !!(igdbDetails?.description || cachedDetails?.igdbDetails?.description),
@@ -1208,8 +1207,8 @@ export default function StoreItemPage({
     cacheStatus: cachedDetails?.status
   });
 
-  // Description is loading if we haven't finished fetching enrichment data yet
-  const descriptionLoading = !aboutText && (!steamMetadataLoaded || loadingIgdbDetails);
+  // Description is loading only while IGDB enrichment is still in flight.
+  const descriptionLoading = !aboutText && loadingIgdbDetails;
 
   return (
     <div className="store-item-viewport">
@@ -1272,6 +1271,27 @@ export default function StoreItemPage({
           <p className="store-item-description">
             {aboutText || (descriptionLoading ? '' : 'No description available for this title.')}
           </p>
+
+          {storylineText && (
+            <div className={`storyline-disclosure ${storylineExpanded ? 'expanded' : ''}`}>
+              <button
+                type="button"
+                className="storyline-toggle-btn"
+                aria-expanded={storylineExpanded}
+                onClick={() => {
+                  audioEngine.playClickPulse();
+                  setStorylineExpanded(expanded => !expanded);
+                }}
+                onFocus={audioEngine.playHoverTick}
+              >
+                <span>Read About Storyline</span>
+                <ChevronRight size={16} />
+              </button>
+              <div className="storyline-panel" aria-hidden={!storylineExpanded}>
+                <p>{storylineText}</p>
+              </div>
+            </div>
+          )}
 
           <div className="store-item-showcase-row">
             <div className="store-item-screenshots-panel">
@@ -1878,6 +1898,72 @@ export default function StoreItemPage({
         .store-item-description::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.1);
           border-radius: 4px;
+        }
+
+        .storyline-disclosure {
+          margin: -4px 0 22px;
+        }
+
+        .storyline-toggle-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid rgba(var(--accent-color-rgb), 0.24);
+          border-radius: 8px;
+          background: rgba(var(--accent-color-rgb), 0.08);
+          color: var(--accent-color);
+          padding: 9px 13px;
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 900;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+        }
+
+        .storyline-toggle-btn:hover,
+        .storyline-toggle-btn:focus-visible {
+          border-color: rgba(var(--accent-color-rgb), 0.42);
+          background: rgba(var(--accent-color-rgb), 0.14);
+          transform: translateY(-1px);
+          outline: none;
+        }
+
+        .storyline-toggle-btn svg {
+          transition: transform 220ms ease;
+        }
+
+        .storyline-disclosure.expanded .storyline-toggle-btn svg {
+          transform: rotate(90deg);
+        }
+
+        .storyline-panel {
+          max-height: 0;
+          opacity: 0;
+          overflow: hidden;
+          transform: translateY(-6px);
+          transition: max-height 320ms ease, opacity 220ms ease, transform 260ms ease;
+        }
+
+        .storyline-disclosure.expanded .storyline-panel {
+          max-height: 260px;
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        .storyline-panel p {
+          margin: 12px 0 0;
+          max-height: 220px;
+          overflow-y: auto;
+          padding: 14px 16px;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.026);
+          color: #a2b8cc;
+          font-size: var(--fs-15);
+          line-height: 1.7;
+          white-space: pre-line;
         }
 
         .igdb-status-line {

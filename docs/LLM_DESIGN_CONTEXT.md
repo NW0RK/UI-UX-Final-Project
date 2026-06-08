@@ -40,7 +40,7 @@ The experience is Windows-first. Renderer code should remain browser-tolerant wh
 
 - Top navigation switches between Library, Favourites, Store, Search, and Store Item flows.
 - The library centers on a selected-game hero banner plus a horizontal game rail.
-- Store and search flows emphasize discovery, Steam/RAWG media, ownership state, reviews, pricing, and executable linking.
+- Store and search flows emphasize discovery, Steam/IGDB media, ownership state, reviews, pricing, and executable linking.
 - The Control Center is a bottom utility drawer for imports, scans, diagnostics, artwork actions, system actions, and settings access.
 - Settings, metadata editing, profile editing, media lightbox, and controller hints sit above the main workspace as overlays.
 
@@ -66,15 +66,15 @@ The experience is Windows-first. Renderer code should remain browser-tolerant wh
 - Do not place cards inside cards.
 - Keep controls compact, scannable, and task-oriented.
 - Avoid marketing-page composition; the first screen should be the actual launcher experience.
-- Use real game artwork, cached media, Steam/RAWG imagery, or existing assets where media is expected.
+- Use real game artwork, cached media, Steam/IGDB imagery, or existing assets where media is expected.
 - Ensure text fits its container and does not overlap adjacent UI.
 
 ## Data And Integration Sensitivities
 
-- Keep game records compatible across imported games, saved database records, RAWG-backed discovery items, store items, and fallback seeds.
-- Common game fields include `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`, `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `exePath`, media URLs, Steam IDs, RAWG IDs, and HLTB data.
+- Keep game records compatible across imported games, saved database records, IGDB-backed discovery items, store items, and fallback seeds.
+- Common game fields include `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`, `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `exePath`, media URLs, Steam IDs, IGDB IDs, legacy RAWG IDs, and HLTB data.
 - Do not duplicate API keys or large catalog data in documentation.
-- External services include Steam, SteamGridDB, RAWG, HowLongToBeat, IsThereAnyDeal, and Brandfetch.
+- External services include Steam, SteamGridDB, IGDB, HowLongToBeat, IsThereAnyDeal, and Brandfetch.
 - Browser fallback behavior matters when the surrounding code already supports it.
 
 ## Prompt Starter

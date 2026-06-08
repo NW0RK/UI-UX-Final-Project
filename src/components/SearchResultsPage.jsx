@@ -7,19 +7,22 @@ export default function SearchResultsPage({
   query,
   results,
   ownedGames,
-  rawgSearchStatus = 'idle',
-  rawgSearchError = null,
+  igdbSearchStatus = 'idle',
+  igdbSearchError = null,
   onSelectItem,
   onPrefetchItem = () => {},
   onSelectLibraryGame,
   onLaunchGame
 }) {
   const ownedIds = new Set(ownedGames.map(game => game.id));
+  const ownedIgdbIds = new Set(ownedGames.map(game => game.igdbId).filter(Boolean));
   const ownedRawgIds = new Set(ownedGames.map(game => game.rawgId).filter(Boolean));
-  const isSearching = rawgSearchStatus === 'loading' && query.trim().length >= 3;
+  const isSearching = igdbSearchStatus === 'loading' && query.trim().length >= 3;
 
   const isOwned = (item) => (
-    ownedIds.has(item.id) || (item.rawgId && ownedRawgIds.has(item.rawgId))
+    ownedIds.has(item.id) ||
+    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
+    (item.rawgId && ownedRawgIds.has(item.rawgId))
   );
 
   const handleResultClick = (item) => {
@@ -46,7 +49,7 @@ export default function SearchResultsPage({
 
   const renderSourceBadge = (item) => {
     if (item.resultType === 'library') return <span className="search-source-chip owned">Library</span>;
-    if (item.source === 'rawg') {
+    if (item.source === 'igdb') {
       return <span className="search-source-chip">Discovery</span>;
     }
     return <span className="search-source-chip">Store</span>;
@@ -64,8 +67,8 @@ export default function SearchResultsPage({
         </span>
       </div>
 
-      {rawgSearchError && (
-        <div className="search-results-note">Discovery search unavailable: {rawgSearchError}</div>
+      {igdbSearchError && (
+        <div className="search-results-note">Discovery search unavailable: {igdbSearchError}</div>
       )}
 
       {results.length === 0 ? (
@@ -113,7 +116,7 @@ export default function SearchResultsPage({
                     {item.ageRating && <span>{item.ageRating}</span>}
                   </div>
                   <div className="search-result-rating">
-                    <span>{item.source === 'rawg' ? 'Community Rating' : 'Rating'}</span>
+                    <span>{item.source === 'igdb' ? 'IGDB Rating' : 'Rating'}</span>
                     <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
                   </div>
                   {item.resultType === 'library' && (

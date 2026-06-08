@@ -13,6 +13,10 @@ export default function SettingsPanel({
   const [apiKey, setApiKey] = useState('');
   const [apiKeyStatus, setApiKeyStatus] = useState('loading'); // loading | custom | builtin
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [igdbClientId, setIgdbClientId] = useState('331ozbtylxc949s6y4o2amakole28q');
+  const [igdbClientSecret, setIgdbClientSecret] = useState('');
+  const [igdbStatus, setIgdbStatus] = useState('loading');
+  const [igdbSaved, setIgdbSaved] = useState(false);
 
   useEffect(() => {
     if (window.electronAPI) {
@@ -20,6 +24,18 @@ export default function SettingsPanel({
         setApiKey(result.key);
         setApiKeyStatus(result.isCustom ? 'custom' : 'builtin');
       }).catch(() => setApiKeyStatus('builtin'));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.electronAPI?.getIgdbCredentials) {
+      window.electronAPI.getIgdbCredentials().then(result => {
+        setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
+        setIgdbClientSecret(result.hasClientSecret ? '********' : '');
+        setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
+      }).catch(() => setIgdbStatus('missing-secret'));
+    } else {
+      setIgdbStatus('preview');
     }
   }, []);
 
@@ -97,6 +113,34 @@ export default function SettingsPanel({
       const result = await window.electronAPI.getApiKey();
       setApiKey(result.key);
       setApiKeyStatus(result.isCustom ? 'custom' : 'builtin');
+    }
+  };
+
+  const handleSaveIgdbCredentials = async () => {
+    audioEngine.playClickPulse();
+    if (window.electronAPI?.saveIgdbCredentials) {
+      const payload = { clientId: igdbClientId };
+      if (igdbClientSecret !== '********') {
+        payload.clientSecret = igdbClientSecret;
+      }
+      await window.electronAPI.saveIgdbCredentials(payload);
+      const result = await window.electronAPI.getIgdbCredentials();
+      setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
+      setIgdbClientSecret(result.hasClientSecret ? '********' : '');
+      setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
+      setIgdbSaved(true);
+      setTimeout(() => setIgdbSaved(false), 2000);
+    }
+  };
+
+  const handleResetIgdbCredentials = async () => {
+    audioEngine.playClickPulse();
+    if (window.electronAPI?.saveIgdbCredentials) {
+      await window.electronAPI.saveIgdbCredentials({ clientId: '', clientSecret: '' });
+      const result = await window.electronAPI.getIgdbCredentials();
+      setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
+      setIgdbClientSecret(result.hasClientSecret ? '********' : '');
+      setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
     }
   };
 
@@ -387,6 +431,57 @@ export default function SettingsPanel({
                     onMouseEnter={audioEngine.playHoverTick}
                   >
                     Save Key
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="api-key-card settings-subgroup">
+              <div className="api-key-input-row">
+                <div className="api-key-status-icon">
+                  {igdbStatus === 'missing-secret' ? <Unlock size={14} /> : <Lock size={14} />}
+                </div>
+                <input
+                  type="text"
+                  className="glass-input api-key-input"
+                  value={igdbClientId}
+                  onChange={(e) => setIgdbClientId(e.target.value)}
+                  placeholder="IGDB Client ID..."
+                />
+              </div>
+              <div className="api-key-input-row api-key-secret-row">
+                <div className="api-key-status-icon">
+                  <Lock size={14} />
+                </div>
+                <input
+                  type="password"
+                  className="glass-input api-key-input"
+                  value={igdbClientSecret}
+                  onFocus={() => {
+                    if (igdbClientSecret === '********') setIgdbClientSecret('');
+                  }}
+                  onChange={(e) => setIgdbClientSecret(e.target.value)}
+                  placeholder="IGDB / Twitch Client Secret..."
+                />
+              </div>
+              <div className="api-key-actions">
+                <span className="api-key-status-text">
+                  {igdbSaved ? 'Saved!' : igdbStatus === 'missing-secret' ? 'IGDB secret required for discovery' : 'IGDB discovery credentials'}
+                </span>
+                <div className="api-key-buttons">
+                  <button
+                    className="glow-btn api-key-btn"
+                    onClick={handleResetIgdbCredentials}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    className="glow-btn glow-btn-primary api-key-btn"
+                    onClick={handleSaveIgdbCredentials}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    Save IGDB
                   </button>
                 </div>
               </div>

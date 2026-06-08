@@ -40,9 +40,10 @@ npm run build
 
 | Path | Purpose | Update when |
 | --- | --- | --- |
-| `main.js` | Electron main process: window creation, custom artwork protocol, native dialogs, filesystem persistence, executable scanning, process launch, external service calls, diagnostics, settings, cache clearing. | Native behavior, IPC, storage paths, scanners, artwork, HLTB, ITAD, RAWG, or launch behavior changes. |
+| `main.js` | Electron main process: window creation, custom artwork protocol, native dialogs, filesystem persistence, executable scanning, process launch, external service calls, diagnostics, settings, cache clearing. | Native behavior, IPC, storage paths, scanners, artwork, HLTB, ITAD, IGDB, or launch behavior changes. |
 | `preload.js` | Context-isolated bridge exposing `window.electronAPI` to React. | Any IPC method is added, removed, renamed, or has signature changes. |
 | `scripts/start-electron-dev.cjs` | Development-only Electron launcher used by `npm run dev` to avoid inheriting `ELECTRON_RUN_AS_NODE` from editor shells. | Dev startup behavior changes. |
+| `scripts/igdbProxyPlugin.js` | Vite dev/preview middleware that proxies browser IGDB requests and handles Twitch client-credentials auth from env vars. | IGDB browser preview behavior, proxy paths, or credential env names change. |
 | `src/main.jsx` | React root mount and global CSS import. | App bootstrap changes. |
 | `src/App.jsx` | Renderer state hub, view routing, settings sync, database hydration, artwork and HLTB hydration, import/edit/remove/launch handlers, controller callbacks. | Most app flows, game data mutations, settings, views, and modal wiring. |
 | `src/index.css` | Global styles, theme variables, focus styles, layout, and most component CSS. | Visual changes, theme variables, focus/controller styling, responsive layout. |
@@ -53,7 +54,7 @@ npm run build
 | `src/utils/hltb.js` | Renderer-side seeded HowLongToBeat data and formatting helpers. | HLTB data shape, stale rules, display text. |
 | `src/utils/itad.js` | Renderer-side IsThereAnyDeal helpers, local API key reads, API normalization, seeded fallback history. | Store price insights, ITAD auth/storage, history formatting. |
 | `src/utils/cheapshark.js` | Renderer-side CheapShark best-deal helpers and API normalization through the Electron proxy when available. | CheapShark deal fields, source labels, or request behavior. |
-| `src/utils/rawg.js` | Renderer-side RAWG helpers, browser fallback fetches, game/screenshot normalization. | RAWG feed, search, detail, screenshot, or browser fallback behavior changes. |
+| `src/utils/igdb.js` | Renderer-side IGDB helpers, browser preview proxy fetches, game/screenshot normalization. | IGDB feed, search, detail, screenshot, or browser fallback behavior changes. |
 | `src/utils/steam.js` | Renderer-side Steam search/details/review helpers and browser fallbacks. | Steam App ID resolution, Steam details, banner selection, or review normalization changes. |
 | `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
@@ -72,9 +73,9 @@ npm run build
 | `GameMainBanner.jsx` | Primary selected-game hero, launch/favorite/edit/remove actions, manual title positioning, and automatic safe-title placement. | Uses HLTB, Brandfetch, and banner placement helpers; includes `LibraryOverflowMenu`. |
 | `HorizontalLibrary.jsx` | Horizontal library cards for the main library view. | Uses `data-controller-*` selection attributes. |
 | `FavouritesTrophyRoom.jsx` | Favorites view with trophy-room style cards. | Uses `data-controller-*` selection attributes and local injected styles. |
-| `StoreGrid.jsx` | Store landing view with RAWG popular games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
-| `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and RAWG discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
-| `StoreItemPage.jsx` | Store detail view, Steam/RAWG media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and RAWG detail/media IPC, and executable picker. |
+| `StoreGrid.jsx` | Store landing view with IGDB popular games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
+| `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and IGDB discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
+| `StoreItemPage.jsx` | Store detail view, Steam/IGDB media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and IGDB detail/media IPC, and executable picker. |
 | `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
 | `SettingsPanel.jsx` | Theme/accessibility/system/artwork/API settings. | Reads and saves SteamGridDB API key through Electron APIs. |
 | `MetadataEditor.jsx` | Edit selected-game metadata and artwork, manual SGDB search/fetch, HLTB refresh. | Calls image picker, SGDB IPC, auto artwork IPC, HLTB IPC. |
@@ -91,8 +92,8 @@ npm run build
 - `NavigationHeader` changes top-level views and search text.
 - `GameMainBanner` plus `HorizontalLibrary` render the library view.
 - `FavouritesTrophyRoom` renders favorite games.
-- `StoreGrid` renders the split RAWG popular-games and ITAD/CheapShark best-deals store landing view.
-- `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and RAWG discovery matches.
+- `StoreGrid` renders the split IGDB popular-games and ITAD/CheapShark best-deals store landing view.
+- `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and IGDB discovery matches.
 - `StoreItemPage` renders one store or search item detail.
 - `ControlCenter`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
 
@@ -109,11 +110,11 @@ Current IPC groups:
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchRawgGames`, `fetchRawgPopularGames`, `fetchRawgScreenshots`, `fetchRawgGameDetails` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, RAWG search/popular/screenshots/details handlers, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchIgdbGames`, `fetchIgdbPopularGames`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, IGDB search/popular/screenshots/details handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | CheapShark | `fetchCheapSharkJson` | `cheapshark-fetch-json` |
-| Settings/API key | `saveApiKey`, `getApiKey`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
+| Settings/API key | `saveApiKey`, `getApiKey`, `saveIgdbCredentials`, `getIgdbCredentials`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
 | Diagnostics | `onDiagnosticEvent` | `diagnostic-event` |
 
 When adding IPC:
@@ -133,7 +134,7 @@ Common fields include:
 - Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`.
 - Library state: `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `timeToComplete`, `nextAchievement`, `exePath`.
 - Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
-- Integrations: `hltb` for HowLongToBeat data; `rawgId`, `rawgSlug`, `rawgUrl`, and `source: 'rawg'` for RAWG-backed discovery/library records; transient store items can include `steamReviewScore` from Steam review summaries.
+- Integrations: `hltb` for HowLongToBeat data; `igdbId`, `igdbSlug`, `igdbUrl`, `igdbRating`, and `source: 'igdb'` for IGDB-backed discovery/library records; legacy `rawgId` records are still recognized for ownership matching; transient store items can include `steamReviewScore` from Steam review summaries.
 
 Persistence locations:
 
@@ -142,6 +143,7 @@ Persistence locations:
 | Game database | Electron user data `nexus-db.json`; legacy path copied if present. | `localStorage` key `nexus_games_cache`. |
 | Settings | Electron user data `nexus-config.json`, under `settings`. | `localStorage` key `nexus_settings`. |
 | SteamGridDB API key | Electron user data `nexus-config.json`, or `STEAMGRIDDB_API_KEY` env var. | Not used by most desktop-only fetch paths. |
+| IGDB credentials | Electron user data `nexus-config.json`, or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` can use `.env.local` credentials through the Vite IGDB proxy. |
 | Profile | `localStorage` keys `nexus_username`, `nexus_user_avatar`. | Same. |
 | Controller hints | `localStorage` key `controllerHintsHidden`. | Same. |
 | ITAD client data | `localStorage` keys used in `src/utils/itad.js` and `StoreItemPage.jsx`. | Same. |
@@ -164,13 +166,13 @@ HowLongToBeat:
 
 Store and pricing:
 
-- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from RAWG popular games and ITAD/CheapShark best deals.
+- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB popular games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
-- Store landing uses `fetchRawgPopularGames` or `src/utils/rawg.js` browser fallbacks for the left popular-games feed and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed.
-- Top-bar searches route to the dedicated `search` view, combining local library/store matches with RAWG discovery results from `searchRawgGames`; selecting a store/RAWG result opens `StoreItemPage` without saving until the user marks it owned.
-- `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves RAWG popular-feed titles to Steam App IDs before showing Steam review ratings.
-- `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to RAWG screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
-- `StoreItemPage.jsx` fetches RAWG details for RAWG-backed items through `fetchRawgGameDetails` and displays RAWG attribution.
+- Store landing uses `fetchIgdbPopularGames` or `src/utils/igdb.js` browser preview proxy fallbacks for the left popular-games feed and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed.
+- Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned.
+- `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
+- `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
+- `StoreItemPage.jsx` fetches IGDB details for IGDB-backed items through `fetchIgdbGameDetails`.
 
 Import and launch:
 

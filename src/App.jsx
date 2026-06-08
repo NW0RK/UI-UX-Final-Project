@@ -18,7 +18,7 @@ import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
 import { fetchCheapSharkBestDeals } from './utils/cheapshark';
 import { fetchItadBestDeals } from './utils/itad';
-import { fetchRawgGameDetailsBrowser, fetchRawgPopularGamesBrowser, fetchRawgScreenshotsBrowser, searchRawgGamesBrowser } from './utils/rawg';
+import { fetchIgdbGameDetailsBrowser, fetchIgdbPopularGamesBrowser, fetchIgdbScreenshotsBrowser, searchIgdbGamesBrowser } from './utils/igdb';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
@@ -51,6 +51,9 @@ function getStoreItemCacheKey(item) {
   const steamAppId = String(item.steamAppId || '').trim();
   if (/^\d+$/.test(steamAppId)) return `steam:${steamAppId}`;
 
+  const igdbId = String(item.igdbId || '').trim();
+  if (igdbId) return `igdb:${igdbId}`;
+
   const rawgId = String(item.rawgId || '').trim();
   if (rawgId) return `rawg:${rawgId}`;
 
@@ -65,6 +68,8 @@ function getStoreItemCacheAliases(item, resolvedSteamAppId = null) {
   const aliases = new Set();
   const steamAppId = String(resolvedSteamAppId || item?.steamAppId || '').trim();
   if (/^\d+$/.test(steamAppId)) aliases.add(`steam:${steamAppId}`);
+  const igdbId = String(item?.igdbId || '').trim();
+  if (igdbId) aliases.add(`igdb:${igdbId}`);
   const rawgId = String(item?.rawgId || '').trim();
   if (rawgId) aliases.add(`rawg:${rawgId}`);
   const itadId = String(item?.itadId || '').trim();
@@ -95,7 +100,7 @@ function getSelectedStoreMedia(media) {
   return null;
 }
 
-function buildStorePrefetchMedia(item, steamAppId, steamDetails, rawgScreenshots = []) {
+function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots = []) {
   if (steamDetails && (steamDetails.screenshots?.length || steamDetails.movies?.length)) {
     const media = {
       screenshots: steamDetails.screenshots || [],
@@ -123,19 +128,19 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, rawgScreenshots
     };
   }
 
-  const rawgImage = item?.bannerUrl || item?.coverUrl || null;
-  const screenshots = rawgScreenshots.length
-    ? rawgScreenshots
-    : rawgImage
-      ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+  const igdbImage = item?.bannerUrl || item?.coverUrl || null;
+  const screenshots = igdbScreenshots.length
+    ? igdbScreenshots
+    : igdbImage
+      ? [{ id: 'igdb-hero', path_full: igdbImage, path_thumbnail: igdbImage }]
       : [];
   const media = { screenshots, movies: [] };
 
   return {
     media,
     selectedMedia: getSelectedStoreMedia(media),
-    bannerUrl: rawgImage,
-    mediaSource: rawgScreenshots.length ? 'rawg' : 'fallback'
+    bannerUrl: igdbImage,
+    mediaSource: igdbScreenshots.length ? 'igdb' : 'fallback'
   };
 }
 
@@ -185,9 +190,9 @@ export default function App() {
   const [itadDealGames, setItadDealGames] = useState([]);
   const [itadDealsStatus, setItadDealsStatus] = useState('idle');
   const [itadDealsError, setItadDealsError] = useState(null);
-  const [rawgSearchResults, setRawgSearchResults] = useState([]);
-  const [rawgSearchStatus, setRawgSearchStatus] = useState('idle');
-  const [rawgSearchError, setRawgSearchError] = useState(null);
+  const [igdbSearchResults, setIgdbSearchResults] = useState([]);
+  const [igdbSearchStatus, setIgdbSearchStatus] = useState('idle');
+  const [igdbSearchError, setIgdbSearchError] = useState(null);
   const [storeDetailCache, setStoreDetailCache] = useState({});
   const [diagnostics, setDiagnostics] = useState([]);
   const libraryArtworkHydratedRef = useRef(false);
@@ -252,7 +257,7 @@ export default function App() {
     if (!initialKey) return null;
 
     const cached = storeDetailCacheRef.current[initialKey];
-    if (cached?.status === 'ready' && cached?.mediaLoaded && (cached?.steamMetadataLoaded || cached?.rawgDetailsLoaded || cached?.steamLookupStatus === 'missing')) {
+    if (cached?.status === 'ready' && cached?.mediaLoaded && (cached?.steamMetadataLoaded || cached?.igdbDetailsLoaded || cached?.steamLookupStatus === 'missing')) {
       return Promise.resolve(cached);
     }
 
@@ -317,53 +322,53 @@ export default function App() {
           }
         }
 
-        if (item?.rawgId && item.source === 'rawg') {
+        if (item?.igdbId && item.source === 'igdb') {
           try {
-            const details = window.electronAPI?.fetchRawgGameDetails
-              ? await window.electronAPI.fetchRawgGameDetails(item.rawgId)
-              : await fetchRawgGameDetailsBrowser(item.rawgId);
+            const details = window.electronAPI?.fetchIgdbGameDetails
+              ? await window.electronAPI.fetchIgdbGameDetails(item.igdbId)
+              : await fetchIgdbGameDetailsBrowser(item.igdbId);
 
             if (details?.error) {
-              patch.rawgDetailsError = details.error;
-              patch.errors.push({ source: 'rawg-details', message: details.error });
+              patch.igdbDetailsError = details.error;
+              patch.errors.push({ source: 'igdb-details', message: details.error });
             } else {
-              patch.rawgDetails = details;
-              patch.rawgDetailsLoaded = true;
+              patch.igdbDetails = details;
+              patch.igdbDetailsLoaded = true;
             }
           } catch (error) {
-            patch.rawgDetailsError = error.message;
-            patch.errors.push({ source: 'rawg-details', message: error.message });
+            patch.igdbDetailsError = error.message;
+            patch.errors.push({ source: 'igdb-details', message: error.message });
           }
         }
 
-        let rawgScreenshots = [];
-        const needsRawgScreenshots = !resolvedSteamAppId || !patch.steamDetails?.screenshots?.length;
-        if (needsRawgScreenshots && (item?.rawgId || item?.title)) {
+        let igdbScreenshots = [];
+        const needsIgdbScreenshots = !resolvedSteamAppId || !patch.steamDetails?.screenshots?.length;
+        if (needsIgdbScreenshots && (item?.igdbId || item?.title)) {
           try {
             const payload = {
-              rawgId: item.rawgId,
+              igdbId: item.igdbId,
               title: item.title
             };
-            const screenshots = window.electronAPI?.fetchRawgScreenshots
-              ? await window.electronAPI.fetchRawgScreenshots(payload)
-              : await fetchRawgScreenshotsBrowser(payload);
+            const screenshots = window.electronAPI?.fetchIgdbScreenshots
+              ? await window.electronAPI.fetchIgdbScreenshots(payload)
+              : await fetchIgdbScreenshotsBrowser(payload);
 
             if (screenshots?.error) {
-              patch.errors.push({ source: 'rawg-screenshots', message: screenshots.error });
+              patch.errors.push({ source: 'igdb-screenshots', message: screenshots.error });
             } else {
-              rawgScreenshots = Array.isArray(screenshots) ? screenshots : [];
-              patch.rawgScreenshots = rawgScreenshots;
+              igdbScreenshots = Array.isArray(screenshots) ? screenshots : [];
+              patch.igdbScreenshots = igdbScreenshots;
             }
           } catch (error) {
-            patch.errors.push({ source: 'rawg-screenshots', message: error.message });
+            patch.errors.push({ source: 'igdb-screenshots', message: error.message });
           }
         }
 
         const mediaPatch = buildStorePrefetchMedia(
-          patch.rawgDetails ? { ...item, ...patch.rawgDetails } : item,
+          patch.igdbDetails ? { ...item, ...patch.igdbDetails } : item,
           resolvedSteamAppId,
           patch.steamDetails,
-          rawgScreenshots
+          igdbScreenshots
         );
 
         const finalRecord = mergeStoreDetailCache(item, {
@@ -492,38 +497,38 @@ export default function App() {
   useEffect(() => {
     const term = searchQuery.trim();
     if (term.length < 3 || (activeView !== 'search' && activeView !== 'store-item')) {
-      setRawgSearchResults([]);
-      setRawgSearchStatus('idle');
-      setRawgSearchError(null);
+      setIgdbSearchResults([]);
+      setIgdbSearchStatus('idle');
+      setIgdbSearchError(null);
       return;
     }
 
     let cancelled = false;
-    setRawgSearchStatus('loading');
-    setRawgSearchError(null);
+    setIgdbSearchStatus('loading');
+    setIgdbSearchError(null);
 
     const timer = setTimeout(async () => {
       try {
-        const results = window.electronAPI?.searchRawgGames
-          ? await window.electronAPI.searchRawgGames(term)
-          : await searchRawgGamesBrowser(term);
+        const results = window.electronAPI?.searchIgdbGames
+          ? await window.electronAPI.searchIgdbGames(term)
+          : await searchIgdbGamesBrowser(term);
         if (cancelled) return;
 
         if (results?.error) {
-          setRawgSearchResults([]);
-          setRawgSearchStatus('error');
-          setRawgSearchError(results.error);
+          setIgdbSearchResults([]);
+          setIgdbSearchStatus('error');
+          setIgdbSearchError(results.error);
           addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${results.error}`);
           return;
         }
 
-        setRawgSearchResults(Array.isArray(results) ? results : []);
-        setRawgSearchStatus('ready');
+        setIgdbSearchResults(Array.isArray(results) ? results : []);
+        setIgdbSearchStatus('ready');
       } catch (error) {
         if (cancelled) return;
-        setRawgSearchResults([]);
-        setRawgSearchStatus('error');
-        setRawgSearchError(error.message);
+        setIgdbSearchResults([]);
+        setIgdbSearchStatus('error');
+        setIgdbSearchError(error.message);
         addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${error.message}`);
       }
     }, 450);
@@ -545,9 +550,9 @@ export default function App() {
 
     async function hydratePopularGames() {
       try {
-        const results = window.electronAPI?.fetchRawgPopularGames
-          ? await window.electronAPI.fetchRawgPopularGames()
-          : await fetchRawgPopularGamesBrowser();
+        const results = window.electronAPI?.fetchIgdbPopularGames
+          ? await window.electronAPI.fetchIgdbPopularGames()
+          : await fetchIgdbPopularGamesBrowser();
         if (cancelled) return;
 
         if (results?.error) {
@@ -726,7 +731,7 @@ export default function App() {
 
   useEffect(() => {
     const candidates = popularStoreGames.filter(item => (
-      item?.source === 'rawg' &&
+      item?.source === 'igdb' &&
       item.title &&
       !storeSteamMetadataHydratedRef.current.has(item.id) &&
       (!item.steamAppId || !item.steamReviewScore)
@@ -1334,6 +1339,7 @@ export default function App() {
   const handleMarkOwned = async (storeItem) => {
     const existing = games.find(g =>
       g.id === storeItem.id ||
+      (storeItem.igdbId && g.igdbId === storeItem.igdbId) ||
       (storeItem.rawgId && g.rawgId === storeItem.rawgId) ||
       (storeItem.itadId && g.itadId === storeItem.itadId) ||
       (storeItem.cheapsharkGameId && g.cheapsharkGameId === storeItem.cheapsharkGameId) ||
@@ -1450,12 +1456,14 @@ export default function App() {
     steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
     owned: games.some(g => g.id === item.id && g.owned)
   }));
+  const ownedIgdbIds = new Set(games.map(game => game.igdbId).filter(Boolean));
   const ownedRawgIds = new Set(games.map(game => game.rawgId).filter(Boolean));
   const ownedItadIds = new Set(games.map(game => game.itadId).filter(Boolean));
   const ownedCheapSharkIds = new Set(games.map(game => game.cheapsharkGameId).filter(Boolean));
   const ownedSteamAppIds = new Set(games.map(game => String(game.steamAppId || '')).filter(Boolean));
   const isOwnedStoreItem = (item) => (
     games.some(game => game.id === item.id) ||
+    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
     (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
     (item.itadId && ownedItadIds.has(item.itadId)) ||
     (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
@@ -1484,11 +1492,15 @@ export default function App() {
         item.genre?.toLowerCase().includes(searchQuery.toLowerCase())
       ))
       .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
-    ...rawgSearchResults
-      .filter(item => item.source === 'rawg' && item.rawgId)
-      .map(item => ({ ...item, resultType: 'rawg', owned: isOwnedStoreItem(item) }))
+    ...igdbSearchResults
+      .filter(item => item.source === 'igdb' && item.igdbId)
+      .map(item => ({ ...item, resultType: 'igdb', owned: isOwnedStoreItem(item) }))
   ].filter(item => {
-    const key = item.rawgId ? `rawg:${item.rawgId}` : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    const key = item.igdbId
+      ? `igdb:${item.igdbId}`
+      : item.rawgId
+        ? `rawg:${item.rawgId}`
+        : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
     if (!key || normalizedSearchTitles.has(key)) return false;
     normalizedSearchTitles.add(key);
     return true;
@@ -1584,7 +1596,7 @@ export default function App() {
       selectedStoreItem?.id,
       searchQuery,
       games.length,
-      rawgSearchResults.length,
+      igdbSearchResults.length,
       isCcOpen,
       isSettingsOpen,
       isMetadataOpen,
@@ -1684,8 +1696,8 @@ export default function App() {
             query={searchQuery}
             results={searchResults}
             ownedGames={games}
-            rawgSearchStatus={rawgSearchStatus}
-            rawgSearchError={rawgSearchError}
+            igdbSearchStatus={igdbSearchStatus}
+            igdbSearchError={igdbSearchError}
             onSelectItem={(item) => handleSelectStoreItem(item, 'search')}
             onPrefetchItem={prefetchStoreItemDetails}
             onSelectLibraryGame={handleSelectSearchLibraryGame}

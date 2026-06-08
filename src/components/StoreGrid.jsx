@@ -14,8 +14,8 @@ export default function StoreGrid({
   popularError = null,
   dealsStatus = 'idle',
   dealsError = null,
-  rawgSearchStatus = 'idle',
-  rawgSearchError = null,
+  igdbSearchStatus = 'idle',
+  igdbSearchError = null,
   onPrefetchItem = () => {}
 }) {
   const normalizedQuery = searchQuery.toLowerCase();
@@ -27,11 +27,12 @@ export default function StoreGrid({
   );
 
   const ownedIds = new Set(ownedGames.map(g => g.id));
+  const ownedIgdbIds = new Set(ownedGames.map(g => g.igdbId).filter(Boolean));
   const ownedRawgIds = new Set(ownedGames.map(g => g.rawgId).filter(Boolean));
   const ownedItadIds = new Set(ownedGames.map(g => g.itadId).filter(Boolean));
   const ownedCheapSharkIds = new Set(ownedGames.map(g => g.cheapsharkGameId).filter(Boolean));
   const ownedSteamAppIds = new Set(ownedGames.map(g => String(g.steamAppId || '')).filter(Boolean));
-  const isSearchingRawg = rawgSearchStatus === 'loading' && searchQuery.trim().length >= 3;
+  const isSearchingIgdb = igdbSearchStatus === 'loading' && searchQuery.trim().length >= 3;
 
   const handleItemClick = (item) => {
     audioEngine.playClickPulse();
@@ -45,6 +46,7 @@ export default function StoreGrid({
 
   const isOwned = (item) => (
     ownedIds.has(item.id) ||
+    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
     (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
     (item.itadId && ownedItadIds.has(item.itadId)) ||
     (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
@@ -113,10 +115,11 @@ export default function StoreGrid({
         <div className="store-card-topline">
           {item.source === 'cheapshark' && <span className="store-source-chip deal">CheapShark</span>}
           {item.source === 'itad' && <span className="store-source-chip deal">ITAD</span>}
+          {item.source === 'igdb' && <span className="store-source-chip">IGDB</span>}
           {(item.itadDeal?.shop || item.cheapsharkDeal?.shop) && <span className="store-shop-chip">{item.itadDeal?.shop || item.cheapsharkDeal?.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
-        {item.source !== 'rawg' && <div className="store-card-developer">{item.developer}</div>}
+        {item.source !== 'igdb' && <div className="store-card-developer">{item.developer}</div>}
         {renderMeta(item)}
       </div>
     </div>
@@ -140,10 +143,11 @@ export default function StoreGrid({
         <div className="store-card-topline">
           {item.source === 'cheapshark' && <span className="store-source-chip deal">CheapShark</span>}
           {item.source === 'itad' && <span className="store-source-chip deal">ITAD</span>}
+          {item.source === 'igdb' && <span className="store-source-chip">IGDB</span>}
           {(item.itadDeal?.shop || item.cheapsharkDeal?.shop) && <span className="store-shop-chip">{item.itadDeal?.shop || item.cheapsharkDeal?.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
-        {item.source !== 'rawg' && <div className="store-card-developer">{item.developer}</div>}
+        {item.source !== 'igdb' && <div className="store-card-developer">{item.developer}</div>}
         {renderMeta(item)}
       </div>
     </div>
@@ -174,14 +178,14 @@ export default function StoreGrid({
         </div>
         <span className="store-count">
           {hasSearch
-            ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingRawg ? ' - searching discovery' : ''}`
-            : 'RAWG popularity, ITAD, and CheapShark deals'}
+            ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingIgdb ? ' - searching discovery' : ''}`
+            : 'IGDB popularity, ITAD, and CheapShark deals'}
         </span>
       </div>
 
-      {rawgSearchError && hasSearch && (
+      {igdbSearchError && hasSearch && (
         <div className="store-search-note">
-          Discovery search unavailable: {rawgSearchError}
+          Discovery search unavailable: {igdbSearchError}
         </div>
       )}
 
@@ -190,7 +194,7 @@ export default function StoreGrid({
           {filtered.length === 0 && (
             <div className="store-empty">
               <Search size={18} />
-              <span>{isSearchingRawg ? 'Searching discovery...' : 'No titles match your search.'}</span>
+              <span>{isSearchingIgdb ? 'Searching discovery...' : 'No titles match your search.'}</span>
             </div>
           )}
           <div className="store-grid">
@@ -199,10 +203,10 @@ export default function StoreGrid({
         </>
       ) : (
         <div className="store-split-layout">
-          <section className="store-feed-column" aria-label="Popular video games from RAWG">
+          <section className="store-feed-column" aria-label="Popular video games from IGDB">
             <div className="store-feed-heading">
               <div>
-                <span className="store-feed-kicker">RAWG</span>
+                <span className="store-feed-kicker">IGDB</span>
                 <div className="store-feed-title-row">
                   <h2>Popular Video Games</h2>
                   <Flame size={18} />
@@ -212,7 +216,7 @@ export default function StoreGrid({
             <div className="store-feed-list">
               {popularGames.length > 0
                 ? popularGames.map((item, index) => renderFeedCard(item, index, 'popular'))
-                : renderStatus(popularStatus, popularError, 'RAWG popular games will appear here when the feed is available.', 'RAWG')}
+                : renderStatus(popularStatus, popularError, 'IGDB popular games will appear here when the feed is available.', 'IGDB')}
             </div>
           </section>
 

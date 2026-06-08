@@ -47,10 +47,12 @@ function emitDiagnostic(area, level, message, details = null) {
 
 // --- SteamGridDB Configuration ---
 const BUILTIN_API_KEY = '2c62a4e1707f21a61e1bd30f4eafd6dc';
-const BUILTIN_RAWG_API_KEY = '10149f0743744f2c82250660ee23bfe2';
+const BUILTIN_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q';
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
-const RAWG_BASE_URL = 'https://api.rawg.io/api';
+const IGDB_BASE_URL = 'https://api.igdb.com/v4';
+const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const REQUEST_TIMEOUT_MS = 15000;
+const IGDB_RATE_LIMIT_DELAY_MS = 260;
 const getConfigPath = () => path.join(app.getPath('userData'), 'nexus-config.json');
 const getArtworkCacheDir = () => {
   const dir = path.join(app.getPath('userData'), 'artwork');
@@ -73,19 +75,26 @@ function getApiKeyFromConfig() {
   return BUILTIN_API_KEY;
 }
 
-function getRawgApiKeyFromConfig() {
-  if (process.env.RAWG_API_KEY?.trim()) {
-    return process.env.RAWG_API_KEY.trim();
+function getIgdbCredentialsFromConfig() {
+  const envClientId = process.env.IGDB_CLIENT_ID?.trim();
+  const envClientSecret = process.env.IGDB_CLIENT_SECRET?.trim();
+  if (envClientId && envClientSecret) {
+    return { clientId: envClientId, clientSecret: envClientSecret, source: 'env' };
   }
 
   try {
     const configPath = getConfigPath();
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.rawgApiKey?.trim()) return config.rawgApiKey.trim();
+      const clientId = envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID;
+      const clientSecret = envClientSecret || config.igdbClientSecret?.trim();
+      if (clientId && clientSecret) {
+        return { clientId, clientSecret, source: envClientId || envClientSecret ? 'env' : 'config' };
+      }
     }
   } catch (e) { /* ignore */ }
-  return BUILTIN_RAWG_API_KEY;
+
+  return { clientId: envClientId || BUILTIN_IGDB_CLIENT_ID, clientSecret: envClientSecret || '', source: envClientId || envClientSecret ? 'env' : 'builtin' };
 }
 
 function toFileUrl(filePath) {
@@ -240,6 +249,53 @@ function postJson(url, payload, headers = {}) {
   });
 }
 
+function postTextJson(url, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const req = https.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+        'Content-Length': Buffer.byteLength(body),
+        ...headers
+      },
+      timeout: REQUEST_TIMEOUT_MS
+    }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Failed to parse JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          const message = Array.isArray(parsed)
+            ? parsed.map(item => item?.message || item?.title).filter(Boolean).join('; ')
+            : parsed?.message || parsed?.error;
+          reject(new Error(message || `HTTP ${res.statusCode}`));
+          return;
+        }
+
+        resolve(parsed);
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.write(body);
+    req.end();
+  });
+}
+
 function decodeHtmlEntities(value) {
   return String(value || '')
     .replace(/&nbsp;/g, ' ')
@@ -272,109 +328,228 @@ function sanitizeGameId(value) {
   return String(value || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
 }
 
-async function rawgFetchJson(endpoint, params = {}) {
-  const apiKey = getRawgApiKeyFromConfig();
-  if (!apiKey) throw new Error('Discovery API key is not configured');
+let igdbTokenCache = null;
+let igdbQueue = Promise.resolve();
+let igdbLastRequestAt = 0;
 
-  const url = new URL(`${RAWG_BASE_URL}${endpoint}`);
-  url.searchParams.set('key', apiKey);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && String(value).trim() !== '') {
-      url.searchParams.set(key, String(value));
+function scheduleIgdbRequest(task) {
+  const run = async () => {
+    const waitMs = Math.max(0, IGDB_RATE_LIMIT_DELAY_MS - (Date.now() - igdbLastRequestAt));
+    if (waitMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
-  });
+    igdbLastRequestAt = Date.now();
+    return task();
+  };
 
-  emitDiagnostic('Discovery', 'info', `Requesting ${endpoint}`);
-  const data = await fetchJson(url.href, {
-    headers: {
-      'Accept': 'application/json',
-      'User-Agent': 'NexusLauncher/1.0'
-    }
-  });
-
-  if (data?.detail || data?.error) {
-    throw new Error(data.detail || data.error);
-  }
-
-  return data;
+  igdbQueue = igdbQueue.then(run, run);
+  return igdbQueue;
 }
 
-function normalizeRawgGame(raw, { includeDescription = false } = {}) {
+async function getIgdbAccessToken() {
+  const credentials = getIgdbCredentialsFromConfig();
+  if (!credentials.clientId || !credentials.clientSecret) {
+    throw new Error('IGDB credentials are not configured. Add your Twitch Client Secret in Settings or IGDB_CLIENT_SECRET.');
+  }
+
+  if (
+    igdbTokenCache?.accessToken &&
+    igdbTokenCache.clientId === credentials.clientId &&
+    igdbTokenCache.clientSecret === credentials.clientSecret &&
+    igdbTokenCache.expiresAt > Date.now() + 60000
+  ) {
+    return igdbTokenCache.accessToken;
+  }
+
+  const url = new URL(TWITCH_TOKEN_URL);
+  url.searchParams.set('client_id', credentials.clientId);
+  url.searchParams.set('client_secret', credentials.clientSecret);
+  url.searchParams.set('grant_type', 'client_credentials');
+
+  const data = await postTextJson(url.href, '', {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Content-Length': 0,
+    'Accept': 'application/json',
+    'User-Agent': 'NexusLauncher/1.0'
+  });
+
+  if (!data?.access_token) throw new Error('Twitch token response did not include an access token');
+
+  igdbTokenCache = {
+    accessToken: data.access_token,
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
+    expiresAt: Date.now() + Math.max(0, Number(data.expires_in || 0) - 60) * 1000
+  };
+
+  return igdbTokenCache.accessToken;
+}
+
+function escapeIgdbString(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function igdbGameFields(extra = '') {
+  return [
+    'name',
+    'slug',
+    'summary',
+    'storyline',
+    'first_release_date',
+    'total_rating',
+    'rating',
+    'aggregated_rating',
+    'cover.image_id',
+    'screenshots.image_id',
+    'genres.name',
+    'themes.name',
+    'involved_companies.company.name',
+    'involved_companies.developer',
+    'involved_companies.publisher',
+    'age_ratings.category',
+    'age_ratings.rating',
+    'websites.url',
+    extra
+  ].filter(Boolean).join(',');
+}
+
+async function igdbFetchJson(endpoint, query) {
+  const credentials = getIgdbCredentialsFromConfig();
+  const token = await getIgdbAccessToken();
+
+  emitDiagnostic('Discovery', 'info', `Requesting IGDB /${endpoint}`);
+  return scheduleIgdbRequest(() => postTextJson(`${IGDB_BASE_URL}/${endpoint}`, query, {
+    'Accept': 'application/json',
+    'Client-ID': credentials.clientId,
+    'Authorization': `Bearer ${token}`,
+    'User-Agent': 'NexusLauncher/1.0'
+  }));
+}
+
+function igdbImageUrl(imageId, size = 'cover_big_2x') {
+  if (!imageId) return null;
+  return `https://images.igdb.com/igdb/image/upload/t_${size}/${imageId}.jpg`;
+}
+
+function formatIgdbDate(unixSeconds) {
+  if (!Number.isFinite(Number(unixSeconds))) return 'TBA';
+  return new Date(Number(unixSeconds) * 1000).toISOString().slice(0, 10);
+}
+
+function formatIgdbAgeRating(ageRatings = []) {
+  const esrbNames = {
+    6: 'Rating Pending',
+    7: 'Early Childhood',
+    8: 'Everyone',
+    9: 'Everyone 10+',
+    10: 'Teen',
+    11: 'Mature',
+    12: 'Adults Only'
+  };
+  const pegiNames = {
+    1: 'PEGI 3',
+    2: 'PEGI 7',
+    3: 'PEGI 12',
+    4: 'PEGI 16',
+    5: 'PEGI 18'
+  };
+  const esrb = ageRatings.find(item => Number(item?.category) === 1 && esrbNames[item?.rating]);
+  if (esrb) return esrbNames[esrb.rating];
+  const pegi = ageRatings.find(item => Number(item?.category) === 2 && pegiNames[item?.rating]);
+  if (pegi) return pegiNames[pegi.rating];
+  return 'Unrated';
+}
+
+function igdbCompanyNames(involvedCompanies = [], flag) {
+  return involvedCompanies
+    .filter(item => item?.[flag])
+    .map(item => item?.company?.name)
+    .filter(Boolean);
+}
+
+function steamAppIdFromIgdbWebsites(websites = []) {
+  const steam = websites.find(site => String(site?.url || '').includes('store.steampowered.com/app/'));
+  const match = String(steam?.url || '').match(/store\.steampowered\.com\/app\/(\d+)/i);
+  return match?.[1] || null;
+}
+
+function normalizeIgdbGame(raw, { includeDescription = false } = {}) {
   if (!raw?.id || !raw?.name) return null;
 
-  const rawgId = String(raw.id);
+  const igdbId = String(raw.id);
   const slug = raw.slug || sanitizeGameId(raw.name);
-  const developers = Array.isArray(raw.developers) ? raw.developers.map(item => item?.name).filter(Boolean) : [];
-  const publishers = Array.isArray(raw.publishers) ? raw.publishers.map(item => item?.name).filter(Boolean) : [];
+  const developers = igdbCompanyNames(raw.involved_companies, 'developer');
+  const publishers = igdbCompanyNames(raw.involved_companies, 'publisher');
   const genres = Array.isArray(raw.genres) ? raw.genres.map(item => item?.name).filter(Boolean) : [];
-  const tags = Array.isArray(raw.tags)
-    ? raw.tags
-      .filter(item => !item.language || item.language === 'eng')
-      .map(item => item?.name)
-      .filter(Boolean)
-      .slice(0, 6)
-    : [];
-  const image = raw.background_image || raw.background_image_additional || raw.short_screenshots?.[0]?.image || null;
+  const themes = Array.isArray(raw.themes) ? raw.themes.map(item => item?.name).filter(Boolean) : [];
+  const screenshots = Array.isArray(raw.screenshots) ? raw.screenshots : [];
+  const coverUrl = igdbImageUrl(raw.cover?.image_id, 'cover_big_2x');
+  const bannerUrl = igdbImageUrl(screenshots[0]?.image_id, 'screenshot_huge_2x') || coverUrl;
+  const rating100 = Number(raw.total_rating || raw.rating || raw.aggregated_rating || 0) || 0;
   const description = includeDescription
-    ? stripHtml(raw.description || raw.description_raw || '')
-    : stripHtml(raw.description_raw || '');
+    ? stripHtml(raw.summary || raw.storyline || '')
+    : stripHtml(raw.summary || '');
 
   return {
-    id: `rawg-${rawgId}`,
-    rawgId,
-    rawgSlug: slug,
+    id: `igdb-${igdbId}`,
+    igdbId,
+    igdbSlug: slug,
+    igdbUrl: `https://www.igdb.com/games/${slug}`,
     title: raw.name,
     developer: developers.join(', ') || 'Unknown Developer',
     publisher: publishers.join(', ') || developers.join(', ') || 'Unknown Publisher',
     genre: genres.join(', ') || 'Game',
-    rating: Number(raw.rating || 0) || 0,
-    ageRating: raw.esrb_rating?.name || 'Unrated',
-    releaseDate: raw.released || 'TBA',
+    rating: rating100 ? Math.round((rating100 / 20) * 10) / 10 : 0,
+    igdbRating: rating100,
+    ageRating: formatIgdbAgeRating(raw.age_ratings),
+    releaseDate: formatIgdbDate(raw.first_release_date),
     description: description || `Open details to load the full game profile for ${raw.name}.`,
     playtime: 0,
     lastPlayed: 'Never',
     progress: 0,
     timeToComplete: '--',
     nextAchievement: 'Locked (0% complete)',
-    coverUrl: image,
-    bannerUrl: image,
+    coverUrl,
+    bannerUrl,
     logoUrl: null,
     iconUrl: null,
     soundType: 'synth',
     exePath: '',
     isFavorite: false,
     owned: false,
-    tags,
-    steamAppId: null,
+    tags: [...genres, ...themes].slice(0, 6),
+    steamAppId: steamAppIdFromIgdbWebsites(raw.websites),
     artworkFetched: false,
-    source: 'rawg',
-    rawgUrl: `https://rawg.io/games/${slug}`
+    source: 'igdb'
   };
 }
 
-async function searchRawgGames(term) {
+async function searchIgdbGames(term, { pageSize = 12 } = {}) {
   const searchTerm = String(term || '').trim();
   if (searchTerm.length < 3) return [];
 
-  const data = await rawgFetchJson('/games', {
-    search: searchTerm,
-    page_size: 12
-  });
+  const data = await igdbFetchJson('games', [
+    `search "${escapeIgdbString(searchTerm)}";`,
+    `fields ${igdbGameFields()};`,
+    'where version_parent = null;',
+    `limit ${pageSize};`
+  ].join(' '));
 
-  return (Array.isArray(data?.results) ? data.results : [])
-    .map(result => normalizeRawgGame(result))
+  return (Array.isArray(data) ? data : [])
+    .map(result => normalizeIgdbGame(result))
     .filter(Boolean);
 }
 
-async function fetchPopularRawgGames() {
-  const data = await rawgFetchJson('/games', {
-    page_size: 12,
-    ordering: '-added',
-    metacritic: '75,100'
-  });
+async function fetchPopularIgdbGames() {
+  const data = await igdbFetchJson('games', [
+    `fields ${igdbGameFields('total_rating_count,hypes')};`,
+    'where version_parent = null & cover != null;',
+    'sort total_rating_count desc;',
+    'limit 12;'
+  ].join(' '));
 
-  return (Array.isArray(data?.results) ? data.results : [])
-    .map(result => normalizeRawgGame(result))
+  return (Array.isArray(data) ? data : [])
+    .map(result => normalizeIgdbGame(result))
     .filter(Boolean)
     .map(game => ({
       ...game,
@@ -382,43 +557,52 @@ async function fetchPopularRawgGames() {
     }));
 }
 
-function normalizeRawgScreenshots(results = []) {
+function normalizeIgdbScreenshots(results = []) {
   return results
     .map((shot, index) => {
-      const image = shot?.image || shot?.path_full || shot?.url;
+      const image = shot?.image_id
+        ? igdbImageUrl(shot.image_id, 'screenshot_huge_2x')
+        : shot?.path_full || shot?.url;
       if (!image) return null;
       return {
-        id: shot.id || `rawg-${index}`,
+        id: shot.id || `igdb-${index}`,
         path_full: image,
-        path_thumbnail: image
+        path_thumbnail: shot?.image_id ? igdbImageUrl(shot.image_id, 'screenshot_med_2x') : image
       };
     })
     .filter(Boolean);
 }
 
-async function fetchRawgScreenshots(game) {
-  let rawgId = String(game?.rawgId || '').trim();
+async function fetchIgdbScreenshots(game) {
+  let igdbId = String(game?.igdbId || '').trim();
 
-  if (!rawgId && game?.title) {
-    const matches = await searchRawgGames(game.title);
-    rawgId = matches[0]?.rawgId || '';
+  if (!igdbId && game?.title) {
+    const matches = await searchIgdbGames(game.title, { pageSize: 1 });
+    igdbId = matches[0]?.igdbId || '';
   }
 
-  if (!rawgId) return [];
+  if (!igdbId) return [];
 
-  const data = await rawgFetchJson(`/games/${encodeURIComponent(rawgId)}/screenshots`, {
-    page_size: 8
-  });
+  const data = await igdbFetchJson('screenshots', [
+    'fields image_id;',
+    `where game = ${Number(igdbId)};`,
+    'limit 8;'
+  ].join(' '));
 
-  return normalizeRawgScreenshots(Array.isArray(data?.results) ? data.results : []);
+  return normalizeIgdbScreenshots(Array.isArray(data) ? data : []);
 }
 
-async function fetchRawgGameDetails(rawgId) {
-  const id = String(rawgId || '').trim();
+async function fetchIgdbGameDetails(igdbId) {
+  const id = String(igdbId || '').trim();
   if (!id) return { error: 'Missing game id' };
 
-  const data = await rawgFetchJson(`/games/${encodeURIComponent(id)}`);
-  return normalizeRawgGame(data, { includeDescription: true });
+  const data = await igdbFetchJson('games', [
+    `fields ${igdbGameFields()};`,
+    `where id = ${Number(id)};`,
+    'limit 1;'
+  ].join(' '));
+
+  return normalizeIgdbGame(Array.isArray(data) ? data[0] : null, { includeDescription: true });
 }
 
 async function steamgriddbFetch(endpoint) {
@@ -1272,11 +1456,11 @@ ipcMain.handle('hltb-auto-fetch', async (event, game) => {
   }
 });
 
-ipcMain.handle('rawg-search-games', async (event, term) => {
+ipcMain.handle('igdb-search-games', async (event, term) => {
   try {
-    const results = await searchRawgGames(term);
+    const results = await searchIgdbGames(term);
     emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
-      topMatch: results[0] ? { id: results[0].rawgId, name: results[0].title } : null
+      topMatch: results[0] ? { id: results[0].igdbId, name: results[0].title } : null
     });
     return results;
   } catch (err) {
@@ -1285,9 +1469,9 @@ ipcMain.handle('rawg-search-games', async (event, term) => {
   }
 });
 
-ipcMain.handle('rawg-popular-games', async () => {
+ipcMain.handle('igdb-popular-games', async () => {
   try {
-    const results = await fetchPopularRawgGames();
+    const results = await fetchPopularIgdbGames();
     emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
     return results;
   } catch (err) {
@@ -1296,22 +1480,22 @@ ipcMain.handle('rawg-popular-games', async () => {
   }
 });
 
-ipcMain.handle('rawg-fetch-screenshots', async (event, game) => {
+ipcMain.handle('igdb-fetch-screenshots', async (event, game) => {
   try {
-    const screenshots = await fetchRawgScreenshots(game);
-    emitDiagnostic('Discovery', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.rawgId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
+    const screenshots = await fetchIgdbScreenshots(game);
+    emitDiagnostic('Discovery', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.igdbId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
     return screenshots;
   } catch (err) {
-    emitDiagnostic('Discovery', 'error', `Screenshot lookup failed for "${game?.title || game?.rawgId || 'unknown'}": ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Screenshot lookup failed for "${game?.title || game?.igdbId || 'unknown'}": ${err.message}`);
     return { error: err.message };
   }
 });
 
-ipcMain.handle('rawg-fetch-game-details', async (event, rawgId) => {
+ipcMain.handle('igdb-fetch-game-details', async (event, igdbId) => {
   try {
-    return await fetchRawgGameDetails(rawgId);
+    return await fetchIgdbGameDetails(igdbId);
   } catch (err) {
-    emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${rawgId}: ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${igdbId}: ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1730,6 +1914,61 @@ ipcMain.handle('get-api-key', async () => {
     }
   } catch (e) { /* ignore */ }
   return { key: BUILTIN_API_KEY, isCustom: false };
+});
+
+ipcMain.handle('save-igdb-credentials', async (event, credentials = {}) => {
+  try {
+    const configPath = getConfigPath();
+    let config = {};
+    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    if (Object.prototype.hasOwnProperty.call(credentials, 'clientId')) {
+      if (credentials.clientId?.trim()) {
+        config.igdbClientId = credentials.clientId.trim();
+      } else {
+        delete config.igdbClientId;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(credentials, 'clientSecret')) {
+      if (credentials.clientSecret?.trim()) {
+        config.igdbClientSecret = credentials.clientSecret.trim();
+      } else {
+        delete config.igdbClientSecret;
+      }
+    }
+
+    igdbTokenCache = null;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('get-igdb-credentials', async () => {
+  const envClientId = process.env.IGDB_CLIENT_ID?.trim();
+  const envClientSecret = process.env.IGDB_CLIENT_SECRET?.trim();
+
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      return {
+        clientId: envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID,
+        clientSecret: envClientSecret ? '********' : config.igdbClientSecret?.trim() || '',
+        hasClientSecret: !!(envClientSecret || config.igdbClientSecret?.trim()),
+        source: envClientId || envClientSecret ? 'env' : config.igdbClientId || config.igdbClientSecret ? 'custom' : 'builtin'
+      };
+    }
+  } catch (e) { /* ignore */ }
+
+  return {
+    clientId: envClientId || BUILTIN_IGDB_CLIENT_ID,
+    clientSecret: envClientSecret ? '********' : '',
+    hasClientSecret: !!envClientSecret,
+    source: envClientId || envClientSecret ? 'env' : 'builtin'
+  };
 });
 
 ipcMain.handle('save-settings', async (event, settings) => {

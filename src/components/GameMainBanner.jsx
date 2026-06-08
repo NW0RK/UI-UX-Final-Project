@@ -219,7 +219,8 @@ export default function GameMainBanner({
     setAcceptedStudioLogoUrl(null);
     setStudioLogoMode(prev => {
       if (prev === 'lightLogo') return 'defaultLogo';
-      if (prev === 'defaultLogo') return 'icon';
+      if (prev === 'defaultLogo') return game.iconUrl ? 'gameIcon' : 'icon';
+      if (prev === 'gameIcon') return 'icon';
       return 'hidden';
     });
   };

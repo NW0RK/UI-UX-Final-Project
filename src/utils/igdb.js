@@ -1,4 +1,15 @@
 const IGDB_BROWSER_PROXY_BASE = '/api/igdb';
+const POPSCORE_TYPES = [1, 2, 3, 4, 5, 9, 10, 11];
+const POPSCORE_WEIGHTS = {
+  1: 0.15, // IGDB visits
+  2: 0.1,  // Want to Play
+  3: 0.25, // Playing
+  4: 0.05, // Played
+  5: 0.25, // Steam 24hr Peak Players
+  9: 0.15, // Steam Global Top Sellers
+  10: 0.05, // Most Wishlisted Upcoming
+  11: 0.2 // Twitch Hours Watched
+};
 
 function sanitizeGameId(value) {
   return String(value || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
@@ -141,6 +152,32 @@ export function normalizeIgdbScreenshots(results = []) {
     .filter(Boolean);
 }
 
+function buildPopScoreRecords(primitivesByType = [], limit = 12) {
+  const scoreByGameId = new Map();
+
+  primitivesByType.forEach(primitives => {
+    const maxValue = Math.max(...primitives.map(item => Number(item?.value) || 0), 0);
+    if (maxValue <= 0) return;
+
+    primitives.forEach(item => {
+      const gameId = Number(item?.game_id);
+      const value = Number(item?.value);
+      const type = Number(item?.popularity_type);
+      if (!gameId || !Number.isFinite(value) || !type) return;
+
+      const weight = POPSCORE_WEIGHTS[type] || 0.05;
+      const existing = scoreByGameId.get(gameId) || { gameId, popScore: 0, primitives: {} };
+      existing.popScore += (value / maxValue) * weight;
+      existing.primitives[type] = value;
+      scoreByGameId.set(gameId, existing);
+    });
+  });
+
+  return [...scoreByGameId.values()]
+    .sort((a, b) => b.popScore - a.popScore)
+    .slice(0, limit);
+}
+
 function gameFields() {
   return [
     'name',
@@ -210,19 +247,38 @@ export async function searchIgdbGamesBrowser(term, { pageSize = 12 } = {}) {
 }
 
 export async function fetchIgdbPopularGamesBrowser() {
+  const primitivesByType = await Promise.all(POPSCORE_TYPES.map(type => igdbProxyFetch('popularity_primitives', [
+    'fields game_id,popularity_type,value,calculated_at;',
+    `where popularity_type = ${type};`,
+    'sort value desc;',
+    'limit 50;'
+  ].join(' '))));
+  const popScoreRecords = buildPopScoreRecords(primitivesByType);
+
+  const gameIds = popScoreRecords.map(item => item.gameId);
+  if (gameIds.length === 0) return [];
+
   const data = await igdbProxyFetch('games', [
-    `fields ${gameFields()},hypes,total_rating_count;`,
-    'where version_parent = null & cover != null & first_release_date != null;',
-    'sort hypes desc;',
-    'limit 12;'
+    `fields ${gameFields()};`,
+    `where id = (${gameIds.join(',')}) & version_parent = null;`,
+    `limit ${gameIds.length};`
   ].join(' '));
 
-  return (Array.isArray(data) ? data : [])
-    .map(result => normalizeIgdbGame(result))
+  const gameById = new Map((Array.isArray(data) ? data : []).map(game => [Number(game.id), game]));
+
+  return popScoreRecords
+    .map(scoreRecord => {
+      const game = normalizeIgdbGame(gameById.get(scoreRecord.gameId));
+      return game ? {
+        ...game,
+        igdbPopScore: scoreRecord.popScore,
+        igdbPopScorePrimitives: scoreRecord.primitives
+      } : null;
+    })
     .filter(Boolean)
     .map(game => ({
       ...game,
-      discoverySource: 'Popular discovery'
+      discoverySource: 'IGDB PopScore'
     }));
 }
 

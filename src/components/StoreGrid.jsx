@@ -179,7 +179,7 @@ export default function StoreGrid({
         <span className="store-count">
           {hasSearch
             ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingIgdb ? ' - searching discovery' : ''}`
-            : 'IGDB popularity, ITAD, and CheapShark deals'}
+            : 'IGDB PopScore, ITAD, and CheapShark deals'}
         </span>
       </div>
 
@@ -208,7 +208,7 @@ export default function StoreGrid({
               <div>
                 <span className="store-feed-kicker">IGDB</span>
                 <div className="store-feed-title-row">
-                  <h2>Popular Video Games</h2>
+                  <h2>Trending Video Games</h2>
                   <Flame size={18} />
                 </div>
               </div>
@@ -216,7 +216,7 @@ export default function StoreGrid({
             <div className="store-feed-list">
               {popularGames.length > 0
                 ? popularGames.map((item, index) => renderFeedCard(item, index, 'popular'))
-                : renderStatus(popularStatus, popularError, 'IGDB popular games will appear here when the feed is available.', 'IGDB')}
+                : renderStatus(popularStatus, popularError, 'IGDB PopScore games will appear here when the feed is available.', 'IGDB')}
             </div>
           </section>
 

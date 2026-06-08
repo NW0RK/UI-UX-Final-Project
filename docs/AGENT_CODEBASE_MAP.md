@@ -73,7 +73,7 @@ npm run build
 | `GameMainBanner.jsx` | Primary selected-game hero, launch/favorite/edit/remove actions, manual title positioning, and automatic safe-title placement. | Uses HLTB, Brandfetch, and banner placement helpers; includes `LibraryOverflowMenu`. |
 | `HorizontalLibrary.jsx` | Horizontal library cards for the main library view. | Uses `data-controller-*` selection attributes. |
 | `FavouritesTrophyRoom.jsx` | Favorites view with trophy-room style cards. | Uses `data-controller-*` selection attributes and local injected styles. |
-| `StoreGrid.jsx` | Store landing view with IGDB popular games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
+| `StoreGrid.jsx` | Store landing view with IGDB PopScore trending games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
 | `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and IGDB discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
 | `StoreItemPage.jsx` | Store detail view, Steam/IGDB media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and IGDB detail/media IPC, and executable picker. |
 | `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
@@ -92,7 +92,7 @@ npm run build
 - `NavigationHeader` changes top-level views and search text.
 - `GameMainBanner` plus `HorizontalLibrary` render the library view.
 - `FavouritesTrophyRoom` renders favorite games.
-- `StoreGrid` renders the split IGDB popular-games and ITAD/CheapShark best-deals store landing view.
+- `StoreGrid` renders the split IGDB PopScore trending-games and ITAD/CheapShark best-deals store landing view.
 - `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and IGDB discovery matches.
 - `StoreItemPage` renders one store or search item detail.
 - `ControlCenter`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
@@ -166,9 +166,9 @@ HowLongToBeat:
 
 Store and pricing:
 
-- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB popular games and ITAD/CheapShark best deals.
+- Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB PopScore trending games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
-- Store landing uses `fetchIgdbPopularGames` or `src/utils/igdb.js` browser preview proxy fallbacks for the left popular-games feed and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed.
+- Store landing uses `fetchIgdbPopularGames` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive, and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed.
 - Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.

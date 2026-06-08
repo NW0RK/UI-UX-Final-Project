@@ -79,6 +79,7 @@ npm run build
 | `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
 | `SettingsPanel.jsx` | Theme/accessibility/system/artwork/API settings. | Reads and saves SteamGridDB API key through Electron APIs. |
 | `MetadataEditor.jsx` | Edit selected-game metadata and artwork, manual SGDB search/fetch, HLTB refresh. | Calls image picker, SGDB IPC, auto artwork IPC, HLTB IPC. |
+| `ImportNamePrompt.jsx` | Centered command-palette prompt for confirming local executable game names and choosing IGDB suggestions during imports. | Mounted by `App.jsx`; uses existing IGDB search bridge/fallback and controller focus attributes. |
 | `ProfileOverlay.jsx` | Profile name and avatar editing. | Persists values in `localStorage` through `App.jsx`. |
 | `ControllerHintOverlay.jsx` | On-screen controller hints, keyboard hints, visibility toggle. | Mirrors active view/modal state and reads controller family from Gamepad API. |
 | `LibraryOverflowMenu.jsx` | Edit/remove menu with confirm-delete state. | Used by library/store item surfaces. |
@@ -95,7 +96,7 @@ npm run build
 - `StoreGrid` renders the split IGDB PopScore trending-games and ITAD/CheapShark best-deals store landing view.
 - `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and IGDB discovery matches.
 - `StoreItemPage` renders one store or search item detail.
-- `ControlCenter`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
+- `ControlCenter`, `ImportNamePrompt`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
 
 ## Electron Boundary
 
@@ -178,7 +179,8 @@ Import and launch:
 
 - `ControlCenter.jsx` triggers manual import or folder scan.
 - `main.js` scans directories and attaches Steam App IDs when it can.
-- `App.jsx` converts scan results to game records with `matchGameMetadata`.
+- `App.jsx` queues selected executables, shows `ImportNamePrompt` for each one after import is chosen, and uses the confirmed typed title or IGDB suggestion before saving the game record.
+- Imported local games are enriched through existing Steam, IGDB, HLTB, and SteamGridDB helpers while preserving `exePath`, `owned`, and common library fields.
 - `main.js` launches executables with `spawn` and emits `game-status-changed`; `App.jsx` updates session time and persisted playtime.
 
 Controller and keyboard:

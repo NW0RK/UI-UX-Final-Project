@@ -12,6 +12,7 @@ import SearchResultsPage from './components/SearchResultsPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import ProfileOverlay from './components/ProfileOverlay';
 import ControllerHintOverlay from './components/ControllerHintOverlay';
+import ImportNamePrompt from './components/ImportNamePrompt';
 import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
@@ -144,6 +145,50 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
   };
 }
 
+function getExecutableNameFromPath(filePath) {
+  return String(filePath || '')
+    .split(/[\\/]/)
+    .pop()
+    .replace(/\.exe$/i, '');
+}
+
+function formatExecutableTitle(value) {
+  return String(value || 'Game')
+    .replace(/\.exe$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase()) || 'Game';
+}
+
+function normalizeImportFile(file) {
+  const path = typeof file === 'string' ? file : file?.path;
+  const rawName = typeof file === 'string'
+    ? getExecutableNameFromPath(file)
+    : file?.name || getExecutableNameFromPath(path);
+
+  return {
+    name: rawName || 'Game',
+    suggestedTitle: formatExecutableTitle(rawName),
+    path,
+    steamAppId: typeof file === 'string' ? null : file?.steamAppId || null
+  };
+}
+
+function createImportedGameId(title, exePath) {
+  const titleKey = String(title || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 34) || 'game';
+  const pathKey = String(exePath || '').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(-8);
+  return `${titleKey}${pathKey}${Math.floor(Math.random() * 1000)}`;
+}
+
+function hasUsefulDescription(game) {
+  const description = String(game?.description || '').trim();
+  if (!description) return false;
+  return !/^Open details to load/i.test(description) &&
+    !/^A local executable found/i.test(description) &&
+    !/^Your scanned copy/i.test(description);
+}
+
 export default function App() {
   // --- Mode and Core States ---
   const [games, setGames] = useState([]);
@@ -195,6 +240,9 @@ export default function App() {
   const [igdbSearchError, setIgdbSearchError] = useState(null);
   const [storeDetailCache, setStoreDetailCache] = useState({});
   const [diagnostics, setDiagnostics] = useState([]);
+  const [importQueue, setImportQueue] = useState([]);
+  const [importPromptIndex, setImportPromptIndex] = useState(0);
+  const [isImportProcessing, setIsImportProcessing] = useState(false);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
   const storeReviewsHydratedRef = useRef(false);
@@ -204,6 +252,7 @@ export default function App() {
   const hltbLookupAttemptedRef = useRef(new Set());
   const storeDetailCacheRef = useRef({});
   const storeDetailInFlightRef = useRef(new Map());
+  const gamesRef = useRef([]);
 
   const addDiagnostic = (area, level, message, details = null) => {
     setDiagnostics(prev => [{
@@ -214,6 +263,10 @@ export default function App() {
       timestamp: new Date().toISOString()
     }, ...prev].slice(0, 80));
   };
+
+  useEffect(() => {
+    gamesRef.current = games;
+  }, [games]);
 
   const mergeStoreDetailCache = useCallback((item, patch = {}, resolvedSteamAppId = null) => {
     const aliases = getStoreItemCacheAliases(item, resolvedSteamAppId);
@@ -1120,58 +1173,215 @@ export default function App() {
     }
   };
 
-  // --- Action Trigger: Folder Scanning Batch Imports ---
-  const handleImportScannedGames = async (matchedImports) => {
-    const addedList = [...games];
-    const newGameIds = [];
-    let duplicateCount = 0;
-    matchedImports.forEach(scannedFile => {
-      // Exclude if path already matches
-      const exists = addedList.find(g => g.exePath === scannedFile.path);
-      if (!exists) {
-        const metadata = matchGameMetadata(scannedFile.name, scannedFile.path);
-        // Create clean ID
-        const cleanId = scannedFile.name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
-        addedList.push(applySeededHltbToGame({
-          ...metadata,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
-          id: cleanId
-        }));
-        newGameIds.push(cleanId);
-        addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
-          exePath: scannedFile.path,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null
-        });
-      } else {
-        duplicateCount += 1;
-        addDiagnostic('Importer', 'warn', `Skipped duplicate executable ${scannedFile.path}`);
-      }
-    });
+  const persistGames = async (nextGames) => {
+    setGames(nextGames);
+    gamesRef.current = nextGames;
+    if (window.electronAPI) {
+      await window.electronAPI.saveDatabase(nextGames);
+    } else {
+      localStorage.setItem('nexus_games_cache', JSON.stringify(nextGames));
+    }
+  };
 
-    addDiagnostic('Importer', newGameIds.length ? 'info' : 'warn', `Import selection processed: ${newGameIds.length} new, ${duplicateCount} duplicate`);
+  const handleImportSuggestionSearch = useCallback(async (term) => {
+    const results = window.electronAPI?.searchIgdbGames
+      ? await window.electronAPI.searchIgdbGames(term)
+      : await searchIgdbGamesBrowser(term);
+
+    if (results?.error) throw new Error(results.error);
+    return Array.isArray(results) ? results : [];
+  }, []);
+
+  const buildImportedGame = (file, title, suggestion = null) => {
+    const baseTitle = String(title || file.suggestedTitle || file.name || 'Game').trim();
+    const fallback = matchGameMetadata(baseTitle, file.path);
+    const source = suggestion ? { ...suggestion } : fallback;
+
+    return applySeededHltbToGame({
+      ...source,
+      id: createImportedGameId(source.title || baseTitle, file.path),
+      title: source.title || baseTitle,
+      developer: source.developer || fallback.developer,
+      publisher: source.publisher || fallback.publisher || source.developer || fallback.developer,
+      genre: source.genre || fallback.genre,
+      rating: source.rating || fallback.rating || 4.0,
+      releaseDate: source.releaseDate || fallback.releaseDate,
+      description: source.description || fallback.description,
+      tags: Array.isArray(source.tags) && source.tags.length ? source.tags : (fallback.tags || ['Local Import']),
+      steamAppId: file.steamAppId || source.steamAppId || fallback.steamAppId || null,
+      exePath: file.path,
+      owned: true,
+      playtime: 0,
+      lastPlayed: 'Never',
+      progress: 0,
+      timeToComplete: '--',
+      nextAchievement: 'Locked (0% complete)',
+      isFavorite: false,
+      artworkFetched: false
+    });
+  };
+
+  const enrichImportedGame = async (game) => {
+    let enriched = { ...game };
+
+    if (!enriched.steamAppId && enriched.title) {
+      try {
+        const match = window.electronAPI?.resolveSteamAppId
+          ? await window.electronAPI.resolveSteamAppId(enriched.title)
+          : await resolveSteamAppIdBrowser(enriched.title);
+
+        if (match?.steamAppId) {
+          enriched = {
+            ...enriched,
+            steamAppId: match.steamAppId,
+            steamMatchName: match.name || null,
+            steamMatchScore: match.matchScore ?? null
+          };
+          addDiagnostic('Steam', 'info', `Resolved Steam AppID for ${enriched.title}`, match);
+        } else if (match?.error) {
+          addDiagnostic('Steam', 'warn', `Steam AppID lookup failed for ${enriched.title}: ${match.error}`);
+        }
+      } catch (error) {
+        addDiagnostic('Steam', 'warn', `Steam AppID lookup failed for ${enriched.title}: ${error.message}`);
+      }
+    }
+
+    if (enriched.steamAppId) {
+      try {
+        const [details, reviews] = await Promise.all([
+          window.electronAPI?.fetchSteamDetails
+            ? window.electronAPI.fetchSteamDetails(enriched.steamAppId)
+            : fetchSteamDetailsBrowser(enriched.steamAppId),
+          window.electronAPI?.fetchSteamReviews
+            ? window.electronAPI.fetchSteamReviews(enriched.steamAppId)
+            : fetchSteamReviewSummaryBrowser(enriched.steamAppId)
+        ]);
+
+        const steamGenres = Array.isArray(details?.genres) ? details.genres.map(item => item?.description).filter(Boolean) : [];
+        const steamCategories = Array.isArray(details?.categories) ? details.categories.map(item => item?.description).filter(Boolean) : [];
+        const steamTags = [...steamGenres, ...steamCategories].slice(0, 6);
+        enriched = {
+          ...enriched,
+          developer: enriched.developer && enriched.developer !== 'Unknown Developer'
+            ? enriched.developer
+            : details?.developers?.join(', ') || enriched.developer,
+          publisher: enriched.publisher && enriched.publisher !== 'Unknown Publisher'
+            ? enriched.publisher
+            : details?.publishers?.join(', ') || enriched.publisher,
+          genre: enriched.genre && enriched.genre !== 'Game' && enriched.genre !== 'Indie Game'
+            ? enriched.genre
+            : steamGenres.join(', ') || enriched.genre,
+          description: hasUsefulDescription(enriched)
+            ? enriched.description
+            : details?.short_description || enriched.description,
+          coverUrl: enriched.coverUrl || details?.header_image || null,
+          bannerUrl: enriched.bannerUrl || getSteamStoreBannerUrl(details, enriched.steamAppId),
+          tags: Array.isArray(enriched.tags) && enriched.tags.length && !enriched.tags.includes('Local Import')
+            ? enriched.tags
+            : steamTags.length ? steamTags : enriched.tags,
+          steamReviewScore: reviews || enriched.steamReviewScore || null
+        };
+        addDiagnostic('Steam', 'info', `Steam metadata merged for ${enriched.title}`);
+      } catch (error) {
+        addDiagnostic('Steam', 'warn', `Steam metadata failed for ${enriched.title}: ${error.message}`);
+      }
+    }
+
+    enriched = applySeededHltbToGame(enriched);
+    if (window.electronAPI?.autoFetchHowLongToBeat && shouldFetchHltb(enriched)) {
+      try {
+        const hltb = await window.electronAPI.autoFetchHowLongToBeat(enriched);
+        if (!hltb?.error) {
+          enriched = { ...enriched, hltb };
+          addDiagnostic('HowLongToBeat', 'info', `HLTB applied to imported game ${enriched.title}`);
+        } else {
+          addDiagnostic('HowLongToBeat', 'warn', `HLTB lookup failed for ${enriched.title}: ${hltb.error}`);
+        }
+      } catch (error) {
+        addDiagnostic('HowLongToBeat', 'warn', `HLTB lookup failed for ${enriched.title}: ${error.message}`);
+      }
+    }
 
     if (window.electronAPI?.autoFetchArtwork) {
-      for (const gameId of newGameIds) {
-        const game = addedList.find(item => item.id === gameId);
-        const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
+      try {
+        const artwork = await window.electronAPI.autoFetchArtwork({ ...enriched, forceTitleLookup: true });
         if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-          const index = addedList.findIndex(item => item.id === gameId);
-          addedList[index] = applyArtworkToGame(addedList[index], artwork);
-          addDiagnostic('SteamGridDB', 'info', `Artwork applied to imported game ${game.title}`);
+          enriched = applyArtworkToGame(enriched, artwork);
+          addDiagnostic('SteamGridDB', 'info', `Artwork applied to imported game ${enriched.title}`);
         } else if (artwork?.error) {
-          addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${game.title}: ${artwork.error}`);
+          addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${enriched.title}: ${artwork.error}`);
         }
+      } catch (error) {
+        addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${enriched.title}: ${error.message}`);
       }
     }
 
-    setGames(addedList);
-    setSelectedGame(addedList[addedList.length - 1]); // Highlight newly added game
-    
-    if (window.electronAPI) {
-      await window.electronAPI.saveDatabase(addedList);
-    } else {
-      localStorage.setItem('nexus_games_cache', JSON.stringify(addedList));
+    return enriched;
+  };
+
+  const startImportPromptQueue = (files) => {
+    const normalizedFiles = (Array.isArray(files) ? files : [files])
+      .map(normalizeImportFile)
+      .filter(file => file.path);
+
+    if (normalizedFiles.length === 0) return;
+    setImportPromptIndex(0);
+    setImportQueue(normalizedFiles);
+    setIsCcOpen(false);
+    addDiagnostic('Importer', 'info', `Queued ${normalizedFiles.length} local executable${normalizedFiles.length === 1 ? '' : 's'} for naming`);
+  };
+
+  const advanceImportPromptQueue = () => {
+    setImportQueue(prev => {
+      const next = prev.slice(1);
+      setImportPromptIndex(index => next.length > 0 ? index + 1 : 0);
+      return next;
+    });
+  };
+
+  const handleConfirmImportName = async ({ title, suggestion }) => {
+    const currentFile = importQueue[0];
+    if (!currentFile || isImportProcessing) return;
+
+    const existing = gamesRef.current.find(game => game.exePath === currentFile.path);
+    if (existing) {
+      addDiagnostic('Importer', 'warn', `Skipped duplicate executable ${currentFile.path}`);
+      advanceImportPromptQueue();
+      return;
     }
+
+    setIsImportProcessing(true);
+    try {
+      const baseGame = buildImportedGame(currentFile, title, suggestion);
+      addDiagnostic('Importer', 'info', `Preparing import for ${baseGame.title}`, {
+        exePath: currentFile.path,
+        source: suggestion ? 'igdb' : 'typed-name'
+      });
+
+      const enrichedGame = await enrichImportedGame(baseGame);
+      const updated = [...gamesRef.current, enrichedGame];
+      await persistGames(updated);
+      setSelectedGame(enrichedGame);
+      setActiveView('library');
+      addDiagnostic('Importer', 'info', `Imported ${enrichedGame.title}`);
+    } finally {
+      setIsImportProcessing(false);
+      advanceImportPromptQueue();
+    }
+  };
+
+  const handleCancelImportName = () => {
+    if (isImportProcessing) return;
+    const currentFile = importQueue[0];
+    if (currentFile) {
+      addDiagnostic('Importer', 'warn', `Skipped local executable ${currentFile.path}`);
+    }
+    advanceImportPromptQueue();
+  };
+
+  // --- Action Trigger: Folder Scanning Batch Imports ---
+  const handleImportScannedGames = async (matchedImports) => {
+    startImportPromptQueue(matchedImports);
   };
 
   // --- Action Trigger: Manual EXE Import ---
@@ -1185,32 +1395,8 @@ export default function App() {
       return;
     }
 
-    const name = mockExe.split('\\').pop().replace('.exe', '');
-    const cleanId = name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
-    const metadata = matchGameMetadata(name, mockExe);
     addDiagnostic('Importer', 'info', `Manual executable selected: ${mockExe}`);
-
-    let newGame = applySeededHltbToGame({ ...metadata, id: cleanId });
-    if (window.electronAPI?.autoFetchArtwork) {
-      const artwork = await window.electronAPI.autoFetchArtwork({ ...newGame, forceTitleLookup: true });
-      if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-        newGame = applyArtworkToGame(newGame, artwork);
-        addDiagnostic('SteamGridDB', 'info', `Artwork applied to manual import ${newGame.title}`);
-      } else if (artwork?.error) {
-        addDiagnostic('SteamGridDB', 'warn', `Artwork failed for manual import ${newGame.title}: ${artwork.error}`);
-      }
-    }
-
-    const updated = [...games, newGame];
-    setGames(updated);
-    setSelectedGame(updated[updated.length - 1]);
-    setIsCcOpen(false);
-
-    if (window.electronAPI) {
-      window.electronAPI.saveDatabase(updated);
-    } else {
-      localStorage.setItem('nexus_games_cache', JSON.stringify(updated));
-    }
+    startImportPromptQueue(mockExe);
   };
 
   // --- Action Trigger: Factory DB Resets ---
@@ -1512,11 +1698,18 @@ export default function App() {
   const activeStoreItemCachedDetails = activeStoreItemCacheKey
     ? storeDetailCache[activeStoreItemCacheKey]
     : null;
+  const currentImportFile = importQueue[0] || null;
+  const importPromptTotal = importPromptIndex + importQueue.length;
 
-  const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode;
+  const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode || !!currentImportFile;
   const primaryViews = ['store', 'library', 'favourites'];
 
   const handleControllerBack = () => {
+    if (currentImportFile) {
+      if (isImportProcessing) return true;
+      handleCancelImportName();
+      return true;
+    }
     if (isMetadataOpen) {
       setIsMetadataOpen(false);
       return true;
@@ -1601,7 +1794,9 @@ export default function App() {
       isSettingsOpen,
       isMetadataOpen,
       isProfileOpen,
-      bannerEditMode
+      bannerEditMode,
+      importQueue.length,
+      isImportProcessing
     ]
   });
 
@@ -1738,6 +1933,18 @@ export default function App() {
         diagnostics={diagnostics}
         onClearDiagnostics={() => setDiagnostics([])}
       />
+
+      {currentImportFile && (
+        <ImportNamePrompt
+          file={currentImportFile}
+          index={importPromptIndex}
+          total={importPromptTotal}
+          onSearchSuggestions={handleImportSuggestionSearch}
+          onConfirm={handleConfirmImportName}
+          onCancel={handleCancelImportName}
+          isBusy={isImportProcessing}
+        />
+      )}
 
       <ControllerHintOverlay
         activeView={activeView}

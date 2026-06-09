@@ -42,6 +42,7 @@ export default function StoreGrid({
     onSelectItem(item);
   };
 
+
   const handleItemPreview = (item) => {
     audioEngine.playHoverTick();
     onPrefetchItem(item);
@@ -55,6 +56,8 @@ export default function StoreGrid({
     (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
     (item.steamAppId && ownedSteamAppIds.has(String(item.steamAppId)))
   );
+
+
 
   const renderImage = (item) => (
     <div className="store-card-image-wrapper">
@@ -126,7 +129,7 @@ export default function StoreGrid({
           {(item.itadDeal?.shop || item.cheapsharkDeal?.shop) && <span className="store-shop-chip">{item.itadDeal?.shop || item.cheapsharkDeal?.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
-        {item.source !== 'igdb' && <div className="store-card-developer">{item.developer}</div>}
+        {item.source !== 'igdb' && item.source !== 'itad' && item.source !== 'cheapshark' && <div className="store-card-developer">{item.developer}</div>}
         {renderMeta(item)}
       </div>
     </div>
@@ -154,7 +157,7 @@ export default function StoreGrid({
           {(item.itadDeal?.shop || item.cheapsharkDeal?.shop) && <span className="store-shop-chip">{item.itadDeal?.shop || item.cheapsharkDeal?.shop}</span>}
         </div>
         <div className="store-card-title">{item.title}</div>
-        {item.source !== 'igdb' && <div className="store-card-developer">{item.developer}</div>}
+        {item.source !== 'igdb' && item.source !== 'itad' && item.source !== 'cheapshark' && <div className="store-card-developer">{item.developer}</div>}
         {renderMeta(item)}
       </div>
     </div>
@@ -530,7 +533,7 @@ export default function StoreGrid({
         }
 
         .store-shop-chip {
-          flex: 1 1 auto;
+          flex: 0 1 auto;
           color: rgba(255, 255, 255, 0.44);
           text-transform: none;
         }

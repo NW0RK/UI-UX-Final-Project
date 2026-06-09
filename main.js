@@ -408,7 +408,10 @@ function igdbGameFields(extra = '') {
     'storyline',
     'first_release_date',
     'total_rating',
+    'total_rating_count',
     'rating',
+    'rating_count',
+    'follows',
     'aggregated_rating',
     'cover.image_id',
     'screenshots.image_id',
@@ -568,14 +571,25 @@ async function searchIgdbGames(term, { pageSize = 12 } = {}) {
   const searchTerm = String(term || '').trim();
   if (searchTerm.length < 3) return [];
 
+  const limit = Math.max(pageSize * 4, 50);
   const data = await igdbFetchJson('games', [
     `search "${escapeIgdbString(searchTerm)}";`,
     `fields ${igdbGameFields()};`,
-    'where version_parent = null;',
-    `limit ${pageSize};`
+    'where version_parent = null & category = (0, 4, 8, 9, 10, 11);',
+    `limit ${limit};`
   ].join(' '));
 
-  return (Array.isArray(data) ? data : [])
+  const sortedRaw = (Array.isArray(data) ? data : []).sort((a, b) => {
+    const aExact = a.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
+    const bExact = b.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
+    if (aExact !== bExact) return bExact - aExact;
+
+    const aPop = (a.total_rating_count || 0) + (a.rating_count || 0) + (a.follows || 0);
+    const bPop = (b.total_rating_count || 0) + (b.rating_count || 0) + (b.follows || 0);
+    return bPop - aPop;
+  }).slice(0, pageSize);
+
+  return sortedRaw
     .map(result => normalizeIgdbGame(result))
     .filter(Boolean);
 }

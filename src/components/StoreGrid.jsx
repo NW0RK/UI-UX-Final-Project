@@ -188,7 +188,7 @@ export default function StoreGrid({
         </div>
         <span className="store-count">
           {hasSearch
-            ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingIgdb ? ' - searching discovery' : ''}`
+            ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}${isSearchingIgdb ? ' - searching IGDB' : ''}`
             : 'IGDB PopScore, ITAD, and CheapShark deals'}
         </span>
       </div>
@@ -204,7 +204,7 @@ export default function StoreGrid({
           {filtered.length === 0 && (
             <div className="store-empty">
               <Search size={18} />
-              <span>{isSearchingIgdb ? 'Searching discovery...' : 'No titles match your search.'}</span>
+              <span>{isSearchingIgdb ? 'Searching IGDB...' : 'No titles match your search.'}</span>
             </div>
           )}
           <div className="store-grid">

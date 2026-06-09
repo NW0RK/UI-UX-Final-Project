@@ -217,6 +217,7 @@ function gameFields() {
     'rating',
     'rating_count',
     'follows',
+    'category',
     'aggregated_rating',
     'cover.image_id',
     'screenshots.image_id',
@@ -260,7 +261,7 @@ async function igdbProxyFetch(endpoint, query) {
   return data;
 }
 
-export async function searchIgdbGamesBrowser(term, { pageSize = 12 } = {}) {
+export async function searchIgdbGamesBrowser(term, { pageSize = 36 } = {}) {
   const searchTerm = String(term || '').trim();
   if (searchTerm.length < 3) return [];
 
@@ -268,11 +269,14 @@ export async function searchIgdbGamesBrowser(term, { pageSize = 12 } = {}) {
   const data = await igdbProxyFetch('games', [
     `search "${escapeIgdbString(searchTerm)}";`,
     `fields ${gameFields()};`,
-    'where version_parent = null & category = (0, 4, 8, 9, 10, 11);',
+    'where version_parent = null;',
     `limit ${limit};`
   ].join(' '));
 
-  const sortedRaw = (Array.isArray(data) ? data : []).sort((a, b) => {
+  const allowedCategories = [0, 4, 8, 9, 10, 11];
+  const sortedRaw = (Array.isArray(data) ? data : [])
+    .filter(item => item.category === undefined || allowedCategories.includes(item.category))
+    .sort((a, b) => {
     const aExact = a.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
     const bExact = b.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
     if (aExact !== bExact) return bExact - aExact;

@@ -412,6 +412,7 @@ function igdbGameFields(extra = '') {
     'rating',
     'rating_count',
     'follows',
+    'category',
     'aggregated_rating',
     'cover.image_id',
     'screenshots.image_id',
@@ -567,7 +568,7 @@ function buildIgdbPopScoreRecords(primitivesByType = [], limit = 12) {
     .slice(0, recordLimit);
 }
 
-async function searchIgdbGames(term, { pageSize = 12 } = {}) {
+async function searchIgdbGames(term, { pageSize = 36 } = {}) {
   const searchTerm = String(term || '').trim();
   if (searchTerm.length < 3) return [];
 
@@ -575,11 +576,14 @@ async function searchIgdbGames(term, { pageSize = 12 } = {}) {
   const data = await igdbFetchJson('games', [
     `search "${escapeIgdbString(searchTerm)}";`,
     `fields ${igdbGameFields()};`,
-    'where version_parent = null & category = (0, 4, 8, 9, 10, 11);',
+    'where version_parent = null;',
     `limit ${limit};`
   ].join(' '));
 
-  const sortedRaw = (Array.isArray(data) ? data : []).sort((a, b) => {
+  const allowedCategories = [0, 4, 8, 9, 10, 11];
+  const sortedRaw = (Array.isArray(data) ? data : [])
+    .filter(item => item.category === undefined || allowedCategories.includes(item.category))
+    .sort((a, b) => {
     const aExact = a.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
     const bExact = b.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
     if (aExact !== bExact) return bExact - aExact;

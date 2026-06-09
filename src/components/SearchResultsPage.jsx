@@ -63,7 +63,7 @@ export default function SearchResultsPage({
           <h1>{query.trim() ? `Results for "${query.trim()}"` : 'Search Games'}</h1>
         </div>
         <span className="search-results-count">
-          {isSearching ? 'Searching discovery...' : `${results.length} result${results.length === 1 ? '' : 's'}`}
+          {isSearching ? 'Searching IGDB...' : `${results.length} result${results.length === 1 ? '' : 's'}`}
         </span>
       </div>
 
@@ -74,7 +74,7 @@ export default function SearchResultsPage({
       {results.length === 0 ? (
         <div className="search-results-empty">
           <Search size={22} />
-          <span>{isSearching ? 'Searching discovery...' : 'No games matched your search.'}</span>
+          <span>{isSearching ? 'Searching IGDB...' : 'No games matched your search.'}</span>
         </div>
       ) : (
         <div className="search-results-grid">

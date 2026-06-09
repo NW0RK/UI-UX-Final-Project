@@ -110,6 +110,7 @@ export default function SearchResultsPage({
                 <div className="search-result-body">
                   <h2>{item.title}</h2>
                   <p>{item.developer || 'Unknown Developer'}</p>
+                  <p className="search-result-release">{item.releaseDate ? item.releaseDate.split('-')[0] : 'TBA'}</p>
                   <div className="search-result-meta">
                     {item.genre ? (
                       item.genre.split(',').map((g, i) => (
@@ -118,7 +119,6 @@ export default function SearchResultsPage({
                     ) : (
                       <span>Game</span>
                     )}
-                    <span>{item.releaseDate || 'TBA'}</span>
                     {item.ageRating && <span>{item.ageRating}</span>}
                   </div>
                   <div className="search-result-rating">
@@ -314,6 +314,15 @@ export default function SearchResultsPage({
           text-overflow: ellipsis;
         }
 
+        .search-result-body p.search-result-release {
+          color: var(--accent-color);
+          font-weight: 800;
+          font-family: var(--font-display);
+          font-size: var(--fs-10);
+          margin-top: 2px;
+          text-transform: uppercase;
+        }
+
         .search-result-meta {
           display: flex;
           flex-wrap: wrap;
@@ -327,8 +336,8 @@ export default function SearchResultsPage({
           align-items: center;
           padding: 2px 6px;
           border-radius: 4px;
-          background: rgba(255, 255, 255, 0.08);
-          color: rgba(255, 255, 255, 0.8);
+          background: rgba(var(--accent-color-rgb), 0.15);
+          color: var(--accent-color);
           font-family: var(--font-display);
           font-size: var(--fs-9);
           font-weight: 800;

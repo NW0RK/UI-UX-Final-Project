@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchHowLongToBeat: (term) => ipcRenderer.invoke('hltb-search', term),
   autoFetchHowLongToBeat: (game) => ipcRenderer.invoke('hltb-auto-fetch', game),
   searchIgdbGames: (term) => ipcRenderer.invoke('igdb-search-games', term),
-  fetchIgdbPopularGames: () => ipcRenderer.invoke('igdb-popular-games'),
+  fetchIgdbPopularGames: (limit) => ipcRenderer.invoke('igdb-popular-games', limit),
   fetchIgdbScreenshots: (game) => ipcRenderer.invoke('igdb-fetch-screenshots', game),
   fetchIgdbGameDetails: (igdbId) => ipcRenderer.invoke('igdb-fetch-game-details', igdbId),
   saveApiKey: (key) => ipcRenderer.invoke('save-api-key', key),

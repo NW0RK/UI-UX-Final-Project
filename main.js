@@ -538,6 +538,7 @@ function normalizeIgdbGame(raw, { includeDescription = false } = {}) {
 }
 
 function buildIgdbPopScoreRecords(primitivesByType = [], limit = 12) {
+  const recordLimit = Math.min(Math.max(Number(limit) || 12, 1), 40);
   const scoreByGameId = new Map();
 
   primitivesByType.forEach(primitives => {
@@ -560,7 +561,7 @@ function buildIgdbPopScoreRecords(primitivesByType = [], limit = 12) {
 
   return [...scoreByGameId.values()]
     .sort((a, b) => b.popScore - a.popScore)
-    .slice(0, limit);
+    .slice(0, recordLimit);
 }
 
 async function searchIgdbGames(term, { pageSize = 12 } = {}) {
@@ -579,14 +580,14 @@ async function searchIgdbGames(term, { pageSize = 12 } = {}) {
     .filter(Boolean);
 }
 
-async function fetchPopularIgdbGames() {
+async function fetchPopularIgdbGames({ limit = 12 } = {}) {
   const primitivesByType = await Promise.all(IGDB_POPSCORE_TYPES.map(type => igdbFetchJson('popularity_primitives', [
     'fields game_id,popularity_type,value,calculated_at;',
     `where popularity_type = ${type};`,
     'sort value desc;',
     'limit 50;'
   ].join(' '))));
-  const popScoreRecords = buildIgdbPopScoreRecords(primitivesByType);
+  const popScoreRecords = buildIgdbPopScoreRecords(primitivesByType, limit);
 
   const gameIds = popScoreRecords.map(item => item.gameId);
   if (gameIds.length === 0) return [];
@@ -1527,9 +1528,9 @@ ipcMain.handle('igdb-search-games', async (event, term) => {
   }
 });
 
-ipcMain.handle('igdb-popular-games', async () => {
+ipcMain.handle('igdb-popular-games', async (event, limit) => {
   try {
-    const results = await fetchPopularIgdbGames();
+    const results = await fetchPopularIgdbGames({ limit });
     emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
     return results;
   } catch (err) {

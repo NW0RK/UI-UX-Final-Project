@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
+const STORE_TRENDING_FEED_LIMIT = 20;
 
 function normalizeStoreCacheTitle(title) {
   return String(title || '')
@@ -604,8 +605,8 @@ export default function App() {
     async function hydratePopularGames() {
       try {
         const results = window.electronAPI?.fetchIgdbPopularGames
-          ? await window.electronAPI.fetchIgdbPopularGames()
-          : await fetchIgdbPopularGamesBrowser();
+          ? await window.electronAPI.fetchIgdbPopularGames(STORE_TRENDING_FEED_LIMIT)
+          : await fetchIgdbPopularGamesBrowser({ limit: STORE_TRENDING_FEED_LIMIT });
         if (cancelled) return;
 
         if (results?.error) {

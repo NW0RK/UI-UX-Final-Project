@@ -111,7 +111,7 @@ Current IPC groups:
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchIgdbGames`, `fetchIgdbPopularGames`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, IGDB search/popular/screenshots/details handlers, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchIgdbGames`, `fetchIgdbPopularGames(limit)`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, IGDB search/popular/screenshots/details handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | CheapShark | `fetchCheapSharkJson` | `cheapshark-fetch-json` |
@@ -169,7 +169,7 @@ Store and pricing:
 
 - Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB PopScore trending games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
-- Store landing uses `fetchIgdbPopularGames` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive, and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed.
+- Store landing uses `fetchIgdbPopularGames(limit)` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive, and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed. Trending requests enough real IGDB cards to match the best-deals feed rows when deals are loaded.
 - Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.

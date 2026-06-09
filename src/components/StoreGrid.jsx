@@ -33,6 +33,9 @@ export default function StoreGrid({
   const ownedCheapSharkIds = new Set(ownedGames.map(g => g.cheapsharkGameId).filter(Boolean));
   const ownedSteamAppIds = new Set(ownedGames.map(g => String(g.steamAppId || '')).filter(Boolean));
   const isSearchingIgdb = igdbSearchStatus === 'loading' && searchQuery.trim().length >= 3;
+  const visiblePopularGames = dealGames.length > 0
+    ? popularGames.slice(0, dealGames.length)
+    : popularGames;
 
   const handleItemClick = (item) => {
     audioEngine.playClickPulse();
@@ -214,8 +217,8 @@ export default function StoreGrid({
               </div>
             </div>
             <div className="store-feed-list">
-              {popularGames.length > 0
-                ? popularGames.map((item, index) => renderFeedCard(item, index, 'popular'))
+              {visiblePopularGames.length > 0
+                ? visiblePopularGames.map((item, index) => renderFeedCard(item, index, 'popular'))
                 : renderStatus(popularStatus, popularError, 'IGDB PopScore games will appear here when the feed is available.', 'IGDB')}
             </div>
           </section>

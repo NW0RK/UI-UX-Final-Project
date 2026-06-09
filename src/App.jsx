@@ -1726,11 +1726,12 @@ export default function App() {
     normalizedSearchTitles.add(key);
     return true;
   }).sort((a, b) => {
+    const popDiff = (b.igdbPopScore || 0) - (a.igdbPopScore || 0);
+    if (popDiff !== 0) return popDiff;
     const aExact = a.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
     const bExact = b.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
-    if (aExact !== bExact) return bExact - aExact;
-    return (b.igdbPopScore || 0) - (a.igdbPopScore || 0);
-  });
+    return bExact - aExact;
+  }).slice(0, 20);
   const activeStoreItem = selectedStoreItem
     ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
     : null;

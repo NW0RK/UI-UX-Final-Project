@@ -111,7 +111,13 @@ export default function SearchResultsPage({
                   <h2>{item.title}</h2>
                   <p>{item.developer || 'Unknown Developer'}</p>
                   <div className="search-result-meta">
-                    <span>{item.genre || 'Game'}</span>
+                    {item.genre ? (
+                      item.genre.split(',').map((g, i) => (
+                        <span key={`genre-${i}`}>{g.trim()}</span>
+                      ))
+                    ) : (
+                      <span>Game</span>
+                    )}
                     <span>{item.releaseDate || 'TBA'}</span>
                     {item.ageRating && <span>{item.ageRating}</span>}
                   </div>

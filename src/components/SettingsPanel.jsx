@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck } from 'lucide-react';
+import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck, Clapperboard } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -64,6 +64,11 @@ export default function SettingsPanel({
   const handleBannerAnimationToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, bannerAnimation: !settings.bannerAnimation });
+  };
+
+  const handleLibraryTrailerToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, libraryTrailerAutoplay: !settings.libraryTrailerAutoplay });
   };
 
   const handleStudioLogosToggle = () => {
@@ -355,6 +360,28 @@ export default function SettingsPanel({
               </div>
               <div className="audio-card-right">
                 <div className={`checkbox-toggle-switch ${settings.bannerAnimation ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.libraryTrailerAutoplay}
+              onClick={handleLibraryTrailerToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Clapperboard size={20} className={settings.libraryTrailerAutoplay ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Trailer Preview</span>
+                  <span className="audio-card-desc">{settings.libraryTrailerAutoplay ? 'Library heroes transition to IGDB trailers after a short pause.' : 'Library heroes stay on artwork only.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.libraryTrailerAutoplay ? 'sw-active' : 'sw-muted'}`}>
                   <div className="switch-knob" />
                 </div>
               </div>

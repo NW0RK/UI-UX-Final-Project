@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fetchIgdbPopularGames: (limit) => ipcRenderer.invoke('igdb-popular-games', limit),
   fetchIgdbScreenshots: (game) => ipcRenderer.invoke('igdb-fetch-screenshots', game),
   fetchIgdbGameDetails: (igdbId) => ipcRenderer.invoke('igdb-fetch-game-details', igdbId),
+  fetchIgdbGameTrailer: (game) => ipcRenderer.invoke('igdb-fetch-game-trailer', game),
   saveApiKey: (key) => ipcRenderer.invoke('save-api-key', key),
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
   saveIgdbCredentials: (credentials) => ipcRenderer.invoke('save-igdb-credentials', credentials),

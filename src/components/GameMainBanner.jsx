@@ -6,6 +6,33 @@ import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
 import { getPrimaryHltbText } from '../utils/hltb';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 
+let youtubeIframeApiPromise = null;
+
+function loadYouTubeIframeApi() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('YouTube iframe API is unavailable'));
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (youtubeIframeApiPromise) return youtubeIframeApiPromise;
+
+  youtubeIframeApiPromise = new Promise((resolve, reject) => {
+    const existingCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof existingCallback === 'function') existingCallback();
+      resolve(window.YT);
+    };
+
+    const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    if (existingScript) return;
+
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    script.onerror = () => reject(new Error('YouTube iframe API failed to load'));
+    document.head.appendChild(script);
+  });
+
+  return youtubeIframeApiPromise;
+}
+
 export default function GameMainBanner({ 
   game, 
   onLaunch, 
@@ -14,6 +41,8 @@ export default function GameMainBanner({
   onRemoveGame,
   isRunning,
   bannerAnimation = true,
+  trailerPlayback = null,
+  onTrailerEnded,
   studioLogosEnabled = false,
   brandfetchClientId = '',
   brandfetchCacheVersion = 0,
@@ -40,6 +69,7 @@ export default function GameMainBanner({
   const backdropImgRef = useRef(null);
   const contentRef = useRef(null);
   const titleRef = useRef(null);
+  const trailerFrameRef = useRef(null);
   const autoPlacementGameRef = useRef(null);
   
   // Keep a ref of the layout to avoid stale closure state in mouse event handlers
@@ -142,8 +172,6 @@ export default function GameMainBanner({
     return () => cancelAnimationFrame(frame);
   }, [applyAutoPlacement, game?.bannerLayout, game?.bannerUrl, game?.id]);
 
-  if (!game) return null;
-
   const getSteamRating = (rating) => {
     let numericRating = parseFloat(rating);
     if (isNaN(numericRating)) {
@@ -178,9 +206,80 @@ export default function GameMainBanner({
     }
   };
 
-  const ratingData = getSteamRating(game.rating);
-  const hltbText = getPrimaryHltbText(game.hltb);
-  const bannerTransitionKey = game.id || game.title;
+  const ratingData = getSteamRating(game?.rating);
+  const hltbText = getPrimaryHltbText(game?.hltb);
+  const bannerTransitionKey = game?.id || game?.title;
+  const shouldShowTrailer = Boolean(
+    trailerPlayback?.visible &&
+    trailerPlayback?.gameId === game?.id &&
+    trailerPlayback?.embedUrl &&
+    !editMode
+  );
+  const trailerOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const trailerUrl = shouldShowTrailer
+    ? `${trailerPlayback.embedUrl}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${trailerOrigin ? `&origin=${encodeURIComponent(trailerOrigin)}` : ''}`
+    : null;
+
+  useEffect(() => {
+    if (!shouldShowTrailer) return undefined;
+
+    let cancelled = false;
+    let player = null;
+
+    const handleMessage = (event) => {
+      if (!String(event.origin || '').includes('youtube.com')) return;
+
+      let data = event.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          return;
+        }
+      }
+
+      if (data?.event === 'onStateChange' && Number(data?.info) === 0) {
+        onTrailerEnded?.(game?.id);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    loadYouTubeIframeApi().then((yt) => {
+      if (cancelled || !trailerFrameRef.current || !yt?.Player) return;
+      player = new yt.Player(trailerFrameRef.current, {
+        events: {
+          onStateChange: (event) => {
+            if (Number(event?.data) === Number(yt.PlayerState?.ENDED ?? 0)) {
+              onTrailerEnded?.(game?.id);
+            }
+          }
+        }
+      });
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('message', handleMessage);
+      try {
+        player?.destroy?.();
+      } catch {
+        // The iframe can already be gone during fast game switches.
+      }
+    };
+  }, [game?.id, onTrailerEnded, shouldShowTrailer]);
+
+  const handleTrailerLoad = () => {
+    try {
+      trailerFrameRef.current?.contentWindow?.postMessage(JSON.stringify({
+        event: 'listening',
+        id: `nexus-trailer-${game?.id || 'selected'}`
+      }), '*');
+    } catch {
+      // YouTube embeds can reject messaging during navigation; playback still works.
+    }
+  };
+
+  if (!game) return null;
 
   const handleLaunchClick = () => {
     audioEngine.playClickPulse();
@@ -463,7 +562,7 @@ export default function GameMainBanner({
   ];
 
   return (
-    <div className="game-main-banner-container" ref={bannerRef}>
+    <div className={`game-main-banner-container ${shouldShowTrailer ? 'trailer-active' : ''}`} ref={bannerRef}>
       {/* Background Dissolve Backdrop Canvas */}
       <div className="backdrop-image-mask">
           {game.bannerUrl ? (
@@ -481,6 +580,21 @@ export default function GameMainBanner({
             </div>
           )}
         <div className="backdrop-overlay-vignette" />
+      </div>
+
+      <div className={`banner-trailer-layer ${shouldShowTrailer ? 'is-visible' : ''}`}>
+        {shouldShowTrailer && (
+          <iframe
+            ref={trailerFrameRef}
+            key={`${game.id}-${trailerPlayback.videoId || trailerPlayback.embedUrl}`}
+            className="banner-trailer-frame"
+            src={trailerUrl}
+            title={trailerPlayback.title || `${game.title} trailer`}
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+            onLoad={handleTrailerLoad}
+          />
+        )}
       </div>
 
       {/* Floating Info Overlay Sheet */}
@@ -616,7 +730,7 @@ export default function GameMainBanner({
           top: `${activeLayout.topPercent}%`,
           width: `${activeLayout.width}px`,
           height: `${activeLayout.height}px`,
-          transition: (isDragging || isResizing) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease',
+          transition: (isDragging || isResizing) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface)',
           zIndex: 50,
           pointerEvents: 'auto'
         }}
@@ -703,6 +817,13 @@ export default function GameMainBanner({
           pointer-events: none;
         }
 
+        .game-main-banner-container.trailer-active .banner-content-box,
+        .game-main-banner-container.trailer-active .banner-title-container {
+          opacity: 0;
+          transform: translateY(16px) scale(0.985);
+          pointer-events: none !important;
+        }
+
         .backdrop-image-mask {
           position: absolute;
           top: 0;
@@ -773,6 +894,39 @@ export default function GameMainBanner({
           z-index: 2;
         }
 
+        .banner-trailer-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 8;
+          opacity: 0;
+          transform: scale(1.015);
+          pointer-events: none;
+          transition: opacity 900ms var(--ease-interface), transform 900ms var(--ease-interface);
+          background: #07070a;
+        }
+
+        .banner-trailer-layer.is-visible {
+          opacity: 1;
+          transform: scale(1);
+          pointer-events: auto;
+        }
+
+        .banner-trailer-layer::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          box-shadow: inset 0 -160px 160px rgba(7, 7, 10, 0.52), inset 0 0 120px rgba(0, 0, 0, 0.42);
+        }
+
+        .banner-trailer-frame {
+          width: 100%;
+          height: calc(100% + 180px);
+          border: 0;
+          display: block;
+          background: #07070a;
+        }
+
         .banner-content-box {
           position: relative;
           z-index: 10;
@@ -784,6 +938,7 @@ export default function GameMainBanner({
           justify-content: flex-end;
           pointer-events: auto;
           overflow: hidden;
+          transition: opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface);
         }
 
         .banner-transition-item {
@@ -880,6 +1035,7 @@ export default function GameMainBanner({
           box-sizing: border-box;
           border-radius: 8px;
           isolation: isolate;
+          transition: opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface);
         }
 
         .banner-title-container::before {

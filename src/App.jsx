@@ -19,7 +19,7 @@ import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
 import { fetchCheapSharkBestDeals } from './utils/cheapshark';
 import { fetchItadBestDeals } from './utils/itad';
-import { fetchIgdbGameDetailsBrowser, fetchIgdbPopularGamesBrowser, fetchIgdbScreenshotsBrowser, searchIgdbGamesBrowser } from './utils/igdb';
+import { fetchIgdbGameDetailsBrowser, fetchIgdbGameTrailerBrowser, fetchIgdbPopularGamesBrowser, fetchIgdbScreenshotsBrowser, searchIgdbGamesBrowser } from './utils/igdb';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   particleSpeed: 1.0,
   trackSystemStatus: true,
   bannerAnimation: true,
+  libraryTrailerAutoplay: true,
   fontScale: 1.0,
   studioLogosEnabled: false,
   brandfetchClientId: ''
@@ -254,6 +255,8 @@ export default function App() {
   const storeDetailCacheRef = useRef({});
   const storeDetailInFlightRef = useRef(new Map());
   const gamesRef = useRef([]);
+  const libraryTrailerVisitRef = useRef({ gameId: null, consumed: false });
+  const libraryTrailerRequestRef = useRef(0);
 
   const addDiagnostic = (area, level, message, details = null) => {
     setDiagnostics(prev => [{
@@ -465,6 +468,13 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const settingsLoadedRef = useRef(false);
   const [cacheVersion, setCacheVersion] = useState(0);
+  const [libraryTrailerPlayback, setLibraryTrailerPlayback] = useState({
+    gameId: null,
+    embedUrl: null,
+    videoId: null,
+    title: null,
+    visible: false
+  });
 
   // --- 1. Load Local Database or Fallback to Defaults ---
   useEffect(() => {
@@ -1184,6 +1194,29 @@ export default function App() {
     }
   };
 
+  const cacheLibraryTrailerForGame = useCallback(async (gameId, trailerPatch) => {
+    const currentGames = gamesRef.current;
+    const updatedList = currentGames.map(game => (
+      game.id === gameId
+        ? {
+            ...game,
+            ...trailerPatch,
+            trailerFetchedAt: new Date().toISOString()
+          }
+        : game
+    ));
+
+    setGames(updatedList);
+    gamesRef.current = updatedList;
+    setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || prev);
+
+    if (window.electronAPI) {
+      await window.electronAPI.saveDatabase(updatedList);
+    } else {
+      localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+    }
+  }, []);
+
   const handleImportSuggestionSearch = useCallback(async (term) => {
     const results = window.electronAPI?.searchIgdbGames
       ? await window.electronAPI.searchIgdbGames(term)
@@ -1705,6 +1738,136 @@ export default function App() {
   const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode || !!currentImportFile;
   const primaryViews = ['store', 'library', 'favourites'];
 
+  useEffect(() => {
+    const gameId = selectedGame?.id || null;
+
+    if (libraryTrailerVisitRef.current.gameId !== gameId) {
+      libraryTrailerVisitRef.current = { gameId, consumed: false };
+      setLibraryTrailerPlayback({
+        gameId,
+        embedUrl: null,
+        videoId: null,
+        title: null,
+        visible: false
+      });
+    }
+
+    const canArmTrailer = Boolean(
+      settings.libraryTrailerAutoplay &&
+      gameId &&
+      activeView === 'library' &&
+      !hasBlockingOverlay &&
+      !isCcOpen &&
+      !libraryTrailerPlayback.visible
+    );
+    const shouldHideTrailer = activeView !== 'library' ||
+      !settings.libraryTrailerAutoplay ||
+      hasBlockingOverlay ||
+      isCcOpen;
+
+    if (!canArmTrailer || libraryTrailerVisitRef.current.consumed) {
+      if (shouldHideTrailer) {
+        setLibraryTrailerPlayback(prev => prev.visible ? { ...prev, visible: false } : prev);
+      }
+      return undefined;
+    }
+
+    const requestId = libraryTrailerRequestRef.current + 1;
+    libraryTrailerRequestRef.current = requestId;
+
+    const timer = setTimeout(async () => {
+      if (
+        libraryTrailerRequestRef.current !== requestId ||
+        libraryTrailerVisitRef.current.gameId !== gameId ||
+        libraryTrailerVisitRef.current.consumed
+      ) {
+        return;
+      }
+
+      const currentGame = gamesRef.current.find(game => game.id === gameId);
+      if (!currentGame) return;
+
+      let trailer = currentGame.trailerEmbedUrl
+        ? {
+            embedUrl: currentGame.trailerEmbedUrl,
+            videoId: currentGame.trailerVideoId || null,
+            name: currentGame.trailerName || `${currentGame.title} trailer`
+          }
+        : null;
+
+      if (!trailer && currentGame.trailerLookupStatus !== 'missing') {
+        try {
+          const result = window.electronAPI?.fetchIgdbGameTrailer
+            ? await window.electronAPI.fetchIgdbGameTrailer(currentGame)
+            : await fetchIgdbGameTrailerBrowser(currentGame);
+
+          if (result?.error) {
+            throw new Error(result.error);
+          }
+
+          if (result?.embedUrl && result?.videoId) {
+            trailer = result;
+            await cacheLibraryTrailerForGame(gameId, {
+              trailerVideoId: result.videoId,
+              trailerEmbedUrl: result.embedUrl,
+              trailerName: result.name || `${currentGame.title} trailer`,
+              trailerIgdbId: result.igdbId || currentGame.igdbId || null,
+              trailerLookupStatus: 'ready',
+              trailerSource: 'igdb-youtube'
+            });
+          } else {
+            libraryTrailerVisitRef.current.consumed = true;
+            if (!window.electronAPI?.fetchIgdbGameTrailer) {
+              addDiagnostic('Discovery', 'warn', `No IGDB trailer video found for ${currentGame.title}`);
+            }
+            await cacheLibraryTrailerForGame(gameId, {
+              trailerLookupStatus: 'missing',
+              trailerVideoId: null,
+              trailerEmbedUrl: null,
+              trailerName: null,
+              trailerIgdbId: currentGame.igdbId || null,
+              trailerSource: 'igdb-youtube'
+            });
+            return;
+          }
+        } catch (error) {
+          addDiagnostic('Discovery', 'warn', `Trailer lookup skipped ${currentGame.title}: ${error.message}`);
+          return;
+        }
+      }
+
+      if (!trailer?.embedUrl || libraryTrailerVisitRef.current.consumed) return;
+
+      setLibraryTrailerPlayback({
+        gameId,
+        embedUrl: trailer.embedUrl,
+        videoId: trailer.videoId || null,
+        title: trailer.name || `${currentGame.title} trailer`,
+        visible: true
+      });
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeView,
+    cacheLibraryTrailerForGame,
+    hasBlockingOverlay,
+    isCcOpen,
+    libraryTrailerPlayback.visible,
+    selectedGame?.id,
+    settings.libraryTrailerAutoplay
+  ]);
+
+  const handleLibraryTrailerEnded = useCallback((gameId) => {
+    if (libraryTrailerVisitRef.current.gameId === gameId) {
+      libraryTrailerVisitRef.current.consumed = true;
+    }
+
+    setLibraryTrailerPlayback(prev => (
+      prev.gameId === gameId ? { ...prev, visible: false } : prev
+    ));
+  }, []);
+
   const handleControllerBack = () => {
     if (currentImportFile) {
       if (isImportProcessing) return true;
@@ -1838,6 +2001,8 @@ export default function App() {
               onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
               bannerAnimation={settings.bannerAnimation}
+              trailerPlayback={libraryTrailerPlayback}
+              onTrailerEnded={handleLibraryTrailerEnded}
               studioLogosEnabled={settings.studioLogosEnabled}
               brandfetchClientId={settings.brandfetchClientId}
               brandfetchCacheVersion={cacheVersion}

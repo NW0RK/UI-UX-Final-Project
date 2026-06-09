@@ -632,6 +632,22 @@ function normalizeIgdbScreenshots(results = []) {
     .filter(Boolean);
 }
 
+function normalizeIgdbTrailer(results = [], igdbId = null) {
+  const videos = Array.isArray(results) ? results : [];
+  const selected = videos.find(video => /trailer/i.test(video?.name || '')) || videos[0];
+  const videoId = String(selected?.video_id || '').trim();
+
+  if (!/^[a-zA-Z0-9_-]{6,}$/.test(videoId)) return null;
+
+  return {
+    igdbId: igdbId ? String(igdbId) : null,
+    videoId,
+    embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}`,
+    name: selected?.name || 'Trailer',
+    source: 'igdb-youtube'
+  };
+}
+
 async function fetchIgdbScreenshots(game) {
   let igdbId = String(game?.igdbId || '').trim();
 
@@ -662,6 +678,25 @@ async function fetchIgdbGameDetails(igdbId) {
   ].join(' '));
 
   return normalizeIgdbGame(Array.isArray(data) ? data[0] : null, { includeDescription: true });
+}
+
+async function fetchIgdbGameTrailer(game) {
+  let igdbId = String(game?.igdbId || '').trim();
+
+  if (!igdbId && game?.title) {
+    const matches = await searchIgdbGames(game.title, { pageSize: 1 });
+    igdbId = matches[0]?.igdbId || '';
+  }
+
+  if (!igdbId) return null;
+
+  const data = await igdbFetchJson('game_videos', [
+    'fields name,video_id,game;',
+    `where game = ${Number(igdbId)};`,
+    'limit 10;'
+  ].join(' '));
+
+  return normalizeIgdbTrailer(data, igdbId);
 }
 
 async function steamgriddbFetch(endpoint) {
@@ -1555,6 +1590,19 @@ ipcMain.handle('igdb-fetch-game-details', async (event, igdbId) => {
     return await fetchIgdbGameDetails(igdbId);
   } catch (err) {
     emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${igdbId}: ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('igdb-fetch-game-trailer', async (event, game) => {
+  try {
+    const trailer = await fetchIgdbGameTrailer(game);
+    emitDiagnostic('Discovery', trailer ? 'info' : 'warn', trailer
+      ? `Trailer lookup for "${game?.title || game?.igdbId || 'unknown'}" matched YouTube video ${trailer.videoId}`
+      : `No IGDB trailer video found for "${game?.title || game?.igdbId || 'unknown'}"`);
+    return trailer;
+  } catch (err) {
+    emitDiagnostic('Discovery', 'error', `Trailer lookup failed for "${game?.title || game?.igdbId || 'unknown'}": ${err.message}`);
     return { error: err.message };
   }
 });

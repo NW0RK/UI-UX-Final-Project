@@ -154,6 +154,22 @@ export function normalizeIgdbScreenshots(results = []) {
     .filter(Boolean);
 }
 
+function normalizeIgdbTrailer(results = [], igdbId = null) {
+  const videos = Array.isArray(results) ? results : [];
+  const selected = videos.find(video => /trailer/i.test(video?.name || '')) || videos[0];
+  const videoId = String(selected?.video_id || '').trim();
+
+  if (!/^[a-zA-Z0-9_-]{6,}$/.test(videoId)) return null;
+
+  return {
+    igdbId: igdbId ? String(igdbId) : null,
+    videoId,
+    embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}`,
+    name: selected?.name || 'Trailer',
+    source: 'igdb-youtube'
+  };
+}
+
 function buildPopScoreRecords(primitivesByType = [], limit = 12) {
   const recordLimit = Math.min(Math.max(Number(limit) || 12, 1), 40);
   const scoreByGameId = new Map();
@@ -315,4 +331,23 @@ export async function fetchIgdbScreenshotsBrowser(game) {
   ].join(' '));
 
   return normalizeIgdbScreenshots(Array.isArray(data) ? data : []);
+}
+
+export async function fetchIgdbGameTrailerBrowser(game) {
+  let igdbId = String(game?.igdbId || '').trim();
+
+  if (!igdbId && game?.title) {
+    const matches = await searchIgdbGamesBrowser(game.title, { pageSize: 1 });
+    igdbId = matches[0]?.igdbId || '';
+  }
+
+  if (!igdbId) return null;
+
+  const data = await igdbProxyFetch('game_videos', [
+    'fields name,video_id,game;',
+    `where game = ${Number(igdbId)};`,
+    'limit 10;'
+  ].join(' '));
+
+  return normalizeIgdbTrailer(data, igdbId);
 }

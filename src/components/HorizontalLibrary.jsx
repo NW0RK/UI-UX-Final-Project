@@ -118,21 +118,22 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
 
   return (
     <div 
-      className={`store-card ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
+      className={`library-card ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
       role="button"
       tabIndex={0}
       aria-selected={isSelected}
+      data-controller-item="true"
       data-controller-confirm-label={`Select ${game.title}`}
       data-controller-selected={isSelected ? 'true' : undefined}
       onClick={onClick}
       onFocus={onFocus}
       onMouseEnter={audioEngine.playHoverTick}
     >
-      <div className="store-card-image-wrapper">
+      <div className="library-card-image-wrapper">
         {game.coverUrl ? (
-          <img src={game.coverUrl} alt={game.title} className="store-card-image" loading="lazy" />
+          <img src={game.coverUrl} alt={game.title} className="library-card-image" loading="lazy" />
         ) : (
-          <div className="store-card-image store-card-image-placeholder">
+          <div className="library-card-image library-card-image-placeholder">
             <span>{game.title}</span>
           </div>
         )}
@@ -150,7 +151,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           </div>
         )}
 
-        <div className="store-card-hover">
+        <div className="library-card-hover">
           <button
             className={`quick-play-button ${isRunning ? 'running-btn' : ''}`}
             onClick={handleLaunchClick}
@@ -161,13 +162,16 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
         </div>
       </div>
 
-      <div className="store-card-info">
-        <div className="store-card-title">{game.title}</div>
+      <div className="library-card-info">
+        <div className="library-card-title">{game.title}</div>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
-        .store-card {
+        .library-card {
           flex: 0 0 210px;
+          width: 210px;
+          min-width: 210px;
+          max-width: 210px;
           background: transparent;
           border: none;
           cursor: pointer;
@@ -177,7 +181,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           gap: 6px;
         }
 
-        .store-card-image-wrapper {
+        .library-card-image-wrapper {
           position: relative;
           width: 100%;
           aspect-ratio: 2 / 3;
@@ -193,30 +197,30 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
         }
 
         /* Hovering over inactive card */
-        .store-card:not(.selected):hover .store-card-image-wrapper {
+        .library-card:not(.selected):hover .library-card-image-wrapper {
           opacity: 0.85;
           transform: translateY(-4px);
           border-color: rgba(255, 255, 255, 0.2);
         }
 
         /* Active Selected Card styling matching Favourites page */
-        .store-card.selected .store-card-image-wrapper {
+        .library-card.selected .library-card-image-wrapper {
           border: 2px solid var(--accent-color);
           box-shadow: 0px 0px 25px rgba(var(--accent-color-rgb), 0.25);
           border-radius: 32px;
           opacity: 1;
         }
 
-        .store-card.selected:hover .store-card-image-wrapper {
+        .library-card.selected:hover .library-card-image-wrapper {
           transform: translateY(-4px);
         }
 
-        .store-card.running .store-card-image-wrapper {
+        .library-card.running .library-card-image-wrapper {
           border-color: rgba(239, 68, 68, 0.6);
           box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
         }
 
-        .store-card-image {
+        .library-card-image {
           width: 100%;
           height: 100%;
           object-fit: cover;
@@ -225,21 +229,22 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
         }
 
         /* Grayscale for inactive cover images matching Favourites page */
-        .store-card:not(.selected) .store-card-image {
+        .library-card:not(.selected) .library-card-image {
           filter: grayscale(100%) brightness(0.5) contrast(1.1);
         }
 
-        .store-card:not(.selected):hover .store-card-image {
+        .library-card:not(.selected):hover .library-card-image {
           filter: grayscale(40%) brightness(0.7) contrast(1.05);
         }
 
-        .store-card.selected .store-card-image {
+        .library-card.selected .library-card-image {
           filter: none;
         }
 
-        .store-card-image-placeholder {
+        .library-card-image-placeholder {
           width: 100%;
           height: 100%;
+          box-sizing: border-box;
           border-radius: inherit;
           display: flex;
           align-items: center;
@@ -256,16 +261,26 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           color: rgba(255, 255, 255, 0.7);
         }
 
-        .store-card.selected .store-card-image-placeholder {
+        .library-card-image-placeholder span {
+          display: -webkit-box;
+          max-width: 100%;
+          max-height: 7.6em;
+          overflow: hidden;
+          overflow-wrap: anywhere;
+          -webkit-line-clamp: 5;
+          -webkit-box-orient: vertical;
+        }
+
+        .library-card.selected .library-card-image-placeholder {
           background: linear-gradient(135deg, rgba(var(--accent-color-rgb), 0.15) 0%, #0f172a 100%);
           color: #fff;
         }
 
-        .store-card:hover .store-card-image {
+        .library-card:hover .library-card-image {
           transform: scale(1.06);
         }
 
-        .store-card-hover {
+        .library-card-hover {
           position: absolute;
           top: 0;
           left: 0;
@@ -282,11 +297,13 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           border-radius: inherit;
         }
 
-        .store-card:hover .store-card-hover {
+        .library-card:hover .library-card-hover,
+        .library-card:focus .library-card-hover,
+        .library-card:focus-within .library-card-hover {
           opacity: 1;
         }
 
-        .store-card-info {
+        .library-card-info {
           padding: 14px;
           display: flex;
           flex-direction: column;
@@ -295,7 +312,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           min-width: 0;
         }
 
-        .store-card-title {
+        .library-card-title {
           font-family: var(--font-sans);
           font-weight: 700;
           font-size: var(--fs-13);
@@ -371,7 +388,9 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           transform: translateY(10px);
         }
 
-        .store-card:hover .quick-play-button {
+        .library-card:hover .quick-play-button,
+        .library-card:focus .quick-play-button,
+        .library-card:focus-within .quick-play-button {
           transform: translateY(0);
         }
 

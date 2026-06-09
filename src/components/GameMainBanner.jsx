@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Star, Flame, Clock, Hourglass, Move, Sparkles } from 'lucide-react';
+import { Play, Star, Flame, Clock, Hourglass, Move, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { analyzeBannerTitlePlacement, normalizeBannerLayout } from '../utils/bannerPlacement';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
@@ -42,6 +42,7 @@ export default function GameMainBanner({
   isRunning,
   bannerAnimation = true,
   trailerPlayback = null,
+  trailerMutedByDefault = false,
   onTrailerEnded,
   studioLogosEnabled = false,
   brandfetchClientId = '',
@@ -64,12 +65,16 @@ export default function GameMainBanner({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [autoPlacementStatus, setAutoPlacementStatus] = useState('idle');
+  const [isTrailerMuted, setIsTrailerMuted] = useState(Boolean(trailerMutedByDefault));
+  const [isTrailerCurtainLifted, setIsTrailerCurtainLifted] = useState(false);
 
   const bannerRef = useRef(null);
   const backdropImgRef = useRef(null);
   const contentRef = useRef(null);
   const titleRef = useRef(null);
   const trailerFrameRef = useRef(null);
+  const trailerPlayerRef = useRef(null);
+  const isTrailerMutedRef = useRef(Boolean(trailerMutedByDefault));
   const autoPlacementGameRef = useRef(null);
   
   // Keep a ref of the layout to avoid stale closure state in mouse event handlers
@@ -217,8 +222,52 @@ export default function GameMainBanner({
   );
   const trailerOrigin = typeof window !== 'undefined' ? window.location.origin : '';
   const trailerUrl = shouldShowTrailer
-    ? `${trailerPlayback.embedUrl}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${trailerOrigin ? `&origin=${encodeURIComponent(trailerOrigin)}` : ''}`
+    ? `${trailerPlayback.embedUrl}?autoplay=1&mute=${trailerMutedByDefault ? '1' : '0'}&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&enablejsapi=1${trailerOrigin ? `&origin=${encodeURIComponent(trailerOrigin)}` : ''}`
     : null;
+
+  useEffect(() => {
+    setIsTrailerMuted(Boolean(trailerMutedByDefault));
+    setIsTrailerCurtainLifted(false);
+  }, [trailerMutedByDefault, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
+
+  useEffect(() => {
+    isTrailerMutedRef.current = isTrailerMuted;
+  }, [isTrailerMuted]);
+
+  const sendTrailerAudioCommand = useCallback((muted) => {
+    const player = trailerPlayerRef.current;
+    try {
+      if (muted) {
+        player?.mute?.();
+      } else {
+        player?.unMute?.();
+        player?.setVolume?.(80);
+      }
+    } catch {
+      // Fall through to iframe commands below.
+    }
+
+    const frameWindow = trailerFrameRef.current?.contentWindow;
+    if (!frameWindow) return;
+
+    try {
+      frameWindow.postMessage(JSON.stringify({
+        event: 'command',
+        func: muted ? 'mute' : 'unMute',
+        args: []
+      }), 'https://www.youtube.com');
+
+      if (!muted) {
+        frameWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: 'setVolume',
+          args: [80]
+        }), 'https://www.youtube.com');
+      }
+    } catch {
+      // The iframe can ignore commands while it is still loading.
+    }
+  }, []);
 
   useEffect(() => {
     if (!shouldShowTrailer) return undefined;
@@ -238,8 +287,10 @@ export default function GameMainBanner({
         }
       }
 
-      if (data?.event === 'onStateChange' && Number(data?.info) === 0) {
-        onTrailerEnded?.(game?.id);
+      if (data?.event === 'onStateChange') {
+        if (Number(data?.info) === 0) {
+          onTrailerEnded?.(game?.id);
+        }
       }
     };
 
@@ -248,6 +299,10 @@ export default function GameMainBanner({
       if (cancelled || !trailerFrameRef.current || !yt?.Player) return;
       player = new yt.Player(trailerFrameRef.current, {
         events: {
+          onReady: (event) => {
+            trailerPlayerRef.current = event.target;
+            sendTrailerAudioCommand(isTrailerMutedRef.current);
+          },
           onStateChange: (event) => {
             if (Number(event?.data) === Number(yt.PlayerState?.ENDED ?? 0)) {
               onTrailerEnded?.(game?.id);
@@ -265,8 +320,30 @@ export default function GameMainBanner({
       } catch {
         // The iframe can already be gone during fast game switches.
       }
+      if (trailerPlayerRef.current === player) {
+        trailerPlayerRef.current = null;
+      }
     };
-  }, [game?.id, onTrailerEnded, shouldShowTrailer]);
+  }, [game?.id, onTrailerEnded, sendTrailerAudioCommand, shouldShowTrailer]);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) return;
+    sendTrailerAudioCommand(isTrailerMuted);
+  }, [isTrailerMuted, sendTrailerAudioCommand, shouldShowTrailer]);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) {
+      setIsTrailerCurtainLifted(false);
+      return undefined;
+    }
+
+    setIsTrailerCurtainLifted(false);
+    const timer = setTimeout(() => {
+      setIsTrailerCurtainLifted(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [shouldShowTrailer, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
 
   const handleTrailerLoad = () => {
     try {
@@ -274,9 +351,15 @@ export default function GameMainBanner({
         event: 'listening',
         id: `nexus-trailer-${game?.id || 'selected'}`
       }), '*');
+      sendTrailerAudioCommand(isTrailerMutedRef.current);
     } catch {
       // YouTube embeds can reject messaging during navigation; playback still works.
     }
+  };
+
+  const handleTrailerMuteToggle = () => {
+    audioEngine.playClickPulse();
+    setIsTrailerMuted(prev => !prev);
   };
 
   if (!game) return null;
@@ -584,16 +667,34 @@ export default function GameMainBanner({
 
       <div className={`banner-trailer-layer ${shouldShowTrailer ? 'is-visible' : ''}`}>
         {shouldShowTrailer && (
-          <iframe
-            ref={trailerFrameRef}
-            key={`${game.id}-${trailerPlayback.videoId || trailerPlayback.embedUrl}`}
-            className="banner-trailer-frame"
-            src={trailerUrl}
-            title={trailerPlayback.title || `${game.title} trailer`}
-            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-            allowFullScreen
-            onLoad={handleTrailerLoad}
-          />
+          <>
+            <div className="banner-trailer-stage">
+              <iframe
+                ref={trailerFrameRef}
+                key={`${game.id}-${trailerPlayback.videoId || trailerPlayback.embedUrl}`}
+                className="banner-trailer-frame"
+                src={trailerUrl}
+                title={trailerPlayback.title || `${game.title} trailer`}
+                allow="autoplay; encrypted-media"
+                onLoad={handleTrailerLoad}
+              />
+            </div>
+            <div className="banner-trailer-native-chrome">
+              <span className={`trailer-status-dot ${isTrailerMuted ? 'is-muted' : ''}`} />
+              <button
+                type="button"
+                className="trailer-audio-toggle"
+                onClick={handleTrailerMuteToggle}
+                onMouseEnter={audioEngine.playHoverTick}
+                aria-label={isTrailerMuted ? 'Unmute trailer' : 'Mute trailer'}
+                title={isTrailerMuted ? 'Unmute trailer' : 'Mute trailer'}
+              >
+                {isTrailerMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+              </button>
+            </div>
+            <div className="banner-trailer-scanline" />
+            <div className={`banner-trailer-start-veil ${isTrailerCurtainLifted ? 'is-ready' : ''}`} />
+          </>
         )}
       </div>
 
@@ -903,6 +1004,7 @@ export default function GameMainBanner({
           pointer-events: none;
           transition: opacity 900ms var(--ease-interface), transform 900ms var(--ease-interface);
           background: #07070a;
+          overflow: hidden;
         }
 
         .banner-trailer-layer.is-visible {
@@ -916,15 +1018,124 @@ export default function GameMainBanner({
           position: absolute;
           inset: 0;
           pointer-events: none;
-          box-shadow: inset 0 -160px 160px rgba(7, 7, 10, 0.52), inset 0 0 120px rgba(0, 0, 0, 0.42);
+          background:
+            radial-gradient(ellipse at 50% 35%, rgba(255, 255, 255, 0.02) 0%, rgba(7, 7, 10, 0) 42%, rgba(7, 7, 10, 0.62) 100%),
+            linear-gradient(90deg, rgba(7, 7, 10, 0.72) 0%, rgba(7, 7, 10, 0.02) 28%, rgba(7, 7, 10, 0.04) 66%, rgba(7, 7, 10, 0.74) 100%),
+            linear-gradient(0deg, rgba(7, 7, 10, 0.88) 0%, rgba(7, 7, 10, 0.06) 36%, rgba(7, 7, 10, 0.32) 100%);
+          box-shadow: inset 0 -180px 180px rgba(7, 7, 10, 0.66), inset 0 0 140px rgba(0, 0, 0, 0.46);
+        }
+
+        .banner-trailer-start-veil {
+          position: absolute;
+          inset: 0;
+          z-index: 2;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse at 50% 40%, rgba(var(--accent-color-rgb), 0.12) 0%, rgba(7, 7, 10, 0.72) 42%, rgba(7, 7, 10, 0.94) 100%),
+            linear-gradient(0deg, rgba(7, 7, 10, 0.98), rgba(7, 7, 10, 0.74));
+          opacity: 1;
+          transition: opacity 520ms var(--ease-interface);
+        }
+
+        .banner-trailer-start-veil.is-ready {
+          opacity: 0;
+        }
+
+        .banner-trailer-stage {
+          position: absolute;
+          inset: -88px -80px -88px;
+          overflow: hidden;
         }
 
         .banner-trailer-frame {
-          width: 100%;
-          height: calc(100% + 180px);
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 100vw;
+          height: 56.25vw;
+          min-width: 100%;
+          min-height: 100%;
           border: 0;
           display: block;
           background: #07070a;
+          pointer-events: none;
+          transform: translate(-50%, -50%) scale(1.18);
+          filter: saturate(1.08) contrast(1.04) brightness(0.86);
+        }
+
+        .banner-trailer-native-chrome {
+          position: absolute;
+          left: 60px;
+          bottom: 42px;
+          z-index: 3;
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          min-width: 92px;
+          height: 44px;
+          padding: 0 10px 0 14px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 10px;
+          background: rgba(7, 7, 10, 0.58);
+          color: rgba(255, 255, 255, 0.78);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          box-shadow: 0 16px 42px rgba(0, 0, 0, 0.28);
+          pointer-events: auto;
+        }
+
+        .trailer-status-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          background: var(--accent-color);
+          box-shadow: 0 0 14px rgba(var(--accent-color-rgb), 0.95);
+          transition: background var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast);
+        }
+
+        .trailer-status-dot.is-muted {
+          background: rgba(255, 255, 255, 0.16);
+          box-shadow: none;
+          opacity: 0.45;
+        }
+
+        .trailer-audio-toggle {
+          width: 48px;
+          height: 36px;
+          border: 0;
+          border-left: 1px solid rgba(255, 255, 255, 0.08);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.78);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 0 0 10px;
+          cursor: pointer;
+          transition: color var(--transition-fast), transform var(--transition-fast), background var(--transition-fast);
+        }
+
+        .trailer-audio-toggle svg {
+          width: 23px;
+          height: 23px;
+          stroke-width: 2.25;
+        }
+
+        .trailer-audio-toggle:hover,
+        .trailer-audio-toggle:focus-visible {
+          color: var(--accent-color);
+          outline: none;
+        }
+
+        .banner-trailer-scanline {
+          position: absolute;
+          left: 60px;
+          right: 60px;
+          bottom: 28px;
+          z-index: 3;
+          height: 1px;
+          background: linear-gradient(90deg, rgba(var(--accent-color-rgb), 0.62), rgba(255, 255, 255, 0.14), transparent);
+          opacity: 0.72;
+          pointer-events: none;
         }
 
         .banner-content-box {

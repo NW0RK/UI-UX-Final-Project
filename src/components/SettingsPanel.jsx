@@ -71,6 +71,11 @@ export default function SettingsPanel({
     onUpdateSettings({ ...settings, libraryTrailerAutoplay: !settings.libraryTrailerAutoplay });
   };
 
+  const handleLibraryTrailerMutedDefaultToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, libraryTrailerMutedByDefault: !settings.libraryTrailerMutedByDefault });
+  };
+
   const handleStudioLogosToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, studioLogosEnabled: !settings.studioLogosEnabled });
@@ -382,6 +387,30 @@ export default function SettingsPanel({
               </div>
               <div className="audio-card-right">
                 <div className={`checkbox-toggle-switch ${settings.libraryTrailerAutoplay ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={!settings.libraryTrailerMutedByDefault}
+              onClick={handleLibraryTrailerMutedDefaultToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                {settings.libraryTrailerMutedByDefault
+                  ? <VolumeX size={20} className="mute-status-icon muted" />
+                  : <Volume2 size={20} className="mute-status-icon active-volume" />}
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Trailer Audio</span>
+                  <span className="audio-card-desc">{settings.libraryTrailerMutedByDefault ? 'Trailer previews start muted.' : 'Trailer previews start with audio on.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.libraryTrailerMutedByDefault ? 'sw-muted' : 'sw-active'}`}>
                   <div className="switch-knob" />
                 </div>
               </div>

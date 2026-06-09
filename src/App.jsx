@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = {
   trackSystemStatus: true,
   bannerAnimation: true,
   libraryTrailerAutoplay: true,
+  libraryTrailerMutedByDefault: false,
   fontScale: 1.0,
   studioLogosEnabled: false,
   brandfetchClientId: ''
@@ -2002,6 +2003,7 @@ export default function App() {
               isRunning={runningGameId === selectedGame?.id}
               bannerAnimation={settings.bannerAnimation}
               trailerPlayback={libraryTrailerPlayback}
+              trailerMutedByDefault={settings.libraryTrailerMutedByDefault}
               onTrailerEnded={handleLibraryTrailerEnded}
               studioLogosEnabled={settings.studioLogosEnabled}
               brandfetchClientId={settings.brandfetchClientId}

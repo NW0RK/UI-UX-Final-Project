@@ -142,7 +142,7 @@ Persistence locations:
 | Data | Desktop persistence | Browser fallback |
 | --- | --- | --- |
 | Game database | Electron user data `nexus-db.json`; legacy path copied if present. | `localStorage` key `nexus_games_cache`. |
-| Settings | Electron user data `nexus-config.json`, under `settings`. | `localStorage` key `nexus_settings`. |
+| Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options and Library trailer autoplay/default-audio preferences. | `localStorage` key `nexus_settings`. |
 | SteamGridDB API key | Electron user data `nexus-config.json`, or `STEAMGRIDDB_API_KEY` env var. | Not used by most desktop-only fetch paths. |
 | IGDB credentials | Electron user data `nexus-config.json`, or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` can use `.env.local` credentials through the Vite IGDB proxy. |
 | Profile | `localStorage` keys `nexus_username`, `nexus_user_avatar`. | Same. |

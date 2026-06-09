@@ -273,7 +273,7 @@ export async function searchIgdbGamesBrowser(term, { pageSize = 36 } = {}) {
     `limit ${limit};`
   ].join(' '));
 
-  const allowedCategories = [0, 4, 8, 9, 10, 11];
+  const allowedCategories = [0, 8, 9];
   const sortedRaw = (Array.isArray(data) ? data : [])
     .filter(item => item.category === undefined || allowedCategories.includes(item.category))
     .sort((a, b) => {

@@ -47,14 +47,6 @@ export default function SearchResultsPage({
     }
   };
 
-  const renderSourceBadge = (item) => {
-    if (item.resultType === 'library') return <span className="search-source-chip owned">Library</span>;
-    if (item.source === 'igdb') {
-      return <span className="search-source-chip">Discovery</span>;
-    }
-    return <span className="search-source-chip">Store</span>;
-  };
-
   return (
     <div className="search-results-viewport">
       <div className="search-results-header">
@@ -105,9 +97,17 @@ export default function SearchResultsPage({
                       Owned
                     </div>
                   )}
+                  {item.resultType === 'library' && (
+                    <button
+                      type="button"
+                      className="search-launch-btn-overlay"
+                      onClick={(event) => handleLaunchClick(event, item)}
+                    >
+                      Play Now
+                    </button>
+                  )}
                 </div>
                 <div className="search-result-body">
-                  <div className="search-card-topline">{renderSourceBadge(item)}</div>
                   <h2>{item.title}</h2>
                   <p>{item.developer || 'Unknown Developer'}</p>
                   <div className="search-result-meta">
@@ -116,18 +116,8 @@ export default function SearchResultsPage({
                     {item.ageRating && <span>{item.ageRating}</span>}
                   </div>
                   <div className="search-result-rating">
-                    <span>{item.source === 'igdb' ? 'IGDB Rating' : 'Rating'}</span>
                     <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
                   </div>
-                  {item.resultType === 'library' && (
-                    <button
-                      type="button"
-                      className="search-launch-btn"
-                      onClick={(event) => handleLaunchClick(event, item)}
-                    >
-                      Play
-                    </button>
-                  )}
                 </div>
               </div>
             );
@@ -185,112 +175,117 @@ export default function SearchResultsPage({
 
         .search-results-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-          gap: 18px;
+          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          gap: 24px;
         }
 
         .search-result-card {
-          min-width: 0;
-          display: grid;
-          grid-template-columns: 92px minmax(0, 1fr);
-          gap: 14px;
-          padding: 10px;
-          border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          background: rgba(255, 255, 255, 0.025);
+          display: flex;
+          flex-direction: column;
+          position: relative;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          background: rgba(255, 255, 255, 0.02);
+          overflow: hidden;
           cursor: pointer;
-          transition: all var(--transition-fast);
+          transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
 
         .search-result-card:hover,
         .search-result-card:focus-visible {
-          transform: translateY(-3px);
-          border-color: rgba(var(--accent-color-rgb), 0.28);
-          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.42), 0 0 20px rgba(var(--accent-color-rgb), 0.08);
-          background: rgba(var(--accent-color-rgb), 0.035);
+          transform: translateY(-6px);
+          border-color: rgba(var(--accent-color-rgb), 0.4);
+          box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(var(--accent-color-rgb), 0.15);
           outline: none;
         }
 
         .search-result-card.owned {
-          border-color: rgba(var(--accent-color-rgb), 0.12);
+          border-color: rgba(var(--accent-color-rgb), 0.2);
         }
 
         .search-result-art {
           position: relative;
-          height: 128px;
-          overflow: hidden;
-          border-radius: 6px;
-          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.14), rgba(7, 7, 10, 0.94));
+          aspect-ratio: 3 / 4;
+          width: 100%;
+          background: #111;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: rgba(255, 255, 255, 0.68);
+          color: rgba(255, 255, 255, 0.4);
           font-family: var(--font-display);
-          font-size: var(--fs-10);
-          font-weight: 900;
-          letter-spacing: 0.8px;
+          font-size: var(--fs-12);
+          font-weight: 800;
           text-align: center;
-          text-transform: uppercase;
+          padding: 20px;
+          overflow: hidden;
         }
 
         .search-result-art img {
           width: 100%;
           height: 100%;
           object-fit: cover;
+          transition: transform 0.5s ease;
+        }
+
+        .search-result-card:hover .search-result-art img {
+          transform: scale(1.05);
         }
 
         .search-owned-badge {
           position: absolute;
-          top: 7px;
-          right: 7px;
+          top: 10px;
+          right: 10px;
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          padding: 3px 7px;
-          border-radius: 8px;
-          background: rgba(var(--accent-color-rgb), 0.9);
-          color: #07070a;
+          padding: 4px 8px;
+          border-radius: 6px;
+          background: var(--accent-color);
+          color: #000;
           font-family: var(--font-display);
-          font-size: var(--fs-9);
+          font-size: 10px;
           font-weight: 900;
+          text-transform: uppercase;
+          z-index: 2;
+        }
+        
+        .search-launch-btn-overlay {
+          position: absolute;
+          bottom: 12px;
+          left: 50%;
+          transform: translateX(-50%) translateY(20px);
+          opacity: 0;
+          border: none;
+          border-radius: 20px;
+          background: var(--accent-color);
+          color: #000;
+          padding: 8px 16px;
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 900;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.25s ease;
+          z-index: 2;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .search-result-card:hover .search-launch-btn-overlay {
+          transform: translateX(-50%) translateY(0);
+          opacity: 1;
+        }
+        
+        .search-launch-btn-overlay:hover {
+          background: #fff;
         }
 
         .search-result-body {
-          min-width: 0;
+          padding: 16px;
           display: flex;
           flex-direction: column;
           gap: 6px;
-        }
-
-        .search-card-topline,
-        .search-result-meta {
-          display: flex;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 6px;
-          min-width: 0;
-        }
-
-        .search-source-chip,
-        .search-result-meta span {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          max-width: 100%;
-          padding: 3px 7px;
-          border-radius: 8px;
-          border: 1px solid rgba(var(--accent-color-rgb), 0.2);
-          color: rgba(255, 255, 255, 0.7);
-          background: rgba(7, 7, 10, 0.48);
-          font-family: var(--font-display);
-          font-size: var(--fs-8);
-          font-weight: 800;
-          letter-spacing: 0.6px;
-          text-transform: uppercase;
-        }
-
-        .search-source-chip.owned {
-          color: var(--accent-color);
+          flex: 1;
+          background: linear-gradient(to top, rgba(10,10,15,0.95), rgba(10,10,15,0.8));
         }
 
         .search-result-body h2 {
@@ -299,45 +294,54 @@ export default function SearchResultsPage({
           font-size: var(--fs-15);
           font-weight: 850;
           letter-spacing: 0;
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
         }
 
         .search-result-body p {
           margin: 0;
-          color: rgba(255, 255, 255, 0.42);
+          color: rgba(255, 255, 255, 0.5);
           font-size: var(--fs-11);
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
         }
 
-        .search-result-rating {
+        .search-result-meta {
           display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 3px;
-          margin-top: auto;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          margin-top: 4px;
         }
 
-        .search-result-rating span {
-          color: rgba(255, 255, 255, 0.32);
+        .search-result-meta span {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 6px;
+          border-radius: 4px;
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.8);
           font-family: var(--font-display);
-          font-size: var(--fs-8);
+          font-size: var(--fs-9);
           font-weight: 800;
-          letter-spacing: 0.8px;
+          letter-spacing: 0.5px;
           text-transform: uppercase;
         }
 
+        .search-result-rating {
+          margin-top: auto;
+          padding-top: 12px;
+          display: flex;
+          justify-content: flex-start;
+          align-items: center;
+        }
+
         .steam-review-score {
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
           font-size: var(--fs-11);
-          font-weight: 800;
-          letter-spacing: 0.3px;
+          font-weight: 900;
+          letter-spacing: 0.5px;
           text-transform: uppercase;
         }
 
@@ -357,27 +361,14 @@ export default function SearchResultsPage({
           color: #ef4444;
         }
 
-        .search-launch-btn {
-          width: fit-content;
-          margin-top: 4px;
-          border: 1px solid rgba(var(--accent-color-rgb), 0.28);
-          border-radius: 8px;
-          background: rgba(var(--accent-color-rgb), 0.12);
-          color: var(--accent-color);
-          padding: 5px 12px;
-          font-size: var(--fs-10);
-          font-weight: 800;
-          cursor: pointer;
-        }
-
         .search-results-empty {
           min-height: 260px;
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 10px;
-          border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.045);
+          border-radius: 12px;
+          border: 1px dashed rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.018);
           color: rgba(255, 255, 255, 0.36);
           font-size: var(--fs-13);
@@ -385,19 +376,13 @@ export default function SearchResultsPage({
         }
 
         @media (max-width: 620px) {
-          .search-results-header {
-            align-items: flex-start;
-            flex-direction: column;
-            gap: 8px;
+          .search-results-grid {
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 16px;
           }
-
-          .search-result-card {
-            grid-template-columns: 78px minmax(0, 1fr);
-            gap: 10px;
-          }
-
-          .search-result-art {
-            height: 112px;
+          
+          .search-result-body h2 {
+            font-size: var(--fs-13);
           }
         }
       `}} />

@@ -270,13 +270,11 @@ export async function searchIgdbGamesBrowser(term, { pageSize = 36 } = {}) {
   const data = await igdbProxyFetch('games', [
     `search "${escapeIgdbString(searchTerm)}";`,
     `fields ${gameFields()};`,
-    'where version_parent = null;',
+    'where game_type = 0 & version_parent = null;',
     `limit ${limit};`
   ].join(' '));
 
-  const allowedCategories = [0, 8, 9];
   const sortedRaw = (Array.isArray(data) ? data : [])
-    .filter(item => item.category === undefined || allowedCategories.includes(item.category))
     .sort((a, b) => {
     const aExact = a.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
     const bExact = b.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;

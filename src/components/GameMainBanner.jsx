@@ -67,6 +67,7 @@ export default function GameMainBanner({
   const [autoPlacementStatus, setAutoPlacementStatus] = useState('idle');
   const [isTrailerMuted, setIsTrailerMuted] = useState(Boolean(trailerMutedByDefault));
   const [isTrailerCurtainLifted, setIsTrailerCurtainLifted] = useState(false);
+  const [trailerProgress, setTrailerProgress] = useState(0);
 
   const bannerRef = useRef(null);
   const backdropImgRef = useRef(null);
@@ -228,6 +229,7 @@ export default function GameMainBanner({
   useEffect(() => {
     setIsTrailerMuted(Boolean(trailerMutedByDefault));
     setIsTrailerCurtainLifted(false);
+    setTrailerProgress(0);
   }, [trailerMutedByDefault, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
 
   useEffect(() => {
@@ -334,6 +336,7 @@ export default function GameMainBanner({
   useEffect(() => {
     if (!shouldShowTrailer) {
       setIsTrailerCurtainLifted(false);
+      setTrailerProgress(0);
       return undefined;
     }
 
@@ -343,6 +346,30 @@ export default function GameMainBanner({
     }, 5000);
 
     return () => clearTimeout(timer);
+  }, [shouldShowTrailer, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) {
+      setTrailerProgress(0);
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      const player = trailerPlayerRef.current;
+      if (!player?.getCurrentTime || !player?.getDuration) return;
+
+      try {
+        const duration = Number(player.getDuration()) || 0;
+        const currentTime = Number(player.getCurrentTime()) || 0;
+        if (duration > 0) {
+          setTrailerProgress(Math.max(0, Math.min(1, currentTime / duration)));
+        }
+      } catch {
+        // The player can briefly reject reads while changing state.
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
   }, [shouldShowTrailer, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
 
   const handleTrailerLoad = () => {
@@ -692,7 +719,10 @@ export default function GameMainBanner({
                 {isTrailerMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
               </button>
             </div>
-            <div className="banner-trailer-scanline" />
+            <div
+              className="banner-trailer-scanline"
+              style={{ '--trailer-progress': trailerProgress }}
+            />
             <div className={`banner-trailer-start-veil ${isTrailerCurtainLifted ? 'is-ready' : ''}`} />
           </>
         )}
@@ -1132,10 +1162,25 @@ export default function GameMainBanner({
           right: 60px;
           bottom: 28px;
           z-index: 3;
-          height: 1px;
-          background: linear-gradient(90deg, rgba(var(--accent-color-rgb), 0.62), rgba(255, 255, 255, 0.14), transparent);
-          opacity: 0.72;
+          height: 2px;
+          background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05), transparent);
+          opacity: 0.82;
           pointer-events: none;
+          overflow: hidden;
+          border-radius: 999px;
+        }
+
+        .banner-trailer-scanline::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          height: 100%;
+          width: calc(var(--trailer-progress, 0) * 100%);
+          min-width: calc(var(--trailer-progress, 0) * 1px);
+          background: linear-gradient(90deg, rgba(var(--accent-color-rgb), 0.96), rgba(255, 255, 255, 0.45), rgba(var(--accent-color-rgb), 0.18));
+          box-shadow: 0 0 16px rgba(var(--accent-color-rgb), 0.55);
+          transition: width 240ms linear;
         }
 
         .banner-content-box {

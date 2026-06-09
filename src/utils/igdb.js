@@ -156,7 +156,15 @@ export function normalizeIgdbScreenshots(results = []) {
 
 function normalizeIgdbTrailer(results = [], igdbId = null) {
   const videos = Array.isArray(results) ? results : [];
-  const selected = videos.find(video => /trailer/i.test(video?.name || '')) || videos[0];
+  const rankedPatterns = [
+    /\b(?:launch|release|official|teaser|announce(?:ment)?|reveal|cinematic|story)?\s*trailer\b/i,
+    /\btrailer\b/i,
+    /\btv\s*spot\b/i,
+    /\bgameplay\b/i
+  ];
+  const selected = rankedPatterns.reduce((match, pattern) => (
+    match || videos.find(video => pattern.test(video?.name || ''))
+  ), null) || videos[0];
   const videoId = String(selected?.video_id || '').trim();
 
   if (!/^[a-zA-Z0-9_-]{6,}$/.test(videoId)) return null;

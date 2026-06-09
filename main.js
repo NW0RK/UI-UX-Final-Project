@@ -516,6 +516,7 @@ function normalizeIgdbGame(raw, { includeDescription = false } = {}) {
     genre: genres.join(', ') || 'Game',
     rating: rating100 ? Math.round((rating100 / 20) * 10) / 10 : 0,
     igdbRating: rating100,
+    igdbPopScore: (raw.total_rating_count || 0) + (raw.rating_count || 0) + (raw.follows || 0),
     ageRating: formatIgdbAgeRating(raw.age_ratings),
     releaseDate: formatIgdbDate(raw.first_release_date),
     description: description || `Open details to load the full game profile for ${raw.name}.`,

@@ -1725,6 +1725,11 @@ export default function App() {
     if (!key || normalizedSearchTitles.has(key)) return false;
     normalizedSearchTitles.add(key);
     return true;
+  }).sort((a, b) => {
+    const aExact = a.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
+    const bExact = b.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
+    if (aExact !== bExact) return bExact - aExact;
+    return (b.igdbPopScore || 0) - (a.igdbPopScore || 0);
   });
   const activeStoreItem = selectedStoreItem
     ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem

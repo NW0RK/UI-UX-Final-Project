@@ -181,7 +181,7 @@ export default function SearchResultsPage({
 
         .search-results-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
           gap: 24px;
         }
 
@@ -383,7 +383,7 @@ export default function SearchResultsPage({
 
         @media (max-width: 620px) {
           .search-results-grid {
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 16px;
           }
           

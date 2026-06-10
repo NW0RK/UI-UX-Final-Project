@@ -46,8 +46,9 @@ function emitDiagnostic(area, level, message, details = null) {
 }
 
 // --- SteamGridDB Configuration ---
-const BUILTIN_API_KEY = '2c62a4e1707f21a61e1bd30f4eafd6dc';
+const BUILTIN_API_KEY = '4237f92b0ccc656244b1ece95c37442a';
 const BUILTIN_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q';
+const BUILTIN_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj';
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
@@ -98,14 +99,19 @@ function getIgdbCredentialsFromConfig() {
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       const clientId = envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID;
-      const clientSecret = envClientSecret || config.igdbClientSecret?.trim();
+      const clientSecret = envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET;
       if (clientId && clientSecret) {
-        return { clientId, clientSecret, source: envClientId || envClientSecret ? 'env' : 'config' };
+        const source = envClientId || envClientSecret
+          ? 'env'
+          : config.igdbClientId || config.igdbClientSecret
+            ? 'config'
+            : 'builtin';
+        return { clientId, clientSecret, source };
       }
     }
   } catch (e) { /* ignore */ }
 
-  return { clientId: envClientId || BUILTIN_IGDB_CLIENT_ID, clientSecret: envClientSecret || '', source: envClientId || envClientSecret ? 'env' : 'builtin' };
+  return { clientId: envClientId || BUILTIN_IGDB_CLIENT_ID, clientSecret: envClientSecret || BUILTIN_IGDB_CLIENT_SECRET, source: envClientId || envClientSecret ? 'env' : 'builtin' };
 }
 
 function toFileUrl(filePath) {
@@ -2090,8 +2096,8 @@ ipcMain.handle('get-igdb-credentials', async () => {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       return {
         clientId: envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID,
-        clientSecret: envClientSecret ? '********' : config.igdbClientSecret?.trim() || '',
-        hasClientSecret: !!(envClientSecret || config.igdbClientSecret?.trim()),
+        clientSecret: (envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET) ? '********' : '',
+        hasClientSecret: !!(envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET),
         source: envClientId || envClientSecret ? 'env' : config.igdbClientId || config.igdbClientSecret ? 'custom' : 'builtin'
       };
     }
@@ -2099,8 +2105,8 @@ ipcMain.handle('get-igdb-credentials', async () => {
 
   return {
     clientId: envClientId || BUILTIN_IGDB_CLIENT_ID,
-    clientSecret: envClientSecret ? '********' : '',
-    hasClientSecret: !!envClientSecret,
+    clientSecret: envClientSecret || BUILTIN_IGDB_CLIENT_SECRET ? '********' : '',
+    hasClientSecret: !!(envClientSecret || BUILTIN_IGDB_CLIENT_SECRET),
     source: envClientId || envClientSecret ? 'env' : 'builtin'
   };
 });

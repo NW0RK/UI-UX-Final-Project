@@ -8,6 +8,7 @@ import { fetchIgdbGameDetailsBrowser, fetchIgdbScreenshotsBrowser } from '../uti
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
 
 const HIGHCHARTS_VERSION = '12.6.0';
+const DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8';
 let highchartsLoaderPromise = null;
 
 function loadScriptOnce(src, globalCheck) {
@@ -242,9 +243,9 @@ export default function StoreItemPage({
   const [itadSyncMessage, setItadSyncMessage] = useState('');
   const [itadApiKey, setItadApiKey] = useState(() => {
     try {
-      return localStorage.getItem('nexus_itad_api_key') || '';
+      return localStorage.getItem('nexus_itad_api_key') || DEFAULT_ITAD_API_KEY;
     } catch {
-      return '';
+      return DEFAULT_ITAD_API_KEY;
     }
   });
   const [itadApiKeySaved, setItadApiKeySaved] = useState(false);

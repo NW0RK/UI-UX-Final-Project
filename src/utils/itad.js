@@ -1,4 +1,7 @@
 const ITAD_API_BASE = 'https://api.isthereanydeal.com';
+const DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8';
+const DEFAULT_ITAD_CLIENT_ID = 'c148f1514efb8478';
+const DEFAULT_ITAD_CLIENT_SECRET = '68dfada7b9d81f36cc171a0cded8176621930c2e';
 
 const STORE_NAMES = ['Steam', 'Humble Store', 'Fanatical', 'GOG', 'Green Man Gaming'];
 
@@ -107,9 +110,9 @@ function createSeededHistory(item) {
 
 function getStoredApiKey() {
   try {
-    return localStorage.getItem('nexus_itad_api_key') || '';
+    return localStorage.getItem('nexus_itad_api_key') || DEFAULT_ITAD_API_KEY;
   } catch {
-    return '';
+    return DEFAULT_ITAD_API_KEY;
   }
 }
 
@@ -366,9 +369,9 @@ export async function getItadStoreInsights(item) {
 export function getItadOAuthUrl() {
   const clientId = (() => {
     try {
-      return localStorage.getItem('nexus_itad_client_id') || '';
+      return localStorage.getItem('nexus_itad_client_id') || DEFAULT_ITAD_CLIENT_ID;
     } catch {
-      return '';
+      return DEFAULT_ITAD_CLIENT_ID;
     }
   })();
 
@@ -382,11 +385,12 @@ export function getItadOAuthUrl() {
 export function getItadOAuthStatus() {
   try {
     return {
-      hasClientId: !!localStorage.getItem('nexus_itad_client_id'),
+      hasClientId: !!(localStorage.getItem('nexus_itad_client_id') || DEFAULT_ITAD_CLIENT_ID),
+      hasClientSecret: !!(localStorage.getItem('nexus_itad_client_secret') || DEFAULT_ITAD_CLIENT_SECRET),
       isConnected: !!localStorage.getItem('nexus_itad_access_token')
     };
   } catch {
-    return { hasClientId: false, isConnected: false };
+    return { hasClientId: true, hasClientSecret: true, isConnected: false };
   }
 }
 

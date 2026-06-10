@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
   libraryTrailerMutedByDefault: false,
   fontScale: 1.0,
   studioLogosEnabled: false,
-  brandfetchClientId: ''
+  brandfetchClientId: '1idcoEyG7GtzdighKVU'
 };
 
 const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;

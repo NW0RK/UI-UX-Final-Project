@@ -3,6 +3,7 @@ import https from 'https';
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const DEFAULT_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q';
+const DEFAULT_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj';
 const REQUEST_TIMEOUT_MS = 15000;
 
 let cachedToken = null;
@@ -48,7 +49,7 @@ function requestText(url, { method = 'GET', headers = {}, body = '' } = {}) {
 function getCredentials(env = {}) {
   return {
     clientId: (process.env.IGDB_CLIENT_ID || env.IGDB_CLIENT_ID || process.env.VITE_IGDB_CLIENT_ID || env.VITE_IGDB_CLIENT_ID || DEFAULT_IGDB_CLIENT_ID).trim(),
-    clientSecret: (process.env.IGDB_CLIENT_SECRET || env.IGDB_CLIENT_SECRET || process.env.VITE_IGDB_CLIENT_SECRET || env.VITE_IGDB_CLIENT_SECRET || '').trim()
+    clientSecret: (process.env.IGDB_CLIENT_SECRET || env.IGDB_CLIENT_SECRET || process.env.VITE_IGDB_CLIENT_SECRET || env.VITE_IGDB_CLIENT_SECRET || DEFAULT_IGDB_CLIENT_SECRET).trim()
   };
 }
 

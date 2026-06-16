@@ -6,6 +6,7 @@ import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsi
 import { getSteamReviewScore } from '../utils/steamReviews';
 import { fetchIgdbGameDetailsBrowser, fetchIgdbScreenshotsBrowser } from '../utils/igdb';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
+import { fetchProtonDbSummaryBrowser, getProtonDbSummary, isValidSteamAppId } from '../utils/protondb';
 
 const HIGHCHARTS_VERSION = '12.6.0';
 const DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8';
@@ -228,7 +229,8 @@ export default function StoreItemPage({
   onLinkExe,
   onLaunch,
   onEditMetadata,
-  onRemoveGame
+  onRemoveGame,
+  protonDbEnabled = false
 }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
@@ -254,6 +256,8 @@ export default function StoreItemPage({
   const [resolvedSteamAppId, setResolvedSteamAppId] = useState(null);
   const [steamDetails, setSteamDetails] = useState(null);
   const [steamReviewScore, setSteamReviewScore] = useState(null);
+  const [protonDbSummary, setProtonDbSummary] = useState(null);
+  const [protonDbStatus, setProtonDbStatus] = useState('idle');
   const [steamLookupStatus, setSteamLookupStatus] = useState('idle');
   const [steamMetadataLoaded, setSteamMetadataLoaded] = useState(false);
   const [igdbDetails, setIgdbDetails] = useState(null);
@@ -271,7 +275,10 @@ export default function StoreItemPage({
   const steamBackedItem = activeItem ? {
     ...activeItem,
     steamAppId: effectiveSteamAppId,
-    steamReviewScore: steamReviewScore || activeItem.steamReviewScore || null
+    steamReviewScore: steamReviewScore || activeItem.steamReviewScore || null,
+    protonDbSummary: protonDbEnabled
+      ? protonDbSummary || activeItem.protonDbSummary || null
+      : null
   } : activeItem;
 
   useEffect(() => {
@@ -302,6 +309,11 @@ export default function StoreItemPage({
       setSteamReviewScore(cachedDetails.steamReviewScore || null);
     }
 
+    if ('protonDbSummary' in cachedDetails) {
+      setProtonDbSummary(cachedDetails.protonDbSummary || null);
+      setProtonDbStatus(cachedDetails.protonDbSummary ? 'ready' : cachedDetails.protonDbStatus || 'unavailable');
+    }
+
     if (cachedDetails.steamMetadataLoaded) {
       setSteamMetadataLoaded(true);
     }
@@ -329,6 +341,8 @@ export default function StoreItemPage({
     let active = true;
     setSteamDetails(null);
     setSteamReviewScore(null);
+    setProtonDbSummary(null);
+    setProtonDbStatus('idle');
     setSteamMetadataLoaded(false);
 
     const savedAppId = String(item.steamAppId || '').trim();
@@ -441,6 +455,63 @@ export default function StoreItemPage({
     loadSteamMetadata();
     return () => { active = false; };
   }, [effectiveSteamAppId, cachedDetails?.cachedAt, item?.id, onCacheDetails]);
+
+  useEffect(() => {
+    if (!protonDbEnabled) {
+      setProtonDbSummary(null);
+      setProtonDbStatus('idle');
+      return;
+    }
+
+    const appId = String(effectiveSteamAppId || '').trim();
+    if (!isValidSteamAppId(appId)) {
+      setProtonDbSummary(null);
+      setProtonDbStatus(steamLookupStatus === 'missing' ? 'missing-steam' : 'idle');
+      return;
+    }
+
+    if (cachedDetails?.protonDbSummary) {
+      setProtonDbSummary(cachedDetails.protonDbSummary);
+      setProtonDbStatus('ready');
+      return;
+    }
+
+    if (cachedDetails?.protonDbStatus === 'unavailable') {
+      setProtonDbSummary(null);
+      setProtonDbStatus('unavailable');
+      return;
+    }
+
+    let active = true;
+    setProtonDbStatus('loading');
+
+    const request = window.electronAPI?.fetchProtonDbSummary
+      ? window.electronAPI.fetchProtonDbSummary(appId)
+      : fetchProtonDbSummaryBrowser(appId);
+
+    request
+      .then(summary => {
+        if (!active) return;
+        setProtonDbSummary(summary || null);
+        setProtonDbStatus(summary ? 'ready' : 'unavailable');
+        onCacheDetails(item, {
+          protonDbSummary: summary || null,
+          protonDbStatus: summary ? 'ready' : 'unavailable'
+        }, appId);
+      })
+      .catch(error => {
+        console.warn('ProtonDB lookup failed:', error);
+        if (!active) return;
+        setProtonDbSummary(null);
+        setProtonDbStatus('unavailable');
+        onCacheDetails(item, {
+          protonDbSummary: null,
+          protonDbStatus: 'unavailable'
+        }, appId);
+      });
+
+    return () => { active = false; };
+  }, [cachedDetails?.cachedAt, effectiveSteamAppId, item?.id, onCacheDetails, protonDbEnabled, steamLookupStatus]);
 
   useEffect(() => {
     if (!item?.igdbId || item.source !== 'igdb') {
@@ -1042,6 +1113,14 @@ export default function StoreItemPage({
   const isOwned = !!ownedGame;
   const hasExe = isOwned && ownedGame.exePath;
   const reviewScore = steamBackedItem?.steamReviewScore ? getSteamReviewScore(steamBackedItem.steamReviewScore) : null;
+  const protonSummary = protonDbEnabled ? getProtonDbSummary(steamBackedItem?.protonDbSummary) : null;
+  const protonStatusLabel = protonDbStatus === 'loading'
+    ? 'Loading'
+    : protonDbStatus === 'missing-steam'
+      ? 'Steam match needed'
+      : protonDbStatus === 'unavailable'
+        ? 'Unavailable'
+        : null;
   const displayBannerUrl = steamDetails?.background_raw ||
     steamDetails?.background ||
     steamDetails?.header_image ||
@@ -1257,6 +1336,17 @@ export default function StoreItemPage({
               <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} user reviews</small>
             )}
           </div>
+          {protonDbEnabled && (
+            <div className="store-item-review-score protondb-score">
+              <span>Linux</span>
+              <strong className={`protondb-tier ${protonSummary?.className || 'unavailable'}`}>
+                {protonSummary?.label || protonStatusLabel || 'Unavailable'}
+              </strong>
+              {protonSummary?.total > 0 && (
+                <small>{protonSummary.total.toLocaleString()} ProtonDB reports</small>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1588,6 +1678,25 @@ export default function StoreItemPage({
             )}
           </div>
 
+          {protonDbEnabled && (
+            <div className="protondb-detail-card">
+              <div className="protondb-detail-title">
+                <ExternalLink size={15} />
+                <span>Linux Compatibility</span>
+              </div>
+              <strong className={`protondb-tier ${protonSummary?.className || 'unavailable'}`}>
+                {protonSummary?.label || protonStatusLabel || 'Unavailable'}
+              </strong>
+              <p>
+                {protonSummary?.total > 0
+                  ? `${protonSummary.total.toLocaleString()} community report${protonSummary.total === 1 ? '' : 's'} through ProtonDB.`
+                  : protonDbStatus === 'missing-steam'
+                    ? 'A Steam App ID is needed before ProtonDB can report Linux compatibility.'
+                    : 'Compatibility data is not available for this game yet.'}
+              </p>
+            </div>
+          )}
+
           <div className="itad-sync-card">
             <div className="itad-sync-title">
               <KeyRound size={16} />
@@ -1803,6 +1912,29 @@ export default function StoreItemPage({
           text-transform: uppercase;
           text-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
         }
+
+        .store-item-review-score.protondb-score {
+          border-color: rgba(83, 205, 138, 0.2);
+          background: rgba(8, 24, 20, 0.48);
+        }
+
+        .protondb-tier {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: var(--font-display);
+          font-weight: 900;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.5); }
 
         .steam-review-score.overwhelmingly-positive,
         .steam-review-score.very-positive,
@@ -2516,6 +2648,40 @@ export default function StoreItemPage({
           display: flex;
           flex-direction: column;
           gap: 16px;
+        }
+
+        .protondb-detail-card {
+          background: rgba(83, 205, 138, 0.045);
+          border: 1px solid rgba(83, 205, 138, 0.14);
+          border-radius: 12px;
+          padding: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .protondb-detail-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: rgba(255, 255, 255, 0.68);
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 850;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+        }
+
+        .protondb-detail-card .protondb-tier {
+          font-size: var(--fs-20);
+          line-height: 1;
+        }
+
+        .protondb-detail-card p {
+          margin: 0;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-12);
+          line-height: 1.45;
         }
 
         .owned-check {

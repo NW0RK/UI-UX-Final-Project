@@ -4,6 +4,7 @@ import { audioEngine } from '../utils/audioEngine';
 import { analyzeBannerTitlePlacement, normalizeBannerLayout } from '../utils/bannerPlacement';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
 import { getPrimaryHltbText } from '../utils/hltb';
+import { getProtonDbSummary } from '../utils/protondb';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 
 let youtubeIframeApiPromise = null;
@@ -47,6 +48,7 @@ export default function GameMainBanner({
   studioLogosEnabled = false,
   brandfetchClientId = '',
   brandfetchCacheVersion = 0,
+  protonDbEnabled = false,
   onUpdateGameBannerLayout,
   editMode: controlledEditMode,
   setEditMode: controlledSetEditMode
@@ -214,6 +216,7 @@ export default function GameMainBanner({
 
   const ratingData = getSteamRating(game?.rating);
   const hltbText = getPrimaryHltbText(game?.hltb);
+  const protonSummary = protonDbEnabled ? getProtonDbSummary(game?.protonDbSummary) : null;
   const bannerTransitionKey = game?.id || game?.title;
   const shouldShowTrailer = Boolean(
     trailerPlayback?.visible &&
@@ -756,6 +759,14 @@ export default function GameMainBanner({
           <span className="steam-rating">
             Rating: <strong className={`rating-highlight ${ratingData.class}`}>{ratingData.label}</strong>
           </span>
+          {protonSummary && (
+            <>
+              <span className="dot-divider" />
+              <span className="protondb-rating">
+                Linux: <strong className={`protondb-tier ${protonSummary.className}`}>{protonSummary.label}</strong>
+              </span>
+            </>
+          )}
         </div>
 
         {/* Short Description */}
@@ -1188,6 +1199,7 @@ export default function GameMainBanner({
           z-index: 10;
           max-width: 650px;
           height: calc(100% - 24px);
+          padding-bottom: 16px;
           display: flex;
           flex-direction: column;
           align-items: flex-start;
@@ -1635,13 +1647,29 @@ export default function GameMainBanner({
           border-radius: 8px;
         }
 
-        .steam-rating {
+        .steam-rating,
+        .protondb-rating {
           font-size: var(--fs-12);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.6);
           display: flex;
           align-items: center;
         }
+
+        .protondb-tier {
+          font-weight: 850;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-left: 4px;
+          text-shadow: 0 0 10px rgba(0,0,0,0.4);
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.5); }
 
         .rating-highlight {
           font-weight: 800;
@@ -1738,7 +1766,9 @@ export default function GameMainBanner({
 
         .banner-actions-row {
           display: flex;
+          align-items: stretch;
           gap: 12px;
+          min-height: 46px;
           width: 100%;
           flex-shrink: 0;
         }

@@ -11,6 +11,12 @@ import {
   trimTransparentPadding, 
   trimCachedLogoArtworkForDatabase 
 } from './deprecated_features/imageTrimming.js';
+import {
+  PROTONDB_COMMUNITY_SUMMARY_BASE,
+  PROTONDB_DIRECT_SUMMARY_BASE,
+  isValidSteamAppId,
+  normalizeProtonDbSummary
+} from './src/utils/protondb.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1906,6 +1912,38 @@ ipcMain.handle('fetch-steam-reviews', async (event, steamAppId) => {
   } catch (err) {
     emitDiagnostic('SteamReviews', 'error', `Failed to fetch Steam reviews for AppId ${appId}: ${err.message}`);
     return null;
+  }
+});
+
+ipcMain.handle('fetch-protondb-summary', async (event, steamAppId) => {
+  const appId = String(steamAppId || '').trim();
+  if (!isValidSteamAppId(appId)) return null;
+
+  const requestOptions = {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  };
+
+  try {
+    const data = await fetchJson(`${PROTONDB_COMMUNITY_SUMMARY_BASE}/${appId}/summary`, requestOptions);
+    const summary = normalizeProtonDbSummary(appId, data, 'protondb-community');
+    if (summary) return summary;
+    throw new Error('Community API returned no summary.');
+  } catch (communityErr) {
+    try {
+      const data = await fetchJson(`${PROTONDB_DIRECT_SUMMARY_BASE}/${appId}.json`, requestOptions);
+      return normalizeProtonDbSummary(appId, data, 'protondb');
+    } catch (directErr) {
+      emitDiagnostic(
+        'ProtonDB',
+        'warn',
+        `Failed to fetch ProtonDB summary for AppId ${appId}: ${directErr.message}`,
+        { communityError: communityErr.message }
+      );
+      return null;
+    }
   }
 });
 

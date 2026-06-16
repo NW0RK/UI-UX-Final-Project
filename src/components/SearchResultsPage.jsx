@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, Search } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
+import { getProtonDbSummary } from '../utils/protondb';
 
 export default function SearchResultsPage({
   query,
@@ -12,7 +13,8 @@ export default function SearchResultsPage({
   onSelectItem,
   onPrefetchItem = () => {},
   onSelectLibraryGame,
-  onLaunchGame
+  onLaunchGame,
+  protonDbEnabled = false
 }) {
   const ownedIds = new Set(ownedGames.map(game => game.id));
   const ownedIgdbIds = new Set(ownedGames.map(game => game.igdbId).filter(Boolean));
@@ -72,6 +74,7 @@ export default function SearchResultsPage({
         <div className="search-results-grid">
           {results.map((item, index) => {
             const reviewScore = getSteamReviewScore(item.steamReviewScore || item.rating);
+            const protonSummary = protonDbEnabled ? getProtonDbSummary(item.protonDbSummary) : null;
             const owned = isOwned(item);
             return (
               <div
@@ -123,6 +126,11 @@ export default function SearchResultsPage({
                   </div>
                   <div className="search-result-rating">
                     <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
+                    {protonSummary && (
+                      <span className="search-protondb-badge">
+                        Linux <strong className={`protondb-tier ${protonSummary.className}`}>{protonSummary.label}</strong>
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -349,8 +357,10 @@ export default function SearchResultsPage({
           margin-top: auto;
           padding-top: 12px;
           display: flex;
+          flex-wrap: wrap;
           justify-content: flex-start;
           align-items: center;
+          gap: 7px;
         }
 
         .steam-review-score {
@@ -359,6 +369,30 @@ export default function SearchResultsPage({
           letter-spacing: 0.5px;
           text-transform: uppercase;
         }
+
+        .search-protondb-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          color: rgba(255, 255, 255, 0.42);
+          font-size: var(--fs-9);
+          font-weight: 850;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier {
+          font-family: var(--font-display);
+          font-weight: 900;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.42); }
 
         .steam-review-score.overwhelmingly-positive,
         .steam-review-score.very-positive,

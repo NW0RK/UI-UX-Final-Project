@@ -2,6 +2,7 @@ import React from 'react';
 import { BadgePercent, Check, Flame, Search, ShoppingCart } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
+import { getProtonDbSummary } from '../utils/protondb';
 
 export default function StoreGrid({
   catalog,
@@ -16,7 +17,8 @@ export default function StoreGrid({
   dealsError = null,
   igdbSearchStatus = 'idle',
   igdbSearchError = null,
-  onPrefetchItem = () => {}
+  onPrefetchItem = () => {},
+  protonDbEnabled = false
 }) {
   const normalizedQuery = searchQuery.toLowerCase();
   const hasSearch = normalizedQuery.trim().length > 0;
@@ -80,6 +82,14 @@ export default function StoreGrid({
 
   const renderMeta = (item) => {
     const deal = item.itadDeal || item.cheapsharkDeal;
+    const protonSummary = protonDbEnabled ? getProtonDbSummary(item.protonDbSummary) : null;
+    const renderProtonBadge = () => protonDbEnabled && protonSummary ? (
+      <div className="store-protondb-meta">
+        <span>Linux</span>
+        <strong className={`protondb-tier ${protonSummary.className}`}>{protonSummary.label}</strong>
+      </div>
+    ) : null;
+
     if (deal) {
       return (
         <div className="store-deal-meta">
@@ -89,6 +99,7 @@ export default function StoreGrid({
             {deal.regular && <span>{deal.regular}</span>}
             {Number(deal.cut) > 0 && <em>-{deal.cut}%</em>}
           </div>
+          {renderProtonBadge()}
         </div>
       );
     }
@@ -103,6 +114,7 @@ export default function StoreGrid({
         {reviewScore?.source === 'steam' && reviewScore.totalReviews > 0 && (
           <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} reviews</small>
         )}
+        {renderProtonBadge()}
       </div>
     );
   };
@@ -600,6 +612,22 @@ export default function StoreGrid({
           font-weight: 600;
         }
 
+        .store-protondb-meta {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          max-width: 100%;
+          min-width: 0;
+          color: rgba(255, 255, 255, 0.42);
+          font-size: var(--fs-9);
+          font-weight: 800;
+          text-transform: uppercase;
+        }
+
+        .store-protondb-meta span {
+          color: rgba(255, 255, 255, 0.34);
+        }
+
         .store-deal-meta {
           gap: 5px;
         }
@@ -674,6 +702,23 @@ export default function StoreGrid({
         .steam-review-score.unavailable {
           color: rgba(255, 255, 255, 0.42);
         }
+
+        .protondb-tier {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: var(--font-display);
+          font-weight: 900;
+          letter-spacing: 0.3px;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.42); }
 
         .store-grid {
           display: grid;

@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resolveSteamAppId: (title) => ipcRenderer.invoke('resolve-steam-app-id', title),
   fetchSteamDetails: (steamAppId) => ipcRenderer.invoke('fetch-steam-details', steamAppId),
   fetchSteamReviews: (steamAppId) => ipcRenderer.invoke('fetch-steam-reviews', steamAppId),
+  fetchProtonDbSummary: (steamAppId) => ipcRenderer.invoke('fetch-protondb-summary', steamAppId),
   fetchItadJson: (url, apiKey, options) => ipcRenderer.invoke('itad-fetch-json', url, apiKey, options),
   fetchCheapSharkJson: (url, options) => ipcRenderer.invoke('cheapshark-fetch-json', url, options),
   searchHowLongToBeat: (term) => ipcRenderer.invoke('hltb-search', term),

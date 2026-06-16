@@ -57,6 +57,7 @@ npm run build
 | `src/utils/igdb.js` | Renderer-side IGDB helpers, browser preview proxy fetches, game/screenshot normalization. | IGDB feed, search, detail, screenshot, or browser fallback behavior changes. |
 | `src/utils/steam.js` | Renderer-side Steam search/details/review helpers and browser fallbacks. | Steam App ID resolution, Steam details, banner selection, or review normalization changes. |
 | `src/utils/steamReviews.js` | Renderer-side Steam review score label/color mapping from stored ratings or review text. | Review score thresholds or display labels change. |
+| `src/utils/protondb.js` | Renderer/shared ProtonDB summary endpoint constants, Steam App ID validation, browser fallback fetch, and tier normalization. | ProtonDB endpoint behavior, Linux compatibility tiers, or summary field mapping changes. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/bannerPlacement.js` | Browser-side Library banner title placement analysis: saliency-style masking, maximum empty rectangle selection, and contrast tone selection. | Banner title auto-placement, safe-region scoring, or layout contrast behavior changes. |
 | `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
@@ -111,7 +112,7 @@ Current IPC groups:
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `searchIgdbGames`, `fetchIgdbPopularGames(limit)`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails`, `fetchIgdbGameTrailer` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, IGDB search/popular/screenshots/details/trailer handlers, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `fetchProtonDbSummary`, `searchIgdbGames`, `fetchIgdbPopularGames(limit)`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails`, `fetchIgdbGameTrailer` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, ProtonDB summary handler, IGDB search/popular/screenshots/details/trailer handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | CheapShark | `fetchCheapSharkJson` | `cheapshark-fetch-json` |
@@ -135,14 +136,14 @@ Common fields include:
 - Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`.
 - Library state: `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `timeToComplete`, `nextAchievement`, `exePath`.
 - Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`, `trailerVideoId`, `trailerEmbedUrl`, `trailerLookupStatus`. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
-- Integrations: `hltb` for HowLongToBeat data; `igdbId`, `igdbSlug`, `igdbUrl`, `igdbRating`, and `source: 'igdb'` for IGDB-backed discovery/library records; legacy `rawgId` records are still recognized for ownership matching; transient store items can include `steamReviewScore` from Steam review summaries.
+- Integrations: `hltb` for HowLongToBeat data; `protonDbSummary` for opt-in ProtonDB Linux compatibility summaries keyed by Steam App ID; `igdbId`, `igdbSlug`, `igdbUrl`, `igdbRating`, and `source: 'igdb'` for IGDB-backed discovery/library records; legacy `rawgId` records are still recognized for ownership matching; transient store items can include `steamReviewScore` from Steam review summaries.
 
 Persistence locations:
 
 | Data | Desktop persistence | Browser fallback |
 | --- | --- | --- |
 | Game database | Electron user data `nexus-db.json`; legacy path copied if present. | `localStorage` key `nexus_games_cache`. |
-| Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options and Library trailer autoplay/default-audio preferences. | `localStorage` key `nexus_settings`. |
+| Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options, Library trailer autoplay/default-audio preferences, and the default-off `protonDbEnabled` Linux compatibility toggle. | `localStorage` key `nexus_settings`. |
 | SteamGridDB API key | Electron user data `nexus-config.json`, or `STEAMGRIDDB_API_KEY` env var. | Not used by most desktop-only fetch paths. |
 | IGDB credentials | Electron user data `nexus-config.json`, or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` can use `.env.local` credentials through the Vite IGDB proxy. |
 | Profile | `localStorage` keys `nexus_username`, `nexus_user_avatar`. | Same. |
@@ -174,6 +175,13 @@ Store and pricing:
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
 - `StoreItemPage.jsx` fetches IGDB details for IGDB-backed items through `fetchIgdbGameDetails`.
+
+ProtonDB:
+
+- ProtonDB compatibility is opt-in through `settings.protonDbEnabled`; default-off mode performs no ProtonDB requests and hides ProtonDB UI.
+- `src/utils/protondb.js` normalizes summary tiers for renderer components and browser fallback fetches.
+- Desktop lookups go through `fetchProtonDbSummary`, which validates Steam App IDs, tries the linked community API summary endpoint first, and falls back to ProtonDB's direct summary endpoint.
+- `App.jsx` hydrates store/search cards, store detail cache entries, imported games, and persisted library records when a Steam App ID is known.
 
 Import and launch:
 

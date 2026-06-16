@@ -21,6 +21,7 @@ import { fetchCheapSharkBestDeals } from './utils/cheapshark';
 import { fetchItadBestDeals } from './utils/itad';
 import { fetchIgdbGameDetailsBrowser, fetchIgdbGameTrailerBrowser, fetchIgdbPopularGamesBrowser, fetchIgdbScreenshotsBrowser, searchIgdbGamesBrowser } from './utils/igdb';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
+import { fetchProtonDbSummaryBrowser, isValidSteamAppId } from './utils/protondb';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -35,7 +36,8 @@ const DEFAULT_SETTINGS = {
   libraryTrailerMutedByDefault: false,
   fontScale: 1.0,
   studioLogosEnabled: false,
-  brandfetchClientId: '1idcoEyG7GtzdighKVU'
+  brandfetchClientId: '1idcoEyG7GtzdighKVU',
+  protonDbEnabled: false
 };
 
 const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
@@ -209,6 +211,8 @@ export default function App() {
   const [isCcOpen, setIsCcOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const settingsLoadedRef = useRef(false);
   
   // --- Editable Gold Profile Screen States ---
   const [username, setUsername] = useState(() => {
@@ -232,6 +236,7 @@ export default function App() {
   const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
   const [storeReviewScores, setStoreReviewScores] = useState({});
+  const [storeProtonDbSummaries, setStoreProtonDbSummaries] = useState({});
   const [popularStoreGames, setPopularStoreGames] = useState([]);
   const [popularStoreStatus, setPopularStoreStatus] = useState('idle');
   const [popularStoreError, setPopularStoreError] = useState(null);
@@ -253,6 +258,8 @@ export default function App() {
   const popularStoreHydratedRef = useRef(false);
   const itadDealsHydratedRef = useRef(false);
   const hltbLookupAttemptedRef = useRef(new Set());
+  const protonDbLibraryAttemptedRef = useRef(new Set());
+  const protonDbStoreAttemptedRef = useRef(new Set());
   const storeDetailCacheRef = useRef({});
   const storeDetailInFlightRef = useRef(new Map());
   const gamesRef = useRef([]);
@@ -268,6 +275,21 @@ export default function App() {
       timestamp: new Date().toISOString()
     }, ...prev].slice(0, 80));
   };
+
+  const fetchProtonDbSummary = useCallback(async (steamAppId, title = 'game') => {
+    const appId = String(steamAppId || '').trim();
+    if (!settings.protonDbEnabled || !isValidSteamAppId(appId)) return null;
+
+    try {
+      const summary = window.electronAPI?.fetchProtonDbSummary
+        ? await window.electronAPI.fetchProtonDbSummary(appId)
+        : await fetchProtonDbSummaryBrowser(appId);
+      return summary || null;
+    } catch (error) {
+      addDiagnostic('ProtonDB', 'warn', `Linux compatibility skipped for ${title}: ${error.message}`);
+      return null;
+    }
+  }, [settings.protonDbEnabled]);
 
   useEffect(() => {
     gamesRef.current = games;
@@ -315,7 +337,16 @@ export default function App() {
     if (!initialKey) return null;
 
     const cached = storeDetailCacheRef.current[initialKey];
-    if (cached?.status === 'ready' && cached?.mediaLoaded && (cached?.steamMetadataLoaded || cached?.igdbDetailsLoaded || cached?.steamLookupStatus === 'missing')) {
+    const cacheHasNeededProtonDb = !settings.protonDbEnabled ||
+      cached?.protonDbSummary ||
+      cached?.protonDbStatus === 'unavailable' ||
+      cached?.steamLookupStatus === 'missing';
+    if (
+      cached?.status === 'ready' &&
+      cached?.mediaLoaded &&
+      (cached?.steamMetadataLoaded || cached?.igdbDetailsLoaded || cached?.steamLookupStatus === 'missing') &&
+      cacheHasNeededProtonDb
+    ) {
       return Promise.resolve(cached);
     }
 
@@ -378,6 +409,12 @@ export default function App() {
             patch.errors.push({ source: 'steam-metadata', message: error.message });
             patch.steamMetadataLoaded = false;
           }
+        }
+
+        if (settings.protonDbEnabled && resolvedSteamAppId) {
+          const protonDbSummary = await fetchProtonDbSummary(resolvedSteamAppId, item?.title);
+          patch.protonDbSummary = protonDbSummary || null;
+          patch.protonDbStatus = protonDbSummary ? 'ready' : 'unavailable';
         }
 
         if (item?.igdbId && item.source === 'igdb') {
@@ -458,16 +495,13 @@ export default function App() {
 
     storeDetailInFlightRef.current.set(initialKey, request);
     return request;
-  }, [mergeStoreDetailCache]);
+  }, [fetchProtonDbSummary, mergeStoreDetailCache, settings.protonDbEnabled]);
 
   // --- System Diagnostic Metrics ---
   const [cpuUsage, setCpuUsage] = useState(12);
   const [ramUsage, setRamUsage] = useState(34);
   const [ramUsedGb, setRamUsedGb] = useState(null);
 
-  // --- Visual & UX Customisation Variables ---
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const settingsLoadedRef = useRef(false);
   const [cacheVersion, setCacheVersion] = useState(0);
   const [libraryTrailerPlayback, setLibraryTrailerPlayback] = useState({
     gameId: null,
@@ -550,6 +584,10 @@ export default function App() {
       localStorage.setItem('nexus_settings', JSON.stringify(settings));
     }
   }, [settings]);
+
+  useEffect(() => {
+    audioEngine.setMuted(settings.isMuted);
+  }, [settings.isMuted]);
 
   useEffect(() => {
     if (!window.electronAPI?.onDiagnosticEvent) return;
@@ -861,6 +899,58 @@ export default function App() {
       cancelled = true;
     };
   }, [popularStoreGames]);
+
+  useEffect(() => {
+    if (!settings.protonDbEnabled) return;
+
+    const sourceItems = [
+      ...popularStoreGames,
+      ...itadDealGames,
+      ...storeCatalog,
+      ...igdbSearchResults
+    ];
+    const candidates = sourceItems.filter(item => {
+      const appId = String(item?.steamAppId || '').trim();
+      const key = `${item?.id}:${appId}`;
+      return item?.id &&
+        isValidSteamAppId(appId) &&
+        !item.protonDbSummary &&
+        !storeProtonDbSummaries[item.id] &&
+        !protonDbStoreAttemptedRef.current.has(key);
+    });
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+
+    async function hydrateStoreProtonDb() {
+      const summaries = {};
+
+      for (const item of candidates) {
+        const appId = String(item.steamAppId || '').trim();
+        protonDbStoreAttemptedRef.current.add(`${item.id}:${appId}`);
+        const summary = await fetchProtonDbSummary(appId, item.title);
+        if (cancelled) return;
+        if (summary) summaries[item.id] = summary;
+      }
+
+      if (!cancelled && Object.keys(summaries).length > 0) {
+        setStoreProtonDbSummaries(prev => ({ ...prev, ...summaries }));
+      }
+    }
+
+    hydrateStoreProtonDb();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    fetchProtonDbSummary,
+    igdbSearchResults,
+    itadDealGames,
+    popularStoreGames,
+    settings.protonDbEnabled,
+    storeProtonDbSummaries
+  ]);
 
   useEffect(() => {
     if (!window.electronAPI?.autoFetchHowLongToBeat || games.length === 0) return;
@@ -1195,6 +1285,54 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!settings.protonDbEnabled || games.length === 0) return;
+
+    const candidates = games.filter(game => {
+      const appId = String(game.steamAppId || '').trim();
+      const key = `${game.id}:${appId}`;
+      return isValidSteamAppId(appId) && !game.protonDbSummary && !protonDbLibraryAttemptedRef.current.has(key);
+    });
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+
+    async function hydrateLibraryProtonDb() {
+      const summariesById = {};
+
+      for (const game of candidates) {
+        const appId = String(game.steamAppId || '').trim();
+        protonDbLibraryAttemptedRef.current.add(`${game.id}:${appId}`);
+        const summary = await fetchProtonDbSummary(appId, game.title);
+        if (cancelled) return;
+        if (summary) summariesById[game.id] = summary;
+      }
+
+      if (cancelled || Object.keys(summariesById).length === 0) return;
+
+      const updatedList = gamesRef.current.map(game =>
+        summariesById[game.id]
+          ? { ...game, protonDbSummary: summariesById[game.id] }
+          : game
+      );
+      setGames(updatedList);
+      gamesRef.current = updatedList;
+      setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || prev);
+
+      if (window.electronAPI) {
+        await window.electronAPI.saveDatabase(updatedList);
+      } else {
+        localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+      }
+    }
+
+    hydrateLibraryProtonDb();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchProtonDbSummary, games, settings.protonDbEnabled]);
+
   const cacheLibraryTrailerForGame = useCallback(async (gameId, trailerPatch) => {
     const currentGames = gamesRef.current;
     const updatedList = currentGames.map(game => (
@@ -1319,6 +1457,17 @@ export default function App() {
         addDiagnostic('Steam', 'info', `Steam metadata merged for ${enriched.title}`);
       } catch (error) {
         addDiagnostic('Steam', 'warn', `Steam metadata failed for ${enriched.title}: ${error.message}`);
+      }
+
+      if (settings.protonDbEnabled) {
+        const protonDbSummary = await fetchProtonDbSummary(enriched.steamAppId, enriched.title);
+        if (protonDbSummary) {
+          enriched = {
+            ...enriched,
+            protonDbSummary
+          };
+          addDiagnostic('ProtonDB', 'info', `Linux compatibility merged for ${enriched.title}`);
+        }
       }
     }
 
@@ -1675,6 +1824,9 @@ export default function App() {
     ...item,
     ...storeArtwork[item.id],
     steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
+    protonDbSummary: settings.protonDbEnabled
+      ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+      : null,
     owned: games.some(g => g.id === item.id && g.owned)
   }));
   const ownedIgdbIds = new Set(games.map(game => game.igdbId).filter(Boolean));
@@ -1692,10 +1844,16 @@ export default function App() {
   );
   const syncedPopularGames = popularStoreGames.map(item => ({
     ...item,
+    protonDbSummary: settings.protonDbEnabled
+      ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+      : null,
     owned: isOwnedStoreItem(item)
   }));
   const syncedItadDeals = itadDealGames.map(item => ({
     ...item,
+    protonDbSummary: settings.protonDbEnabled
+      ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+      : null,
     owned: isOwnedStoreItem(item)
   }));
   const mergedStoreCatalog = [
@@ -1715,7 +1873,14 @@ export default function App() {
       .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
     ...igdbSearchResults
       .filter(item => item.source === 'igdb' && item.igdbId)
-      .map(item => ({ ...item, resultType: 'igdb', owned: isOwnedStoreItem(item) }))
+      .map(item => ({
+        ...item,
+        protonDbSummary: settings.protonDbEnabled
+          ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+          : null,
+        resultType: 'igdb',
+        owned: isOwnedStoreItem(item)
+      }))
   ].filter(item => {
     const key = item.igdbId
       ? `igdb:${item.igdbId}`
@@ -2014,6 +2179,7 @@ export default function App() {
               studioLogosEnabled={settings.studioLogosEnabled}
               brandfetchClientId={settings.brandfetchClientId}
               brandfetchCacheVersion={cacheVersion}
+              protonDbEnabled={settings.protonDbEnabled}
               onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
               editMode={bannerEditMode}
               setEditMode={setBannerEditMode}
@@ -2057,6 +2223,7 @@ export default function App() {
             popularError={popularStoreError}
             dealsStatus={itadDealsStatus}
             dealsError={itadDealsError}
+            protonDbEnabled={settings.protonDbEnabled}
           />
         )}
 
@@ -2071,6 +2238,7 @@ export default function App() {
             onPrefetchItem={prefetchStoreItemDetails}
             onSelectLibraryGame={handleSelectSearchLibraryGame}
             onLaunchGame={handleLaunchGame}
+            protonDbEnabled={settings.protonDbEnabled}
           />
         )}
 
@@ -2087,6 +2255,7 @@ export default function App() {
             onLaunch={handleLaunchGame}
             onEditMetadata={handleOpenMetadata}
             onRemoveGame={handleRemoveGame}
+            protonDbEnabled={settings.protonDbEnabled}
           />
         )}
       </main>

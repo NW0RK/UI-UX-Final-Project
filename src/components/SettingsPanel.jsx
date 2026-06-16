@@ -51,8 +51,10 @@ export default function SettingsPanel({
 
   const handleAudioToggle = () => {
     const nextMute = !settings.isMuted;
-    audioEngine.playClickPulse();
     audioEngine.setMuted(nextMute);
+    if (!nextMute) {
+      audioEngine.playClickPulse();
+    }
     onUpdateSettings({ ...settings, isMuted: nextMute });
   };
 
@@ -79,6 +81,11 @@ export default function SettingsPanel({
   const handleStudioLogosToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, studioLogosEnabled: !settings.studioLogosEnabled });
+  };
+
+  const handleProtonDbToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, protonDbEnabled: !settings.protonDbEnabled });
   };
 
   const handleBrandfetchClientIdChange = (value) => {
@@ -433,6 +440,28 @@ export default function SettingsPanel({
               </div>
               <div className="audio-card-right">
                 <div className={`checkbox-toggle-switch ${settings.studioLogosEnabled ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.protonDbEnabled}
+              onClick={handleProtonDbToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Activity size={20} className={settings.protonDbEnabled ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Linux Compatibility</span>
+                  <span className="audio-card-desc">{settings.protonDbEnabled ? 'Show ProtonDB compatibility for Steam-matched games.' : 'Hide ProtonDB compatibility and skip Linux compatibility lookups.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.protonDbEnabled ? 'sw-active' : 'sw-muted'}`}>
                   <div className="switch-knob" />
                 </div>
               </div>

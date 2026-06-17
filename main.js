@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, session, shell } from 'electron';
 import dotenv from 'dotenv';
 dotenv.config();
 import path from 'path';
@@ -1292,7 +1292,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      sandbox: true
     }
   });
 
@@ -1301,6 +1302,28 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist/index.html'));
   }
+
+  // --- Security: Block unwanted navigation ---
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const allowed = process.env.NODE_ENV === 'development' || !app.isPackaged
+      ? 'http://localhost:5173'
+      : `file://${path.join(__dirname, 'dist/index.html').replace(/\\/g, '/')}`;
+    if (!navigationUrl.startsWith(allowed)) {
+      event.preventDefault();
+      console.warn('[Security] Blocked navigation to:', navigationUrl);
+    }
+  });
+
+  // --- Security: Block new window opens from renderer ---
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Only allow safe https: URLs to open in the user's default browser
+    if (url.startsWith('https://')) {
+      shell.openExternal(url);
+    } else {
+      console.warn('[Security] Blocked window.open to:', url);
+    }
+    return { action: 'deny' };
+  });
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }

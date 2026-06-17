@@ -1,4 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'electron';
+import dotenv from 'dotenv';
+dotenv.config();
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
@@ -52,9 +54,6 @@ function emitDiagnostic(area, level, message, details = null) {
 }
 
 // --- SteamGridDB Configuration ---
-const BUILTIN_API_KEY = '4237f92b0ccc656244b1ece95c37442a';
-const BUILTIN_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q';
-const BUILTIN_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj';
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
@@ -90,7 +89,7 @@ function getApiKeyFromConfig() {
       if (config.steamgriddbApiKey?.trim()) return config.steamgriddbApiKey.trim();
     }
   } catch (e) { /* ignore */ }
-  return BUILTIN_API_KEY;
+  return null;
 }
 
 function getIgdbCredentialsFromConfig() {
@@ -104,20 +103,16 @@ function getIgdbCredentialsFromConfig() {
     const configPath = getConfigPath();
     if (fs.existsSync(configPath)) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      const clientId = envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID;
-      const clientSecret = envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET;
+      const clientId = envClientId || config.igdbClientId?.trim();
+      const clientSecret = envClientSecret || config.igdbClientSecret?.trim();
       if (clientId && clientSecret) {
-        const source = envClientId || envClientSecret
-          ? 'env'
-          : config.igdbClientId || config.igdbClientSecret
-            ? 'config'
-            : 'builtin';
+        const source = envClientId || envClientSecret ? 'env' : 'config';
         return { clientId, clientSecret, source };
       }
     }
   } catch (e) { /* ignore */ }
 
-  return { clientId: envClientId || BUILTIN_IGDB_CLIENT_ID, clientSecret: envClientSecret || BUILTIN_IGDB_CLIENT_SECRET, source: envClientId || envClientSecret ? 'env' : 'builtin' };
+  return { clientId: envClientId, clientSecret: envClientSecret, source: 'env' };
 }
 
 function toFileUrl(filePath) {
@@ -1370,11 +1365,14 @@ ipcMain.handle('load-database', async () => {
   const dbPath = getDbPath();
   const legacyDbPath = getLegacyDbPath();
   try {
-    if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
-      fs.copyFileSync(legacyDbPath, dbPath);
+    const legacyExists = await fs.promises.access(legacyDbPath).then(() => true).catch(() => false);
+    const dbExists = await fs.promises.access(dbPath).then(() => true).catch(() => false);
+    if (!dbExists && legacyExists) {
+      await fs.promises.copyFile(legacyDbPath, dbPath);
     }
-    if (fs.existsSync(dbPath)) {
-      const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+    const finalDbExists = await fs.promises.access(dbPath).then(() => true).catch(() => false);
+    if (finalDbExists) {
+      const data = JSON.parse(await fs.promises.readFile(dbPath, 'utf-8'));
       const normalized = normalizeArtworkUrlsInDatabase(data);
       await trimCachedLogoArtworkForDatabase(normalized, { getCachedArtworkFilePath, toArtworkUrl, emitDiagnostic });
       return normalized;
@@ -1383,10 +1381,10 @@ ipcMain.handle('load-database', async () => {
   return null;
 });
 
-ipcMain.handle('save-database', (event, data) => {
+ipcMain.handle('save-database', async (event, data) => {
   const dbPath = getDbPath();
   try {
-    fs.writeFileSync(dbPath, JSON.stringify(normalizeArtworkUrlsInDatabase(data), null, 2), 'utf-8');
+    await fs.promises.writeFile(dbPath, JSON.stringify(normalizeArtworkUrlsInDatabase(data), null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     console.error('Error saving database:', err);
@@ -1420,10 +1418,10 @@ ipcMain.handle('select-image', async () => {
 });
 
 // --- IPC: Executable Scanner ---
-function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
+async function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
   if (currentDepth > maxDepth) return;
   try {
-    const files = fs.readdirSync(dirPath, { withFileTypes: true });
+    const files = await fs.promises.readdir(dirPath, { withFileTypes: true });
     for (const file of files) {
       const fullPath = path.join(dirPath, file.name);
       if (file.name.startsWith('.') || ['node_modules', '$RECYCLE.BIN', 'System Volume Information', 'Windows', 'Common Files'].some(ex => file.name.includes(ex))) {
@@ -1431,7 +1429,7 @@ function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
         continue;
       }
       if (file.isDirectory()) {
-        scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
+        await scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
       } else if (file.isFile() && file.name.toLowerCase().endsWith('.exe')) {
         const nameLower = file.name.toLowerCase();
         if (['unins', 'setup', 'install', 'crash', 'unity', 'helper', 'config', 'tool', 'update', 'patcher', 'dxwebsetup', 'vcredist'].some(ex => nameLower.includes(ex))) {
@@ -1447,9 +1445,9 @@ function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
   }
 }
 
-function parseSteamAppManifest(filePath, steamappsDir) {
+async function parseSteamAppManifest(filePath, steamappsDir) {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = await fs.promises.readFile(filePath, 'utf-8');
     const appid = content.match(/"appid"\s+"(\d+)"/)?.[1];
     const name = content.match(/"name"\s+"([^"]+)"/)?.[1];
     const installdir = content.match(/"installdir"\s+"([^"]+)"/)?.[1];
@@ -1465,7 +1463,7 @@ function parseSteamAppManifest(filePath, steamappsDir) {
   }
 }
 
-function findSteamAppManifests(scanRoot) {
+async function findSteamAppManifests(scanRoot) {
   const candidates = new Set();
   const root = path.resolve(scanRoot);
   const rootBase = path.basename(root).toLowerCase();
@@ -1478,10 +1476,14 @@ function findSteamAppManifests(scanRoot) {
   const manifests = [];
   for (const steamappsDir of candidates) {
     try {
-      if (!fs.existsSync(steamappsDir)) continue;
-      const files = fs.readdirSync(steamappsDir).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
+      try {
+        await fs.promises.access(steamappsDir);
+      } catch (e) {
+        continue;
+      }
+      const files = (await fs.promises.readdir(steamappsDir)).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
       for (const file of files) {
-        const manifest = parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
+        const manifest = await parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
         if (manifest) manifests.push(manifest);
       }
     } catch (err) { /* ignore */ }
@@ -1505,14 +1507,16 @@ ipcMain.handle('scan-executables', async (event, dirPath) => {
   const diagnostics = [];
   emitDiagnostic('Scanner', 'info', `Starting executable scan`, { dirPath, maxDepth: 3 });
 
-  if (!dirPath || !fs.existsSync(dirPath)) {
+  try {
+    await fs.promises.access(dirPath);
+  } catch(e) {
     const message = `Scan path does not exist: ${dirPath || '(empty)'}`;
     emitDiagnostic('Scanner', 'error', message);
     return { files: [], diagnostics: [{ level: 'error', message }] };
   }
 
-  scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
-  const manifests = findSteamAppManifests(dirPath);
+  await scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
+  const manifests = await findSteamAppManifests(dirPath);
   const files = attachSteamAppIds(filesList, manifests);
 
   emitDiagnostic('Scanner', files.length ? 'info' : 'warn', `Executable scan completed with ${files.length} result${files.length === 1 ? '' : 's'}`, {
@@ -2130,22 +2134,26 @@ ipcMain.handle('get-igdb-credentials', async () => {
 
   try {
     const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const configExists = await fs.promises.access(configPath).then(() => true).catch(() => false);
+    if (configExists) {
+      const config = JSON.parse(await fs.promises.readFile(configPath, 'utf-8'));
       return {
-        clientId: envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID,
-        clientSecret: (envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET) ? '********' : '',
-        hasClientSecret: !!(envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET),
-        source: envClientId || envClientSecret ? 'env' : config.igdbClientId || config.igdbClientSecret ? 'custom' : 'builtin'
+        success: true,
+        credentials: {
+          clientId: envClientId || config.igdbClientId?.trim() || '',
+          clientSecret: envClientSecret ? '********' : (config.igdbClientSecret?.trim() ? '********' : ''),
+          isCustom: !!(envClientId || config.igdbClientId?.trim())
+        }
       };
     }
   } catch (e) { /* ignore */ }
-
   return {
-    clientId: envClientId || BUILTIN_IGDB_CLIENT_ID,
-    clientSecret: envClientSecret || BUILTIN_IGDB_CLIENT_SECRET ? '********' : '',
-    hasClientSecret: !!(envClientSecret || BUILTIN_IGDB_CLIENT_SECRET),
-    source: envClientId || envClientSecret ? 'env' : 'builtin'
+    success: true,
+    credentials: {
+      clientId: envClientId || '',
+      clientSecret: envClientSecret ? '********' : '',
+      isCustom: !!envClientId
+    }
   };
 });
 
@@ -2153,9 +2161,10 @@ ipcMain.handle('save-settings', async (event, settings) => {
   try {
     const configPath = getConfigPath();
     let config = {};
-    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const configExists = await fs.promises.access(configPath).then(() => true).catch(() => false);
+    if (configExists) config = JSON.parse(await fs.promises.readFile(configPath, 'utf-8'));
     config.settings = settings;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -2165,12 +2174,15 @@ ipcMain.handle('save-settings', async (event, settings) => {
 ipcMain.handle('load-settings', async () => {
   try {
     const configPath = getConfigPath();
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      if (config.settings) return config.settings;
+    const configExists = await fs.promises.access(configPath).then(() => true).catch(() => false);
+    if (configExists) {
+      const config = JSON.parse(await fs.promises.readFile(configPath, 'utf-8'));
+      return { success: true, settings: config.settings || {} };
     }
-  } catch (e) { /* ignore */ }
-  return null;
+    return { success: true, settings: {} };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('clear-artwork-cache', async () => {

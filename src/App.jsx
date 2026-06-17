@@ -498,9 +498,6 @@ export default function App() {
   }, [fetchProtonDbSummary, mergeStoreDetailCache, settings.protonDbEnabled]);
 
   // --- System Diagnostic Metrics ---
-  const [cpuUsage, setCpuUsage] = useState(12);
-  const [ramUsage, setRamUsage] = useState(34);
-  const [ramUsedGb, setRamUsedGb] = useState(null);
 
   const [cacheVersion, setCacheVersion] = useState(0);
   const [libraryTrailerPlayback, setLibraryTrailerPlayback] = useState({
@@ -568,7 +565,10 @@ export default function App() {
         }
       }
       if (saved && typeof saved === 'object') {
-        setSettings(prev => ({ ...DEFAULT_SETTINGS, ...saved }));
+        const actualSettings = saved.success ? saved.settings : saved;
+        if (actualSettings && typeof actualSettings === 'object') {
+          setSettings(prev => ({ ...DEFAULT_SETTINGS, ...actualSettings }));
+        }
       }
       settingsLoadedRef.current = true;
     }
@@ -748,16 +748,19 @@ export default function App() {
       let changed = false;
       const candidates = updatedList.filter(needsSteamGridDBArtwork);
 
-      for (const game of candidates) {
-        const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
-        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-          updatedList = updatedList.map(existing =>
-            existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
-          );
-          changed = true;
-        } else if (artwork?.error) {
-          addDiagnostic('SteamGridDB', 'warn', `Library hydration skipped ${game.title}: ${artwork.error}`);
-        }
+      for (let i = 0; i < candidates.length; i += 3) {
+        const chunk = candidates.slice(i, i + 3);
+        await Promise.all(chunk.map(async (game) => {
+          const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
+          if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+            updatedList = updatedList.map(existing =>
+              existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
+            );
+            changed = true;
+          } else if (artwork?.error) {
+            addDiagnostic('SteamGridDB', 'warn', `Library hydration skipped ${game.title}: ${artwork.error}`);
+          }
+        }));
       }
 
       if (!changed) return;
@@ -778,13 +781,17 @@ export default function App() {
     async function hydrateStoreArtwork() {
       const fetchedArtwork = {};
 
-      for (const item of storeCatalog.filter(needsSteamGridDBArtwork)) {
-        const artwork = await window.electronAPI.autoFetchArtwork({ ...item, forceTitleLookup: true });
-        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-          fetchedArtwork[item.id] = applyArtworkToGame(item, artwork);
-        } else if (artwork?.error) {
-          addDiagnostic('SteamGridDB', 'warn', `Store artwork skipped ${item.title}: ${artwork.error}`);
-        }
+      const candidates = storeCatalog.filter(needsSteamGridDBArtwork);
+      for (let i = 0; i < candidates.length; i += 3) {
+        const chunk = candidates.slice(i, i + 3);
+        await Promise.all(chunk.map(async (item) => {
+          const artwork = await window.electronAPI.autoFetchArtwork({ ...item, forceTitleLookup: true });
+          if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+            fetchedArtwork[item.id] = applyArtworkToGame(item, artwork);
+          } else if (artwork?.error) {
+            addDiagnostic('SteamGridDB', 'warn', `Store artwork skipped ${item.title}: ${artwork.error}`);
+          }
+        }));
       }
 
       if (Object.keys(fetchedArtwork).length > 0) {
@@ -1026,35 +1033,6 @@ export default function App() {
     document.documentElement.style.setProperty('--fs-38', `${38 * fontScale}px`);
     document.documentElement.style.setProperty('--fs-48', `${48 * fontScale}px`);
     
-    if (!settings.trackSystemStatus) return;
-
-    const updateSystemStatus = async () => {
-      setCpuUsage(prev => {
-        const delta = Math.floor(Math.random() * 8) - 4;
-        return Math.max(5, Math.min(85, prev + delta));
-      });
-
-      if (window.electronAPI?.getSystemMemoryUsage) {
-        const memory = await window.electronAPI.getSystemMemoryUsage();
-        if (memory && Number.isFinite(memory.usagePercent)) {
-          setRamUsage(Math.max(0, Math.min(100, memory.usagePercent)));
-          setRamUsedGb(Number.isFinite(memory.usedGb) ? memory.usedGb : null);
-        }
-        return;
-      }
-
-      setRamUsage(prev => {
-        const delta = Math.floor(Math.random() * 4) - 2;
-        const nextUsage = Math.max(25, Math.min(95, prev + delta));
-        setRamUsedGb((nextUsage / 100) * 16);
-        return nextUsage;
-      });
-    };
-
-    updateSystemStatus();
-    const sysTimer = setInterval(updateSystemStatus, 4000);
-
-    return () => clearInterval(sysTimer);
   }, [settings]);
 
   // --- 3. Ambient Audio Soundtrack Controls ---
@@ -1791,17 +1769,20 @@ export default function App() {
     let updatedCount = 0;
     const candidates = updatedList.filter(needsSteamGridDBArtwork);
 
-    for (const game of candidates) {
-      const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
-      if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-        updatedList = updatedList.map(existing =>
-          existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
-        );
-        updatedCount += 1;
-        addDiagnostic('SteamGridDB', 'info', `Batch artwork updated ${game.title}`);
-      } else if (artwork?.error) {
-        addDiagnostic('SteamGridDB', 'warn', `Batch artwork skipped ${game.title}: ${artwork.error}`);
-      }
+    for (let i = 0; i < candidates.length; i += 3) {
+      const chunk = candidates.slice(i, i + 3);
+      await Promise.all(chunk.map(async (game) => {
+        const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
+        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+          updatedList = updatedList.map(existing =>
+            existing.id === game.id ? applyArtworkToGame(existing, artwork) : existing
+          );
+          updatedCount += 1;
+          addDiagnostic('SteamGridDB', 'info', `Batch artwork updated ${game.title}`);
+        } else if (artwork?.error) {
+          addDiagnostic('SteamGridDB', 'warn', `Batch artwork skipped ${game.title}: ${artwork.error}`);
+        }
+      }));
     }
 
     setGames(updatedList);
@@ -2150,9 +2131,6 @@ export default function App() {
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
         onOpenSettings={() => { audioEngine.playClickPulse(); setIsSettingsOpen(true); }}
-        cpuUsage={cpuUsage}
-        ramUsage={ramUsage}
-        ramUsedGb={ramUsedGb}
         activeView={activeView}
         onViewChange={handleViewChange}
         systemStatusTracking={settings.trackSystemStatus}
@@ -2269,8 +2247,6 @@ export default function App() {
         onImportScannedGames={handleImportScannedGames}
         onBatchFetchArtwork={handleBatchFetchArtwork}
         isBatchFetchingArtwork={isBatchFetchingArtwork}
-        cpuUsage={cpuUsage}
-        ramUsage={ramUsage}
         games={games}
         systemStatusTracking={settings.trackSystemStatus}
         diagnostics={diagnostics}

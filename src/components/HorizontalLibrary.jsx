@@ -1,5 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Play, Star } from 'lucide-react';
+import { FixedSizeList as List } from 'react-window';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function HorizontalLibrary({ 
@@ -23,6 +24,47 @@ export default function HorizontalLibrary({
     }
   };
 
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const itemData = {
+    games,
+    selectedGame,
+    runningGameId,
+    handleCardClick,
+    handleCardFocus,
+    onLaunchGame
+  };
+
+  const VirtualCard = ({ index, style, data }) => {
+    const { games, selectedGame, runningGameId, handleCardClick, handleCardFocus, onLaunchGame } = data;
+    const game = games[index];
+    const isSelected = selectedGame?.id === game.id;
+    const isRunning = runningGameId === game.id;
+
+    return (
+      <div style={{
+        ...style,
+        paddingLeft: index === 0 ? 20 : 0,
+        display: 'flex',
+        alignItems: 'flex-start'
+      }}>
+        <GameCard 
+          game={game} 
+          isSelected={isSelected}
+          isRunning={isRunning}
+          onClick={() => handleCardClick(game)}
+          onFocus={() => handleCardFocus(game)}
+          onLaunch={() => onLaunchGame(game)}
+        />
+      </div>
+    );
+  };
+
   return (
     <div className="horizontal-library-shelf" ref={shelfRef}>
       <div className="shelf-title-row">
@@ -30,23 +72,18 @@ export default function HorizontalLibrary({
         <span className="library-count">{games.length} games available</span>
       </div>
 
-      <div className="library-grid-horizontal">
-        {games.map((game) => {
-          const isSelected = selectedGame?.id === game.id;
-          const isRunning = runningGameId === game.id;
-          
-          return (
-            <GameCard 
-              key={game.id} 
-              game={game} 
-              isSelected={isSelected}
-              isRunning={isRunning}
-              onClick={() => handleCardClick(game)}
-              onFocus={() => handleCardFocus(game)}
-              onLaunch={() => onLaunchGame(game)}
-            />
-          );
-        })}
+      <div className="library-grid-horizontal-virtual-wrapper">
+        <List
+          className="library-grid-horizontal-virtual"
+          layout="horizontal"
+          itemCount={games.length}
+          itemSize={236}
+          width={windowWidth}
+          height={420}
+          itemData={itemData}
+        >
+          {VirtualCard}
+        </List>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
@@ -83,26 +120,28 @@ export default function HorizontalLibrary({
           letter-spacing: 0.5px;
         }
 
-        .library-grid-horizontal {
-          display: flex;
-          gap: 26px;
+        .library-grid-horizontal-virtual-wrapper {
+          padding: 15px 0 20px 0;
+        }
+
+        .library-grid-horizontal-virtual {
           overflow-x: auto;
-          padding: 15px 10px 20px 10px;
+          overflow-y: hidden;
           scroll-behavior: smooth;
         }
 
         /* Hide Scrollbar but allow scrolling */
-        .library-grid-horizontal::-webkit-scrollbar {
+        .library-grid-horizontal-virtual::-webkit-scrollbar {
           height: 4px;
         }
-        .library-grid-horizontal::-webkit-scrollbar-track {
+        .library-grid-horizontal-virtual::-webkit-scrollbar-track {
           background: transparent;
         }
-        .library-grid-horizontal::-webkit-scrollbar-thumb {
+        .library-grid-horizontal-virtual::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.05);
           border-radius: 4px;
         }
-        .library-grid-horizontal:hover::-webkit-scrollbar-thumb {
+        .library-grid-horizontal-virtual:hover::-webkit-scrollbar-thumb {
           background: rgba(var(--accent-color-rgb), 0.25);
         }
       `}} />

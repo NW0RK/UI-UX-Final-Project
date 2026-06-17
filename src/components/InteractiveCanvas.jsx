@@ -35,6 +35,8 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
       return ['#ffffff', '#00e5ff', '#00aaff', '#b3f0ff'];
     };
 
+    const cachedColors = getParticleColor();
+
     class Particle {
       constructor() {
         this.x = Math.random() * canvas.width;
@@ -45,8 +47,7 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
         this.vx = this.baseXSpeed;
         this.vy = this.baseYSpeed;
         
-        const colors = getParticleColor();
-        this.color = colors[Math.floor(Math.random() * colors.length)];
+        this.color = cachedColors[Math.floor(Math.random() * cachedColors.length)];
         this.alpha = Math.random() * 0.6 + 0.1;
         this.baseAlpha = this.alpha;
         this.decay = Math.random() * 0.005 + 0.002;
@@ -144,7 +145,7 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
 
     const initParticles = () => {
       particles = [];
-      const count = Math.min(120, Math.floor((canvas.width * canvas.height) / 10000) * density);
+      const count = Math.min(80, Math.floor((canvas.width * canvas.height) / 15000) * density);
       for (let i = 0; i < count; i++) {
         particles.push(new Particle());
       }

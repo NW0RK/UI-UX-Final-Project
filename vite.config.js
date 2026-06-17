@@ -15,6 +15,19 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       proxy: {}
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return;
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('react-window')) return 'virtual-list';
+            if (id.includes('react') || id.includes('scheduler')) return 'react-vendor';
+            return 'vendor';
+          }
+        }
+      }
     }
   }
 })

@@ -1288,6 +1288,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     frame: false,
+    fullscreen: true,
     backgroundColor: '#0a0a0f',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

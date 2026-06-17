@@ -33,7 +33,7 @@ npm run build
 | Build renderer | `npm run build` | Baseline verification. Builds Vite output into `dist/`. |
 | Preview renderer only | `npm run preview` | Does not exercise Electron IPC. |
 | Script definitions | `package.json` | No test script currently exists. |
-| Vite config | `vite.config.js` | Uses React plugin, `base: './'`, strict dev port `5173`. |
+| Vite config | `vite.config.js` | Uses React plugin, `base: './'`, strict dev port `5173`, and manual vendor chunks to keep production JS chunks below the warning threshold. |
 | Electron dev launcher | `scripts/start-electron-dev.cjs` | Spawns the installed Electron binary with editor-inherited `ELECTRON_RUN_AS_NODE` removed. |
 
 ## Source Map

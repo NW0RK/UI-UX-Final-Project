@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 
+const MAX_PARTICLES = 120;
+const PARTICLE_AREA_DENSITY = 10000;
+
 export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 }) {
   const canvasRef = useRef(null);
   const mouseRef = useRef({ x: -1000, y: -1000, vx: 0, vy: 0, lastX: 0, lastY: 0 });
@@ -121,23 +124,11 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
       draw() {
         ctx.save();
         ctx.globalAlpha = this.alpha;
-        
-        // Use performant radial gradient instead of shadowBlur
-        const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 3);
-        gradient.addColorStop(0, this.color);
-        gradient.addColorStop(0.3, this.color);
-        
-        // Need to parse hex to rgba for transparent fade, but since it's glowing, transparent black works nicely in screen/lighter blend mode, or just transparent
-        // Alternatively, use a transparent version of the color if we parse it, but 'transparent' usually interpolates to rgba(0,0,0,0) which can cause grey rings in some browsers.
-        // Let's just use 'rgba(255,255,255,0)' since most colors are bright.
-        gradient.addColorStop(1, 'rgba(255,255,255,0)');
-        
-        ctx.fillStyle = gradient;
-        // Use lighter compositing for a better glow effect without shadowBlur
-        ctx.globalCompositeOperation = 'lighter';
-        
+        ctx.fillStyle = this.color;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.shadowBlur = this.size * 3;
+        ctx.shadowColor = this.color;
         ctx.fill();
         ctx.restore();
       }
@@ -145,7 +136,7 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
 
     const initParticles = () => {
       particles = [];
-      const count = Math.min(80, Math.floor((canvas.width * canvas.height) / 15000) * density);
+      const count = Math.min(MAX_PARTICLES, Math.floor((canvas.width * canvas.height) / PARTICLE_AREA_DENSITY) * density);
       for (let i = 0; i < count; i++) {
         particles.push(new Particle());
       }

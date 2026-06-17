@@ -1,7 +1,14 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Star } from 'lucide-react';
-import { FixedSizeList as List } from 'react-window';
+import { VariableSizeList as VirtualList } from 'react-window';
 import { audioEngine } from '../utils/audioEngine';
+
+const CARD_WIDTH = 210;
+const CARD_GAP = 26;
+const CARD_EDGE_GUTTER = 30;
+const CARD_VERTICAL_GUTTER = 18;
+const VIRTUAL_LIST_HEIGHT = 404;
+const VIRTUALIZE_AFTER = 32;
 
 export default function HorizontalLibrary({ 
   games, 
@@ -11,61 +18,79 @@ export default function HorizontalLibrary({
   runningGameId 
 }) {
   const shelfRef = useRef(null);
+  const listRef = useRef(null);
+  const [shelfWidth, setShelfWidth] = useState(() => (
+    typeof window === 'undefined' ? 1200 : window.innerWidth
+  ));
 
-  const handleCardClick = (game) => {
+  const handleCardClick = useCallback((game) => {
     audioEngine.playClickPulse();
     onSelectGame(game);
-  };
+  }, [onSelectGame]);
 
-  const handleCardFocus = (game) => {
+  const handleCardFocus = useCallback((game) => {
     if (selectedGame?.id !== game.id) {
       onSelectGame(game);
       audioEngine.playHoverTick();
     }
-  };
+  }, [onSelectGame, selectedGame?.id]);
 
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const shelf = shelfRef.current;
+    if (!shelf) return undefined;
+
+    const updateShelfWidth = () => {
+      const nextWidth = shelf.getBoundingClientRect().width;
+      setShelfWidth(Math.max(320, Math.floor(nextWidth)));
+    };
+
+    updateShelfWidth();
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(updateShelfWidth)
+      : null;
+
+    resizeObserver?.observe(shelf);
+    window.addEventListener('resize', updateShelfWidth);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateShelfWidth);
+    };
   }, []);
 
-  const itemData = {
+  const selectedIndex = useMemo(
+    () => games.findIndex((game) => game.id === selectedGame?.id),
+    [games, selectedGame?.id]
+  );
+
+  const shouldVirtualize = games.length > VIRTUALIZE_AFTER;
+
+  useEffect(() => {
+    if (!shouldVirtualize || selectedIndex < 0) return;
+    listRef.current?.scrollToItem(selectedIndex, 'smart');
+  }, [selectedIndex, shouldVirtualize]);
+
+  useEffect(() => {
+    if (!shouldVirtualize) return;
+    listRef.current?.resetAfterIndex(0, true);
+  }, [games.length, shouldVirtualize]);
+
+  const itemData = useMemo(() => ({
     games,
     selectedGame,
     runningGameId,
     handleCardClick,
     handleCardFocus,
     onLaunchGame
-  };
+  }), [games, handleCardClick, handleCardFocus, onLaunchGame, runningGameId, selectedGame]);
 
-  const VirtualCard = ({ index, style, data }) => {
-    const { games, selectedGame, runningGameId, handleCardClick, handleCardFocus, onLaunchGame } = data;
-    const game = games[index];
-    const isSelected = selectedGame?.id === game.id;
-    const isRunning = runningGameId === game.id;
-
-    return (
-      <div style={{
-        ...style,
-        top: `${parseFloat(style.top) + 15}px`, // Offset to allow hover scaling
-        height: `${parseFloat(style.height) - 30}px`,
-        paddingLeft: index === 0 ? 20 : 0,
-        display: 'flex',
-        alignItems: 'flex-start'
-      }}>
-        <GameCard 
-          game={game} 
-          isSelected={isSelected}
-          isRunning={isRunning}
-          onClick={() => handleCardClick(game)}
-          onFocus={() => handleCardFocus(game)}
-          onLaunch={() => onLaunchGame(game)}
-        />
-      </div>
-    );
-  };
+  const getVirtualItemSize = useCallback((index) => (
+    CARD_WIDTH +
+    CARD_GAP +
+    (index === 0 ? CARD_EDGE_GUTTER : 0) +
+    (index === games.length - 1 ? CARD_EDGE_GUTTER : 0)
+  ), [games.length]);
 
   return (
     <div className="horizontal-library-shelf" ref={shelfRef}>
@@ -74,19 +99,42 @@ export default function HorizontalLibrary({
         <span className="library-count">{games.length} games available</span>
       </div>
 
-      <div className="library-grid-horizontal-virtual-wrapper">
-        <List
-          className="library-grid-horizontal-virtual"
-          layout="horizontal"
-          itemCount={games.length}
-          itemSize={236}
-          width={windowWidth}
-          height={420}
-          itemData={itemData}
-        >
-          {VirtualCard}
-        </List>
-      </div>
+      {shouldVirtualize ? (
+        <div className="library-grid-horizontal-virtual-wrapper">
+          <VirtualList
+            ref={listRef}
+            className="library-grid-horizontal-virtual"
+            layout="horizontal"
+            itemCount={games.length}
+            itemSize={getVirtualItemSize}
+            width={shelfWidth}
+            height={VIRTUAL_LIST_HEIGHT}
+            itemData={itemData}
+            overscanCount={5}
+          >
+            {VirtualCard}
+          </VirtualList>
+        </div>
+      ) : (
+        <div className="library-grid-horizontal">
+          {games.map((game) => {
+            const isSelected = selectedGame?.id === game.id;
+            const isRunning = runningGameId === game.id;
+
+            return (
+              <GameCard
+                key={game.id}
+                game={game}
+                isSelected={isSelected}
+                isRunning={isRunning}
+                onClick={() => handleCardClick(game)}
+                onFocus={() => handleCardFocus(game)}
+                onLaunch={() => onLaunchGame(game)}
+              />
+            );
+          })}
+        </div>
+      )}
 
       <style dangerouslySetInnerHTML={{__html: `
         .horizontal-library-shelf {
@@ -122,92 +170,55 @@ export default function HorizontalLibrary({
           letter-spacing: 0.5px;
         }
 
-        .library-grid-horizontal-virtual-wrapper {
-          padding: 15px 0 20px 0;
-        }
-
-        .library-grid-horizontal-virtual {
+        .library-grid-horizontal {
+          display: flex;
+          gap: 26px;
           overflow-x: auto;
           overflow-y: hidden;
+          padding: 15px 10px 20px 10px;
           scroll-behavior: smooth;
         }
 
+        .library-grid-horizontal-virtual-wrapper {
+          padding: 0;
+          overflow: visible;
+        }
+
+        .library-grid-horizontal-virtual {
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scroll-behavior: smooth;
+        }
+
+        .library-grid-horizontal-virtual > div {
+          overflow: visible;
+        }
+
+        .library-card-virtual-slot {
+          display: flex;
+          align-items: flex-start;
+          overflow: visible;
+        }
+
         /* Hide Scrollbar but allow scrolling */
+        .library-grid-horizontal::-webkit-scrollbar,
         .library-grid-horizontal-virtual::-webkit-scrollbar {
           height: 4px;
         }
+        .library-grid-horizontal::-webkit-scrollbar-track,
         .library-grid-horizontal-virtual::-webkit-scrollbar-track {
           background: transparent;
         }
+        .library-grid-horizontal::-webkit-scrollbar-thumb,
         .library-grid-horizontal-virtual::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.05);
           border-radius: 4px;
         }
+        .library-grid-horizontal:hover::-webkit-scrollbar-thumb,
         .library-grid-horizontal-virtual:hover::-webkit-scrollbar-thumb {
           background: rgba(var(--accent-color-rgb), 0.25);
         }
-      `}} />
-    </div>
-  );
-}
 
-function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
-  const handleLaunchClick = (e) => {
-    e.stopPropagation();
-    onLaunch();
-  };
-
-  return (
-    <div 
-      className={`library-card ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
-      role="button"
-      tabIndex={0}
-      aria-selected={isSelected}
-      data-controller-item="true"
-      data-controller-confirm-label={`Select ${game.title}`}
-      data-controller-selected={isSelected ? 'true' : undefined}
-      onClick={onClick}
-      onFocus={onFocus}
-      onMouseEnter={audioEngine.playHoverTick}
-    >
-      <div className="library-card-image-wrapper">
-        {game.coverUrl ? (
-          <img src={game.coverUrl} alt={game.title} className="library-card-image" loading="lazy" />
-        ) : (
-          <div className="library-card-image library-card-image-placeholder">
-            <span>{game.title}</span>
-          </div>
-        )}
-
-        {isRunning && (
-          <div className="running-overlay-indicator">
-            <span className="running-dot-pulse" />
-            <span className="running-text">Running</span>
-          </div>
-        )}
-
-        {game.isFavorite && (
-          <div className="favorite-indicator-badge">
-            <Star size={10} fill="currentColor" />
-          </div>
-        )}
-
-        <div className="library-card-hover">
-          <button
-            className={`quick-play-button ${isRunning ? 'running-btn' : ''}`}
-            onClick={handleLaunchClick}
-            title={isRunning ? "Game Running" : "Launch Game"}
-          >
-            <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
-          </button>
-        </div>
-      </div>
-
-      <div className="library-card-info">
-        <div className="library-card-title">{game.title}</div>
-      </div>
-
-      <style dangerouslySetInnerHTML={{__html: `
         .library-card {
           flex: 0 0 210px;
           width: 210px;
@@ -216,10 +227,13 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           background: transparent;
           border: none;
           cursor: pointer;
-          transition: all var(--transition-fast);
+          transition: transform var(--transition-fast), opacity var(--transition-fast);
           display: flex;
           flex-direction: column;
           gap: 6px;
+          contain: layout style;
+          content-visibility: auto;
+          contain-intrinsic-size: 210px 365px;
         }
 
         .library-card-image-wrapper {
@@ -229,22 +243,18 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           overflow: hidden;
           background: rgba(0, 0, 0, 0.2);
           box-sizing: border-box;
-          transition: all 0.4s cubic-bezier(0.15, 0.85, 0.3, 1);
-          
-          /* Inactive card default style */
+          transition: transform 0.4s cubic-bezier(0.15, 0.85, 0.3, 1), opacity 0.4s cubic-bezier(0.15, 0.85, 0.3, 1), border-color 0.4s cubic-bezier(0.15, 0.85, 0.3, 1), box-shadow 0.4s cubic-bezier(0.15, 0.85, 0.3, 1);
           border: 1px solid rgba(255, 255, 255, 0.1);
           border-radius: 24px;
           opacity: 0.5;
         }
 
-        /* Hovering over inactive card */
         .library-card:not(.selected):hover .library-card-image-wrapper {
           opacity: 0.85;
           transform: translateY(-4px);
           border-color: rgba(255, 255, 255, 0.2);
         }
 
-        /* Active Selected Card styling matching Favourites page */
         .library-card.selected .library-card-image-wrapper {
           border: 2px solid var(--accent-color);
           box-shadow: 0px 0px 25px rgba(var(--accent-color-rgb), 0.25);
@@ -261,6 +271,11 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
         }
 
+        .library-card:hover .library-card-image-wrapper,
+        .library-card.selected .library-card-image-wrapper {
+          will-change: transform, opacity;
+        }
+
         .library-card-image {
           width: 100%;
           height: 100%;
@@ -269,7 +284,6 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
           display: block;
         }
 
-        /* Grayscale for inactive cover images matching Favourites page */
         .library-card:not(.selected) .library-card-image {
           filter: grayscale(100%) brightness(0.5) contrast(1.1);
         }
@@ -319,6 +333,7 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
 
         .library-card:hover .library-card-image {
           transform: scale(1.06);
+          will-change: transform, filter;
         }
 
         .library-card-hover {
@@ -451,9 +466,94 @@ function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
         .quick-play-button.running-btn:hover {
           background: #f87171;
         }
-
       `}} />
     </div>
   );
 }
+
+function VirtualCard({ index, style, data }) {
+  const { games, selectedGame, runningGameId, handleCardClick, handleCardFocus, onLaunchGame } = data;
+  const game = games[index];
+  const isSelected = selectedGame?.id === game.id;
+  const isRunning = runningGameId === game.id;
+
+  return (
+    <div
+      className="library-card-virtual-slot"
+      style={{
+        ...style,
+        paddingTop: CARD_VERTICAL_GUTTER,
+        paddingLeft: index === 0 ? CARD_EDGE_GUTTER : 0
+      }}
+    >
+      <GameCard
+        game={game}
+        isSelected={isSelected}
+        isRunning={isRunning}
+        onClick={() => handleCardClick(game)}
+        onFocus={() => handleCardFocus(game)}
+        onLaunch={() => onLaunchGame(game)}
+      />
+    </div>
+  );
+}
+
+const GameCard = memo(function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
+  const handleLaunchClick = (e) => {
+    e.stopPropagation();
+    onLaunch();
+  };
+
+  return (
+    <div 
+      className={`library-card ${isSelected ? 'selected' : ''} ${isRunning ? 'running' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-selected={isSelected}
+      data-controller-item="true"
+      data-controller-confirm-label={`Select ${game.title}`}
+      data-controller-selected={isSelected ? 'true' : undefined}
+      onClick={onClick}
+      onFocus={onFocus}
+      onMouseEnter={audioEngine.playHoverTick}
+    >
+      <div className="library-card-image-wrapper">
+        {game.coverUrl ? (
+          <img src={game.coverUrl} alt={game.title} className="library-card-image" loading="lazy" />
+        ) : (
+          <div className="library-card-image library-card-image-placeholder">
+            <span>{game.title}</span>
+          </div>
+        )}
+
+        {isRunning && (
+          <div className="running-overlay-indicator">
+            <span className="running-dot-pulse" />
+            <span className="running-text">Running</span>
+          </div>
+        )}
+
+        {game.isFavorite && (
+          <div className="favorite-indicator-badge">
+            <Star size={10} fill="currentColor" />
+          </div>
+        )}
+
+        <div className="library-card-hover">
+          <button
+            className={`quick-play-button ${isRunning ? 'running-btn' : ''}`}
+            onClick={handleLaunchClick}
+            title={isRunning ? "Game Running" : "Launch Game"}
+          >
+            <Play fill={isRunning ? "transparent" : "currentColor"} size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="library-card-info">
+        <div className="library-card-title">{game.title}</div>
+      </div>
+    </div>
+  );
+});
 

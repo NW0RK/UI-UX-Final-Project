@@ -4,10 +4,12 @@ import { audioEngine } from '../utils/audioEngine';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 import { getSteamReviewScore } from '../utils/steamReviews';
-import { fetchRawgGameDetailsBrowser, fetchRawgScreenshotsBrowser } from '../utils/rawg';
+import { fetchIgdbGameDetailsBrowser, fetchIgdbScreenshotsBrowser } from '../utils/igdb';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
+import { fetchProtonDbSummaryBrowser, getProtonDbSummary, isValidSteamAppId } from '../utils/protondb';
 
 const HIGHCHARTS_VERSION = '12.6.0';
+const DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8';
 let highchartsLoaderPromise = null;
 
 function loadScriptOnce(src, globalCheck) {
@@ -227,7 +229,8 @@ export default function StoreItemPage({
   onLinkExe,
   onLaunch,
   onEditMetadata,
-  onRemoveGame
+  onRemoveGame,
+  protonDbEnabled = false
 }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
@@ -242,9 +245,9 @@ export default function StoreItemPage({
   const [itadSyncMessage, setItadSyncMessage] = useState('');
   const [itadApiKey, setItadApiKey] = useState(() => {
     try {
-      return localStorage.getItem('nexus_itad_api_key') || '';
+      return localStorage.getItem('nexus_itad_api_key') || DEFAULT_ITAD_API_KEY;
     } catch {
-      return '';
+      return DEFAULT_ITAD_API_KEY;
     }
   });
   const [itadApiKeySaved, setItadApiKeySaved] = useState(false);
@@ -253,29 +256,39 @@ export default function StoreItemPage({
   const [resolvedSteamAppId, setResolvedSteamAppId] = useState(null);
   const [steamDetails, setSteamDetails] = useState(null);
   const [steamReviewScore, setSteamReviewScore] = useState(null);
+  const [protonDbSummary, setProtonDbSummary] = useState(null);
+  const [protonDbStatus, setProtonDbStatus] = useState('idle');
   const [steamLookupStatus, setSteamLookupStatus] = useState('idle');
   const [steamMetadataLoaded, setSteamMetadataLoaded] = useState(false);
-  const [rawgDetails, setRawgDetails] = useState(null);
-  const [loadingRawgDetails, setLoadingRawgDetails] = useState(false);
-  const [rawgDetailsError, setRawgDetailsError] = useState(null);
+  const [igdbDetails, setIgdbDetails] = useState(null);
+  const [loadingIgdbDetails, setLoadingIgdbDetails] = useState(false);
+  const [igdbDetailsError, setIgdbDetailsError] = useState(null);
+  const [storylineExpanded, setStorylineExpanded] = useState(false);
   const [itadGameId, setItadGameId] = useState(null);
   const [chartPoints, setChartPoints] = useState([]);
   const [highchartsStatus, setHighchartsStatus] = useState('Loading price history...');
   const [chartThemeRevision, setChartThemeRevision] = useState(0);
   const highchartsContainerRef = useRef(null);
   const highchartsInstanceRef = useRef(null);
-  const activeItem = rawgDetails ? { ...item, ...rawgDetails, owned: item?.owned || rawgDetails.owned } : item;
+  const activeItem = igdbDetails ? { ...item, ...igdbDetails, owned: item?.owned || igdbDetails.owned } : item;
   const effectiveSteamAppId = resolvedSteamAppId || activeItem?.steamAppId || null;
   const steamBackedItem = activeItem ? {
     ...activeItem,
     steamAppId: effectiveSteamAppId,
-    steamReviewScore: steamReviewScore || activeItem.steamReviewScore || null
+    steamReviewScore: steamReviewScore || activeItem.steamReviewScore || null,
+    protonDbSummary: protonDbEnabled
+      ? protonDbSummary || activeItem.protonDbSummary || null
+      : null
   } : activeItem;
 
   useEffect(() => {
     if (!item) return;
     onPrefetchItem(item);
   }, [item?.id, onPrefetchItem]);
+
+  useEffect(() => {
+    setStorylineExpanded(false);
+  }, [item?.id]);
 
   useEffect(() => {
     if (!item || !cachedDetails) return;
@@ -296,18 +309,23 @@ export default function StoreItemPage({
       setSteamReviewScore(cachedDetails.steamReviewScore || null);
     }
 
+    if ('protonDbSummary' in cachedDetails) {
+      setProtonDbSummary(cachedDetails.protonDbSummary || null);
+      setProtonDbStatus(cachedDetails.protonDbSummary ? 'ready' : cachedDetails.protonDbStatus || 'unavailable');
+    }
+
     if (cachedDetails.steamMetadataLoaded) {
       setSteamMetadataLoaded(true);
     }
 
-    if (cachedDetails.rawgDetails) {
-      setRawgDetails(cachedDetails.rawgDetails);
-      setRawgDetailsError(null);
-      setLoadingRawgDetails(false);
+    if (cachedDetails.igdbDetails) {
+      setIgdbDetails(cachedDetails.igdbDetails);
+      setIgdbDetailsError(null);
+      setLoadingIgdbDetails(false);
     }
 
-    if (cachedDetails.rawgDetailsError && !cachedDetails.rawgDetails) {
-      setRawgDetailsError(cachedDetails.rawgDetailsError);
+    if (cachedDetails.igdbDetailsError && !cachedDetails.igdbDetails) {
+      setIgdbDetailsError(cachedDetails.igdbDetailsError);
     }
 
     if (cachedDetails.mediaLoaded && cachedDetails.media && cachedDetails.mediaSource !== 'fallback') {
@@ -323,6 +341,8 @@ export default function StoreItemPage({
     let active = true;
     setSteamDetails(null);
     setSteamReviewScore(null);
+    setProtonDbSummary(null);
+    setProtonDbStatus('idle');
     setSteamMetadataLoaded(false);
 
     const savedAppId = String(item.steamAppId || '').trim();
@@ -437,21 +457,78 @@ export default function StoreItemPage({
   }, [effectiveSteamAppId, cachedDetails?.cachedAt, item?.id, onCacheDetails]);
 
   useEffect(() => {
-    if (!item?.rawgId || item.source !== 'rawg') {
-      setRawgDetails(null);
-      setRawgDetailsError(null);
-      setLoadingRawgDetails(false);
+    if (!protonDbEnabled) {
+      setProtonDbSummary(null);
+      setProtonDbStatus('idle');
+      return;
+    }
+
+    const appId = String(effectiveSteamAppId || '').trim();
+    if (!isValidSteamAppId(appId)) {
+      setProtonDbSummary(null);
+      setProtonDbStatus(steamLookupStatus === 'missing' ? 'missing-steam' : 'idle');
+      return;
+    }
+
+    if (cachedDetails?.protonDbSummary) {
+      setProtonDbSummary(cachedDetails.protonDbSummary);
+      setProtonDbStatus('ready');
+      return;
+    }
+
+    if (cachedDetails?.protonDbStatus === 'unavailable') {
+      setProtonDbSummary(null);
+      setProtonDbStatus('unavailable');
       return;
     }
 
     let active = true;
-    setRawgDetails(null);
-    setRawgDetailsError(null);
-    setLoadingRawgDetails(true);
+    setProtonDbStatus('loading');
 
-    if (cachedDetails?.rawgDetails) {
-      setRawgDetails(cachedDetails.rawgDetails);
-      setLoadingRawgDetails(false);
+    const request = window.electronAPI?.fetchProtonDbSummary
+      ? window.electronAPI.fetchProtonDbSummary(appId)
+      : fetchProtonDbSummaryBrowser(appId);
+
+    request
+      .then(summary => {
+        if (!active) return;
+        setProtonDbSummary(summary || null);
+        setProtonDbStatus(summary ? 'ready' : 'unavailable');
+        onCacheDetails(item, {
+          protonDbSummary: summary || null,
+          protonDbStatus: summary ? 'ready' : 'unavailable'
+        }, appId);
+      })
+      .catch(error => {
+        console.warn('ProtonDB lookup failed:', error);
+        if (!active) return;
+        setProtonDbSummary(null);
+        setProtonDbStatus('unavailable');
+        onCacheDetails(item, {
+          protonDbSummary: null,
+          protonDbStatus: 'unavailable'
+        }, appId);
+      });
+
+    return () => { active = false; };
+  }, [cachedDetails?.cachedAt, effectiveSteamAppId, item?.id, onCacheDetails, protonDbEnabled, steamLookupStatus]);
+
+  useEffect(() => {
+    if (!item?.igdbId || item.source !== 'igdb') {
+      setIgdbDetails(null);
+      setIgdbDetailsError(null);
+      setLoadingIgdbDetails(false);
+      return;
+    }
+
+    let active = true;
+    setIgdbDetails(null);
+    setIgdbDetailsError(null);
+    setLoadingIgdbDetails(true);
+
+    if (cachedDetails?.igdbDetails) {
+      setIgdbDetails(cachedDetails.igdbDetails);
+      setLoadingIgdbDetails(false);
       return () => { active = false; };
     }
 
@@ -459,33 +536,33 @@ export default function StoreItemPage({
       return () => { active = false; };
     }
 
-    const detailsPromise = window.electronAPI?.fetchRawgGameDetails
-      ? window.electronAPI.fetchRawgGameDetails(item.rawgId)
-      : fetchRawgGameDetailsBrowser(item.rawgId);
+    const detailsPromise = window.electronAPI?.fetchIgdbGameDetails
+      ? window.electronAPI.fetchIgdbGameDetails(item.igdbId)
+      : fetchIgdbGameDetailsBrowser(item.igdbId);
 
     detailsPromise
       .then((details) => {
         if (!active) return;
         if (details?.error) {
-          setRawgDetailsError(details.error);
+          setIgdbDetailsError(details.error);
         } else {
-          setRawgDetails(details);
+          setIgdbDetails(details);
           onCacheDetails(item, {
-            rawgDetails: details,
-            rawgDetailsLoaded: true,
-            rawgDetailsError: null
+            igdbDetails: details,
+            igdbDetailsLoaded: true,
+            igdbDetailsError: null
           }, effectiveSteamAppId);
         }
       })
       .catch((error) => {
-        if (active) setRawgDetailsError(error.message);
+        if (active) setIgdbDetailsError(error.message);
       })
       .finally(() => {
-        if (active) setLoadingRawgDetails(false);
+        if (active) setLoadingIgdbDetails(false);
       });
 
     return () => { active = false; };
-  }, [item?.id, item?.rawgId, item?.source, cachedDetails?.cachedAt, effectiveSteamAppId, onCacheDetails]);
+  }, [item?.id, item?.igdbId, item?.source, cachedDetails?.cachedAt, effectiveSteamAppId, onCacheDetails]);
 
   useEffect(() => {
     if (!activeItem) return;
@@ -503,19 +580,19 @@ export default function StoreItemPage({
       return () => { active = false; };
     }
 
-    async function fetchRawgScreenshotFallback() {
-      if (Array.isArray(cachedDetails?.rawgScreenshots)) {
-        return cachedDetails.rawgScreenshots;
+    async function fetchIgdbScreenshotFallback() {
+      if (Array.isArray(cachedDetails?.igdbScreenshots)) {
+        return cachedDetails.igdbScreenshots;
       }
 
       try {
         const payload = {
-          rawgId: activeItem.rawgId,
+          igdbId: activeItem.igdbId,
           title: activeItem.title
         };
-        const screenshots = window.electronAPI?.fetchRawgScreenshots
-          ? await window.electronAPI.fetchRawgScreenshots(payload)
-          : await fetchRawgScreenshotsBrowser(payload);
+        const screenshots = window.electronAPI?.fetchIgdbScreenshots
+          ? await window.electronAPI.fetchIgdbScreenshots(payload)
+          : await fetchIgdbScreenshotsBrowser(payload);
         if (screenshots?.error) {
           console.warn('Screenshot lookup failed:', screenshots.error);
           return [];
@@ -586,15 +663,15 @@ export default function StoreItemPage({
         return;
       }
 
-      if (!effectiveSteamAppId && activeItem.source === 'rawg') {
-        const rawgImage = activeItem.bannerUrl || activeItem.coverUrl;
-        const rawgScreenshots = await fetchRawgScreenshotFallback();
+      if (!effectiveSteamAppId && activeItem.source === 'igdb') {
+        const igdbImage = activeItem.bannerUrl || activeItem.coverUrl;
+        const igdbScreenshots = await fetchIgdbScreenshotFallback();
         if (!active) return;
 
-        const screenshots = rawgScreenshots.length
-          ? rawgScreenshots
-          : rawgImage
-            ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+        const screenshots = igdbScreenshots.length
+          ? igdbScreenshots
+          : igdbImage
+            ? [{ id: 'igdb-hero', path_full: igdbImage, path_thumbnail: igdbImage }]
             : [];
         const nextMedia = { screenshots, movies: [] };
         const nextSelectedMedia = screenshots.length ? { type: 'image', url: screenshots[0].path_full || screenshots[0].url } : null;
@@ -603,10 +680,10 @@ export default function StoreItemPage({
         onCacheDetails(item, {
           media: nextMedia,
           selectedMedia: nextSelectedMedia,
-          bannerUrl: rawgImage,
-          rawgScreenshots,
+          bannerUrl: igdbImage,
+          igdbScreenshots,
           mediaLoaded: true,
-          mediaSource: rawgScreenshots.length ? 'rawg' : 'fallback'
+          mediaSource: igdbScreenshots.length ? 'igdb' : 'fallback'
         }, effectiveSteamAppId);
         setLoadingMedia(false);
         return;
@@ -615,21 +692,21 @@ export default function StoreItemPage({
       if (!active) return;
 
       if (!effectiveSteamAppId) {
-        const rawgScreenshots = await fetchRawgScreenshotFallback();
+        const igdbScreenshots = await fetchIgdbScreenshotFallback();
         if (!active) return;
 
-        if (rawgScreenshots.length > 0) {
-          const nextMedia = { screenshots: rawgScreenshots, movies: [] };
-          const nextSelectedMedia = { type: 'image', url: rawgScreenshots[0].path_full || rawgScreenshots[0].url };
+        if (igdbScreenshots.length > 0) {
+          const nextMedia = { screenshots: igdbScreenshots, movies: [] };
+          const nextSelectedMedia = { type: 'image', url: igdbScreenshots[0].path_full || igdbScreenshots[0].url };
           setMedia(nextMedia);
           setSelectedMedia(nextSelectedMedia);
           onCacheDetails(item, {
             media: nextMedia,
             selectedMedia: nextSelectedMedia,
-            rawgScreenshots,
+            igdbScreenshots,
             bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
             mediaLoaded: true,
-            mediaSource: 'rawg'
+            mediaSource: 'igdb'
           }, effectiveSteamAppId);
           setLoadingMedia(false);
           return;
@@ -659,7 +736,7 @@ export default function StoreItemPage({
 
     loadMedia();
     return () => { active = false; };
-  }, [activeItem?.id, activeItem?.source, activeItem?.rawgId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl, effectiveSteamAppId, steamDetails, steamLookupStatus, steamMetadataLoaded, cachedDetails?.cachedAt, onCacheDetails]);
+  }, [activeItem?.id, activeItem?.source, activeItem?.igdbId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl, effectiveSteamAppId, steamDetails, steamLookupStatus, steamMetadataLoaded, cachedDetails?.cachedAt, onCacheDetails]);
 
   useEffect(() => {
     if (typeof MutationObserver === 'undefined') return undefined;
@@ -1029,12 +1106,21 @@ export default function StoreItemPage({
 
   const ownedGame = ownedGames.find(g =>
     g.id === activeItem.id ||
+    (activeItem.igdbId && g.igdbId === activeItem.igdbId) ||
     (activeItem.rawgId && g.rawgId === activeItem.rawgId) ||
     (activeItem.itadId && g.itadId === activeItem.itadId)
   );
   const isOwned = !!ownedGame;
   const hasExe = isOwned && ownedGame.exePath;
   const reviewScore = steamBackedItem?.steamReviewScore ? getSteamReviewScore(steamBackedItem.steamReviewScore) : null;
+  const protonSummary = protonDbEnabled ? getProtonDbSummary(steamBackedItem?.protonDbSummary) : null;
+  const protonStatusLabel = protonDbStatus === 'loading'
+    ? 'Loading'
+    : protonDbStatus === 'missing-steam'
+      ? 'Steam match needed'
+      : protonDbStatus === 'unavailable'
+        ? 'Unavailable'
+        : null;
   const displayBannerUrl = steamDetails?.background_raw ||
     steamDetails?.background ||
     steamDetails?.header_image ||
@@ -1124,7 +1210,85 @@ export default function StoreItemPage({
     setItadOAuthStatus(getItadOAuthStatus());
   };
 
-  const aboutText = activeItem.description;
+  const aboutText = (() => {
+    // Strip any lightweight markup/entities from external descriptions.
+    const strip = (html) => {
+      if (!html) return '';
+      return String(html)
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&rsquo;/g, "'")
+        .replace(/&lsquo;/g, "'")
+        .replace(/&rdquo;/g, '"')
+        .replace(/&ldquo;/g, '"')
+        .replace(/&mdash;/g, '—')
+        .replace(/&ndash;/g, '–')
+        .replace(/&hellip;/g, '...')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    };
+
+    // Check if a description is a real description (not a placeholder or generic stub)
+    const isReal = (text) => {
+      if (!text || typeof text !== 'string') return false;
+      const t = text.trim();
+      if (t.length < 20) return false;
+      if (t.startsWith('Open details to load')) return false;
+      if (t.startsWith('Your scanned copy of')) return false;
+      if (t.startsWith('A local executable found at')) return false;
+      if (t === 'No description available for this title.') return false;
+      return true;
+    };
+
+    // Priority 1: IGDB details description (from enrichment or cache)
+    const igdbDesc = igdbDetails?.description ||
+      cachedDetails?.igdbDetails?.description ||
+      igdbDetails?.igdbSummary ||
+      cachedDetails?.igdbDetails?.igdbSummary;
+    if (isReal(igdbDesc)) return igdbDesc;
+
+    // Priority 2: Item's own description (ITAD deal text, etc.)
+    const itemDesc = activeItem?.description;
+    if (isReal(itemDesc)) return itemDesc;
+
+    return null;
+  })();
+
+  const storylineText = (() => {
+    const text = igdbDetails?.igdbStoryline ||
+      cachedDetails?.igdbDetails?.igdbStoryline ||
+      activeItem?.igdbStoryline ||
+      '';
+    return text && text !== aboutText ? text : '';
+  })();
+
+  // Debug: Log description sources on each render to diagnose empty descriptions
+  console.log('[StoreItemPage] Description debug:', {
+    title: activeItem?.title,
+    aboutTextLength: aboutText?.length || 0,
+    aboutTextPreview: aboutText?.slice(0, 60) || '(null)',
+    steamDetailsLoaded: !!steamDetails,
+    cachedSteamDetails: !!cachedDetails?.steamDetails,
+    igdbDetailsLoaded: !!igdbDetails,
+    cachedIgdbDetails: !!cachedDetails?.igdbDetails,
+    igdbDesc: !!(igdbDetails?.description || cachedDetails?.igdbDetails?.description),
+    itemDesc: activeItem?.description?.slice(0, 60) || '(none)',
+    itemSource: item?.source,
+    steamMetadataLoaded,
+    loadingIgdbDetails,
+    effectiveSteamAppId,
+    cacheStatus: cachedDetails?.status
+  });
+
+  // Description is loading only while IGDB enrichment is still in flight.
+  const descriptionLoading = !aboutText && loadingIgdbDetails;
 
   return (
     <div className="store-item-viewport">
@@ -1172,6 +1336,17 @@ export default function StoreItemPage({
               <small>{reviewScore.positivePercent}% of {reviewScore.totalReviews.toLocaleString()} user reviews</small>
             )}
           </div>
+          {protonDbEnabled && (
+            <div className="store-item-review-score protondb-score">
+              <span>Linux</span>
+              <strong className={`protondb-tier ${protonSummary?.className || 'unavailable'}`}>
+                {protonSummary?.label || protonStatusLabel || 'Unavailable'}
+              </strong>
+              {protonSummary?.total > 0 && (
+                <small>{protonSummary.total.toLocaleString()} ProtonDB reports</small>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1179,9 +1354,35 @@ export default function StoreItemPage({
       <div className="store-item-body">
         <div className="store-item-left">
           <h3 className="store-item-section-title">About This Game</h3>
-          {loadingRawgDetails && <div className="rawg-status-line">Loading game profile...</div>}
-          {rawgDetailsError && <div className="rawg-status-line error">Game details unavailable: {rawgDetailsError}</div>}
-          <p className="store-item-description">{aboutText}</p>
+          {loadingIgdbDetails && <div className="igdb-status-line">Loading game profile...</div>}
+          {igdbDetailsError && <div className="igdb-status-line error">Game details unavailable: {igdbDetailsError}</div>}
+          {descriptionLoading && !loadingIgdbDetails && (
+            <div className="igdb-status-line">Loading description...</div>
+          )}
+          <p className="store-item-description">
+            {aboutText || (descriptionLoading ? '' : 'No description available for this title.')}
+          </p>
+
+          {storylineText && (
+            <div className={`storyline-disclosure ${storylineExpanded ? 'expanded' : ''}`}>
+              <button
+                type="button"
+                className="storyline-toggle-btn"
+                aria-expanded={storylineExpanded}
+                onClick={() => {
+                  audioEngine.playClickPulse();
+                  setStorylineExpanded(expanded => !expanded);
+                }}
+                onFocus={audioEngine.playHoverTick}
+              >
+                <span>Read About Storyline</span>
+                <ChevronRight size={16} />
+              </button>
+              <div className="storyline-panel" aria-hidden={!storylineExpanded}>
+                <p>{storylineText}</p>
+              </div>
+            </div>
+          )}
 
           <div className="store-item-showcase-row">
             <div className="store-item-screenshots-panel">
@@ -1477,6 +1678,25 @@ export default function StoreItemPage({
             )}
           </div>
 
+          {protonDbEnabled && (
+            <div className="protondb-detail-card">
+              <div className="protondb-detail-title">
+                <ExternalLink size={15} />
+                <span>Linux Compatibility</span>
+              </div>
+              <strong className={`protondb-tier ${protonSummary?.className || 'unavailable'}`}>
+                {protonSummary?.label || protonStatusLabel || 'Unavailable'}
+              </strong>
+              <p>
+                {protonSummary?.total > 0
+                  ? `${protonSummary.total.toLocaleString()} community report${protonSummary.total === 1 ? '' : 's'} through ProtonDB.`
+                  : protonDbStatus === 'missing-steam'
+                    ? 'A Steam App ID is needed before ProtonDB can report Linux compatibility.'
+                    : 'Compatibility data is not available for this game yet.'}
+              </p>
+            </div>
+          )}
+
           <div className="itad-sync-card">
             <div className="itad-sync-title">
               <KeyRound size={16} />
@@ -1693,6 +1913,29 @@ export default function StoreItemPage({
           text-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
         }
 
+        .store-item-review-score.protondb-score {
+          border-color: rgba(83, 205, 138, 0.2);
+          background: rgba(8, 24, 20, 0.48);
+        }
+
+        .protondb-tier {
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-family: var(--font-display);
+          font-weight: 900;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.5); }
+
         .steam-review-score.overwhelmingly-positive,
         .steam-review-score.very-positive,
         .steam-review-score.mostly-positive {
@@ -1769,25 +2012,105 @@ export default function StoreItemPage({
           margin-bottom: 22px;
           letter-spacing: 0.3px;
           white-space: pre-line;
+          flex-shrink: 0;
           overflow-y: auto;
-          max-height: 8em;
+          max-height: 10em;
           padding-right: 8px;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.1) rgba(0, 0, 0, 0);
         }
 
-        .rawg-status-line {
+        .store-item-description::-webkit-scrollbar {
+          width: 4px;
+        }
+
+        .store-item-description::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .store-item-description::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
+        }
+
+        .storyline-disclosure {
+          margin: -4px 0 22px;
+        }
+
+        .storyline-toggle-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid rgba(var(--accent-color-rgb), 0.24);
+          border-radius: 8px;
+          background: rgba(var(--accent-color-rgb), 0.08);
+          color: var(--accent-color);
+          padding: 9px 13px;
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 900;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
+        }
+
+        .storyline-toggle-btn:hover,
+        .storyline-toggle-btn:focus-visible {
+          border-color: rgba(var(--accent-color-rgb), 0.42);
+          background: rgba(var(--accent-color-rgb), 0.14);
+          transform: translateY(-1px);
+          outline: none;
+        }
+
+        .storyline-toggle-btn svg {
+          transition: transform 220ms ease;
+        }
+
+        .storyline-disclosure.expanded .storyline-toggle-btn svg {
+          transform: rotate(90deg);
+        }
+
+        .storyline-panel {
+          max-height: 0;
+          opacity: 0;
+          overflow: hidden;
+          transform: translateY(-6px);
+          transition: max-height 320ms ease, opacity 220ms ease, transform 260ms ease;
+        }
+
+        .storyline-disclosure.expanded .storyline-panel {
+          max-height: 260px;
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        .storyline-panel p {
+          margin: 12px 0 0;
+          max-height: 220px;
+          overflow-y: auto;
+          padding: 14px 16px;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.026);
+          color: #a2b8cc;
+          font-size: var(--fs-15);
+          line-height: 1.7;
+          white-space: pre-line;
+        }
+
+        .igdb-status-line {
           margin-bottom: 10px;
           color: rgba(255, 255, 255, 0.42);
           font-size: var(--fs-11);
           font-weight: 700;
         }
 
-        .rawg-status-line.error {
+        .igdb-status-line.error {
           color: #ef4444;
         }
 
-        .rawg-attribution {
+        .igdb-attribution {
           display: inline-flex;
           width: fit-content;
           margin: 10px 0 22px;
@@ -1798,8 +2121,8 @@ export default function StoreItemPage({
           letter-spacing: 0.4px;
         }
 
-        .rawg-attribution:hover,
-        .rawg-attribution:focus-visible {
+        .igdb-attribution:hover,
+        .igdb-attribution:focus-visible {
           text-decoration: underline;
         }
 
@@ -2325,6 +2648,40 @@ export default function StoreItemPage({
           display: flex;
           flex-direction: column;
           gap: 16px;
+        }
+
+        .protondb-detail-card {
+          background: rgba(83, 205, 138, 0.045);
+          border: 1px solid rgba(83, 205, 138, 0.14);
+          border-radius: 12px;
+          padding: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .protondb-detail-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: rgba(255, 255, 255, 0.68);
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 850;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+        }
+
+        .protondb-detail-card .protondb-tier {
+          font-size: var(--fs-20);
+          line-height: 1;
+        }
+
+        .protondb-detail-card p {
+          margin: 0;
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-12);
+          line-height: 1.45;
         }
 
         .owned-check {

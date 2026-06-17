@@ -1,9 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Star, Flame, Clock, Hourglass, Move } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Star, Flame, Clock, Hourglass, Move, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import { analyzeBannerTitlePlacement, normalizeBannerLayout } from '../utils/bannerPlacement';
 import { getBrandfetchStudioLogoSources } from '../utils/brandfetch';
 import { getPrimaryHltbText } from '../utils/hltb';
+import { getProtonDbSummary } from '../utils/protondb';
 import LibraryOverflowMenu from './LibraryOverflowMenu';
+
+let youtubeIframeApiPromise = null;
+
+function loadYouTubeIframeApi() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('YouTube iframe API is unavailable'));
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (youtubeIframeApiPromise) return youtubeIframeApiPromise;
+
+  youtubeIframeApiPromise = new Promise((resolve, reject) => {
+    const existingCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof existingCallback === 'function') existingCallback();
+      resolve(window.YT);
+    };
+
+    const existingScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    if (existingScript) return;
+
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    script.onerror = () => reject(new Error('YouTube iframe API failed to load'));
+    document.head.appendChild(script);
+  });
+
+  return youtubeIframeApiPromise;
+}
 
 export default function GameMainBanner({ 
   game, 
@@ -13,9 +42,13 @@ export default function GameMainBanner({
   onRemoveGame,
   isRunning,
   bannerAnimation = true,
+  trailerPlayback = null,
+  trailerMutedByDefault = false,
+  onTrailerEnded,
   studioLogosEnabled = false,
   brandfetchClientId = '',
   brandfetchCacheVersion = 0,
+  protonDbEnabled = false,
   onUpdateGameBannerLayout,
   editMode: controlledEditMode,
   setEditMode: controlledSetEditMode
@@ -28,19 +61,24 @@ export default function GameMainBanner({
   const setEditMode = controlledSetEditMode !== undefined ? controlledSetEditMode : setLocalEditMode;
 
   // Layout state initialized from game
-  const initialLayout = game?.bannerLayout || {
-    leftPercent: 65,
-    topPercent: 30,
-    width: 400,
-    height: 120
-  };
+  const initialLayout = normalizeBannerLayout(game?.bannerLayout);
 
   const [activeLayout, setActiveLayout] = useState(initialLayout);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [autoPlacementStatus, setAutoPlacementStatus] = useState('idle');
+  const [isTrailerMuted, setIsTrailerMuted] = useState(Boolean(trailerMutedByDefault));
+  const [isTrailerCurtainLifted, setIsTrailerCurtainLifted] = useState(false);
+  const [trailerProgress, setTrailerProgress] = useState(0);
 
   const bannerRef = useRef(null);
+  const backdropImgRef = useRef(null);
+  const contentRef = useRef(null);
   const titleRef = useRef(null);
+  const trailerFrameRef = useRef(null);
+  const trailerPlayerRef = useRef(null);
+  const isTrailerMutedRef = useRef(Boolean(trailerMutedByDefault));
+  const autoPlacementGameRef = useRef(null);
   
   // Keep a ref of the layout to avoid stale closure state in mouse event handlers
   const layoutRef = useRef(activeLayout);
@@ -50,14 +88,10 @@ export default function GameMainBanner({
 
   // Sync state when game changes
   useEffect(() => {
-    const updated = game?.bannerLayout || {
-      leftPercent: 65,
-      topPercent: 30,
-      width: 400,
-      height: 120
-    };
+    const updated = normalizeBannerLayout(game?.bannerLayout);
     setActiveLayout(updated);
     layoutRef.current = updated;
+    setAutoPlacementStatus('idle');
   }, [game?.id, game?.bannerLayout]);
 
   useEffect(() => {
@@ -80,7 +114,71 @@ export default function GameMainBanner({
     };
   }, []);
 
-  if (!game) return null;
+  const getReservedRects = useCallback(() => {
+    const bannerRect = bannerRef.current?.getBoundingClientRect();
+    const contentRect = contentRef.current?.getBoundingClientRect();
+    if (!bannerRect || !contentRect) return [];
+
+    return [{
+      x: Math.max(0, contentRect.left - bannerRect.left - 24),
+      y: Math.max(0, contentRect.top - bannerRect.top - 24),
+      width: Math.min(bannerRect.width, contentRect.width + 48),
+      height: Math.min(bannerRect.height, contentRect.height + 48)
+    }];
+  }, []);
+
+  const applyAutoPlacement = useCallback(async ({ persist = false } = {}) => {
+    const image = backdropImgRef.current;
+    const bannerRect = bannerRef.current?.getBoundingClientRect();
+
+    if (!game?.bannerUrl || !image || !bannerRect?.width || !bannerRect?.height) {
+      return null;
+    }
+
+    if (!image.complete || !image.naturalWidth) {
+      return null;
+    }
+
+    setAutoPlacementStatus('analyzing');
+
+    try {
+      const nextLayout = analyzeBannerTitlePlacement({
+        image,
+        containerWidth: bannerRect.width,
+        containerHeight: bannerRect.height,
+        preferredLayout: layoutRef.current,
+        reservedRects: getReservedRects()
+      });
+
+      setActiveLayout(nextLayout);
+      layoutRef.current = nextLayout;
+      setAutoPlacementStatus('ready');
+
+      if (persist && onUpdateGameBannerLayout) {
+        await onUpdateGameBannerLayout(game.id, nextLayout);
+      }
+
+      return nextLayout;
+    } catch (error) {
+      setAutoPlacementStatus('blocked');
+      return null;
+    }
+  }, [game?.bannerUrl, game?.id, getReservedRects, onUpdateGameBannerLayout]);
+
+  useEffect(() => {
+    if (!game?.id || !game?.bannerUrl || game?.bannerLayout) return;
+    if (autoPlacementGameRef.current === game.id) return;
+
+    const frame = requestAnimationFrame(() => {
+      applyAutoPlacement({ persist: false }).then((layout) => {
+        if (layout) {
+          autoPlacementGameRef.current = game.id;
+        }
+      });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [applyAutoPlacement, game?.bannerLayout, game?.bannerUrl, game?.id]);
 
   const getSteamRating = (rating) => {
     let numericRating = parseFloat(rating);
@@ -116,9 +214,185 @@ export default function GameMainBanner({
     }
   };
 
-  const ratingData = getSteamRating(game.rating);
-  const hltbText = getPrimaryHltbText(game.hltb);
-  const bannerTransitionKey = game.id || game.title;
+  const ratingData = getSteamRating(game?.rating);
+  const hltbText = getPrimaryHltbText(game?.hltb);
+  const protonSummary = protonDbEnabled ? getProtonDbSummary(game?.protonDbSummary) : null;
+  const bannerTransitionKey = game?.id || game?.title;
+  const shouldShowTrailer = Boolean(
+    trailerPlayback?.visible &&
+    trailerPlayback?.gameId === game?.id &&
+    trailerPlayback?.embedUrl &&
+    !editMode
+  );
+  const trailerOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const trailerUrl = shouldShowTrailer
+    ? `${trailerPlayback.embedUrl}?autoplay=1&mute=${trailerMutedByDefault ? '1' : '0'}&controls=0&disablekb=1&fs=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&enablejsapi=1${trailerOrigin ? `&origin=${encodeURIComponent(trailerOrigin)}` : ''}`
+    : null;
+
+  useEffect(() => {
+    setIsTrailerMuted(Boolean(trailerMutedByDefault));
+    setIsTrailerCurtainLifted(false);
+    setTrailerProgress(0);
+  }, [trailerMutedByDefault, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
+
+  useEffect(() => {
+    isTrailerMutedRef.current = isTrailerMuted;
+  }, [isTrailerMuted]);
+
+  const sendTrailerAudioCommand = useCallback((muted) => {
+    const player = trailerPlayerRef.current;
+    try {
+      if (muted) {
+        player?.mute?.();
+      } else {
+        player?.unMute?.();
+        player?.setVolume?.(80);
+      }
+    } catch {
+      // Fall through to iframe commands below.
+    }
+
+    const frameWindow = trailerFrameRef.current?.contentWindow;
+    if (!frameWindow) return;
+
+    try {
+      frameWindow.postMessage(JSON.stringify({
+        event: 'command',
+        func: muted ? 'mute' : 'unMute',
+        args: []
+      }), 'https://www.youtube.com');
+
+      if (!muted) {
+        frameWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: 'setVolume',
+          args: [80]
+        }), 'https://www.youtube.com');
+      }
+    } catch {
+      // The iframe can ignore commands while it is still loading.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) return undefined;
+
+    let cancelled = false;
+    let player = null;
+
+    const handleMessage = (event) => {
+      if (!String(event.origin || '').includes('youtube.com')) return;
+
+      let data = event.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          return;
+        }
+      }
+
+      if (data?.event === 'onStateChange') {
+        if (Number(data?.info) === 0) {
+          onTrailerEnded?.(game?.id);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    loadYouTubeIframeApi().then((yt) => {
+      if (cancelled || !trailerFrameRef.current || !yt?.Player) return;
+      player = new yt.Player(trailerFrameRef.current, {
+        events: {
+          onReady: (event) => {
+            trailerPlayerRef.current = event.target;
+            sendTrailerAudioCommand(isTrailerMutedRef.current);
+          },
+          onStateChange: (event) => {
+            if (Number(event?.data) === Number(yt.PlayerState?.ENDED ?? 0)) {
+              onTrailerEnded?.(game?.id);
+            }
+          }
+        }
+      });
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('message', handleMessage);
+      try {
+        player?.destroy?.();
+      } catch {
+        // The iframe can already be gone during fast game switches.
+      }
+      if (trailerPlayerRef.current === player) {
+        trailerPlayerRef.current = null;
+      }
+    };
+  }, [game?.id, onTrailerEnded, sendTrailerAudioCommand, shouldShowTrailer]);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) return;
+    sendTrailerAudioCommand(isTrailerMuted);
+  }, [isTrailerMuted, sendTrailerAudioCommand, shouldShowTrailer]);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) {
+      setIsTrailerCurtainLifted(false);
+      setTrailerProgress(0);
+      return undefined;
+    }
+
+    setIsTrailerCurtainLifted(false);
+    const timer = setTimeout(() => {
+      setIsTrailerCurtainLifted(true);
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [shouldShowTrailer, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
+
+  useEffect(() => {
+    if (!shouldShowTrailer) {
+      setTrailerProgress(0);
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      const player = trailerPlayerRef.current;
+      if (!player?.getCurrentTime || !player?.getDuration) return;
+
+      try {
+        const duration = Number(player.getDuration()) || 0;
+        const currentTime = Number(player.getCurrentTime()) || 0;
+        if (duration > 0) {
+          setTrailerProgress(Math.max(0, Math.min(1, currentTime / duration)));
+        }
+      } catch {
+        // The player can briefly reject reads while changing state.
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [shouldShowTrailer, trailerPlayback?.gameId, trailerPlayback?.videoId, trailerPlayback?.embedUrl]);
+
+  const handleTrailerLoad = () => {
+    try {
+      trailerFrameRef.current?.contentWindow?.postMessage(JSON.stringify({
+        event: 'listening',
+        id: `nexus-trailer-${game?.id || 'selected'}`
+      }), '*');
+      sendTrailerAudioCommand(isTrailerMutedRef.current);
+    } catch {
+      // YouTube embeds can reject messaging during navigation; playback still works.
+    }
+  };
+
+  const handleTrailerMuteToggle = () => {
+    audioEngine.playClickPulse();
+    setIsTrailerMuted(prev => !prev);
+  };
+
+  if (!game) return null;
 
   const handleLaunchClick = () => {
     audioEngine.playClickPulse();
@@ -157,7 +431,8 @@ export default function GameMainBanner({
     setAcceptedStudioLogoUrl(null);
     setStudioLogoMode(prev => {
       if (prev === 'lightLogo') return 'defaultLogo';
-      if (prev === 'defaultLogo') return 'icon';
+      if (prev === 'defaultLogo') return game.iconUrl ? 'gameIcon' : 'icon';
+      if (prev === 'gameIcon') return 'icon';
       return 'hidden';
     });
   };
@@ -206,6 +481,21 @@ export default function GameMainBanner({
     const mins = Math.floor((seconds % 3600) / 60);
     if (hrs === 0) return `${mins} mins`;
     return `${hrs}h ${mins}m`;
+  };
+
+  const handleBackdropLoad = () => {
+    if (!game?.bannerLayout) {
+      applyAutoPlacement({ persist: false }).then((layout) => {
+        if (layout) {
+          autoPlacementGameRef.current = game.id;
+        }
+      });
+    }
+  };
+
+  const handleAutoPlacementClick = () => {
+    audioEngine.playClickPulse();
+    applyAutoPlacement({ persist: true });
   };
 
   // Drag start handler
@@ -385,15 +675,17 @@ export default function GameMainBanner({
   ];
 
   return (
-    <div className="game-main-banner-container" ref={bannerRef}>
+    <div className={`game-main-banner-container ${shouldShowTrailer ? 'trailer-active' : ''}`} ref={bannerRef}>
       {/* Background Dissolve Backdrop Canvas */}
       <div className="backdrop-image-mask">
           {game.bannerUrl ? (
             <img 
+              ref={backdropImgRef}
               src={game.bannerUrl} 
               alt={game.title} 
               className={`banner-backdrop-img${parallaxClass}`} 
               key={game.id}
+              onLoad={handleBackdropLoad}
             />
           ) : (
             <div className={`banner-backdrop-img banner-art-placeholder${parallaxClass}`} key={game.id}>
@@ -403,8 +695,44 @@ export default function GameMainBanner({
         <div className="backdrop-overlay-vignette" />
       </div>
 
+      <div className={`banner-trailer-layer ${shouldShowTrailer ? 'is-visible' : ''}`}>
+        {shouldShowTrailer && (
+          <>
+            <div className="banner-trailer-stage">
+              <iframe
+                ref={trailerFrameRef}
+                key={`${game.id}-${trailerPlayback.videoId || trailerPlayback.embedUrl}`}
+                className="banner-trailer-frame"
+                src={trailerUrl}
+                title={trailerPlayback.title || `${game.title} trailer`}
+                allow="autoplay; encrypted-media"
+                onLoad={handleTrailerLoad}
+              />
+            </div>
+            <div className="banner-trailer-native-chrome">
+              <span className={`trailer-status-dot ${isTrailerMuted ? 'is-muted' : ''}`} />
+              <button
+                type="button"
+                className="trailer-audio-toggle"
+                onClick={handleTrailerMuteToggle}
+                onMouseEnter={audioEngine.playHoverTick}
+                aria-label={isTrailerMuted ? 'Unmute trailer' : 'Mute trailer'}
+                title={isTrailerMuted ? 'Unmute trailer' : 'Mute trailer'}
+              >
+                {isTrailerMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+              </button>
+            </div>
+            <div
+              className="banner-trailer-scanline"
+              style={{ '--trailer-progress': trailerProgress }}
+            />
+            <div className={`banner-trailer-start-veil ${isTrailerCurtainLifted ? 'is-ready' : ''}`} />
+          </>
+        )}
+      </div>
+
       {/* Floating Info Overlay Sheet */}
-      <div className="banner-content-box" key={`banner-content-${bannerTransitionKey}`}>
+      <div className="banner-content-box" ref={contentRef} key={`banner-content-${bannerTransitionKey}`}>
         {/* Developer & Developer Meta */}
         <div className="developer-meta banner-transition-item transition-developer">
           <span className={`developer-name ${visibleStudioLogoUrl ? 'developer-name-with-logo' : ''} ${developerLogoBadgeClass}`}>
@@ -431,6 +759,14 @@ export default function GameMainBanner({
           <span className="steam-rating">
             Rating: <strong className={`rating-highlight ${ratingData.class}`}>{ratingData.label}</strong>
           </span>
+          {protonSummary && (
+            <>
+              <span className="dot-divider" />
+              <span className="protondb-rating">
+                Linux: <strong className={`protondb-tier ${protonSummary.className}`}>{protonSummary.label}</strong>
+              </span>
+            </>
+          )}
         </div>
 
         {/* Short Description */}
@@ -452,6 +788,18 @@ export default function GameMainBanner({
             >
               <Move size={14} className="edit-icon" />
               <span>Done Customizing Title</span>
+            </button>
+            <button
+              className={`glow-btn action-pill-btn banner-edit-btn auto-place-btn ${autoPlacementStatus === 'ready' ? 'auto-ready' : ''}`}
+              onClick={handleAutoPlacementClick}
+              onMouseEnter={audioEngine.playHoverTick}
+              disabled={autoPlacementStatus === 'analyzing' || !game.bannerUrl}
+              title={autoPlacementStatus === 'blocked'
+                ? 'Auto placement needs readable cached artwork or a same-origin image'
+                : 'Find the clearest readable title position'}
+            >
+              <Sparkles size={14} className="edit-icon" />
+              <span>{autoPlacementStatus === 'analyzing' ? 'Analyzing...' : 'Auto Place Title'}</span>
             </button>
           </div>
         )}
@@ -517,14 +865,14 @@ export default function GameMainBanner({
       {/* DRAGGABLE & RESIZABLE TITLE CONTAINER */}
       <div 
         ref={titleRef}
-        className={`banner-title-container ${editMode ? 'edit-mode-active' : ''} ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
+        className={`banner-title-container tone-${activeLayout.textTone || 'light'} contrast-${activeLayout.overlayStrength || 'soft'} ${editMode ? 'edit-mode-active' : ''} ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
         style={{
           position: 'absolute',
           left: `${activeLayout.leftPercent}%`,
           top: `${activeLayout.topPercent}%`,
           width: `${activeLayout.width}px`,
           height: `${activeLayout.height}px`,
-          transition: (isDragging || isResizing) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease',
+          transition: (isDragging || isResizing) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface)',
           zIndex: 50,
           pointerEvents: 'auto'
         }}
@@ -611,6 +959,13 @@ export default function GameMainBanner({
           pointer-events: none;
         }
 
+        .game-main-banner-container.trailer-active .banner-content-box,
+        .game-main-banner-container.trailer-active .banner-title-container {
+          opacity: 0;
+          transform: translateY(16px) scale(0.985);
+          pointer-events: none !important;
+        }
+
         .backdrop-image-mask {
           position: absolute;
           top: 0;
@@ -681,17 +1036,177 @@ export default function GameMainBanner({
           z-index: 2;
         }
 
+        .banner-trailer-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 8;
+          opacity: 0;
+          transform: scale(1.015);
+          pointer-events: none;
+          transition: opacity 900ms var(--ease-interface), transform 900ms var(--ease-interface);
+          background: #07070a;
+          overflow: hidden;
+        }
+
+        .banner-trailer-layer.is-visible {
+          opacity: 1;
+          transform: scale(1);
+          pointer-events: auto;
+        }
+
+        .banner-trailer-layer::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse at 50% 35%, rgba(255, 255, 255, 0.02) 0%, rgba(7, 7, 10, 0) 42%, rgba(7, 7, 10, 0.62) 100%),
+            linear-gradient(90deg, rgba(7, 7, 10, 0.72) 0%, rgba(7, 7, 10, 0.02) 28%, rgba(7, 7, 10, 0.04) 66%, rgba(7, 7, 10, 0.74) 100%),
+            linear-gradient(0deg, rgba(7, 7, 10, 0.88) 0%, rgba(7, 7, 10, 0.06) 36%, rgba(7, 7, 10, 0.32) 100%);
+          box-shadow: inset 0 -180px 180px rgba(7, 7, 10, 0.66), inset 0 0 140px rgba(0, 0, 0, 0.46);
+        }
+
+        .banner-trailer-start-veil {
+          position: absolute;
+          inset: 0;
+          z-index: 2;
+          pointer-events: none;
+          background:
+            radial-gradient(ellipse at 50% 40%, rgba(var(--accent-color-rgb), 0.12) 0%, rgba(7, 7, 10, 0.72) 42%, rgba(7, 7, 10, 0.94) 100%),
+            linear-gradient(0deg, rgba(7, 7, 10, 0.98), rgba(7, 7, 10, 0.74));
+          opacity: 1;
+          transition: opacity 520ms var(--ease-interface);
+        }
+
+        .banner-trailer-start-veil.is-ready {
+          opacity: 0;
+        }
+
+        .banner-trailer-stage {
+          position: absolute;
+          inset: -88px -80px -88px;
+          overflow: hidden;
+        }
+
+        .banner-trailer-frame {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 100vw;
+          height: 56.25vw;
+          min-width: 100%;
+          min-height: 100%;
+          border: 0;
+          display: block;
+          background: #07070a;
+          pointer-events: none;
+          transform: translate(-50%, -50%) scale(1.18);
+          filter: saturate(1.08) contrast(1.04) brightness(0.86);
+        }
+
+        .banner-trailer-native-chrome {
+          position: absolute;
+          left: 60px;
+          bottom: 42px;
+          z-index: 3;
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          min-width: 92px;
+          height: 44px;
+          padding: 0 10px 0 14px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 10px;
+          background: rgba(7, 7, 10, 0.58);
+          color: rgba(255, 255, 255, 0.78);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          box-shadow: 0 16px 42px rgba(0, 0, 0, 0.28);
+          pointer-events: auto;
+        }
+
+        .trailer-status-dot {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          background: var(--accent-color);
+          box-shadow: 0 0 14px rgba(var(--accent-color-rgb), 0.95);
+          transition: background var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast);
+        }
+
+        .trailer-status-dot.is-muted {
+          background: rgba(255, 255, 255, 0.16);
+          box-shadow: none;
+          opacity: 0.45;
+        }
+
+        .trailer-audio-toggle {
+          width: 48px;
+          height: 36px;
+          border: 0;
+          border-left: 1px solid rgba(255, 255, 255, 0.08);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.78);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 0 0 10px;
+          cursor: pointer;
+          transition: color var(--transition-fast), transform var(--transition-fast), background var(--transition-fast);
+        }
+
+        .trailer-audio-toggle svg {
+          width: 23px;
+          height: 23px;
+          stroke-width: 2.25;
+        }
+
+        .trailer-audio-toggle:hover,
+        .trailer-audio-toggle:focus-visible {
+          color: var(--accent-color);
+          outline: none;
+        }
+
+        .banner-trailer-scanline {
+          position: absolute;
+          left: 60px;
+          right: 60px;
+          bottom: 28px;
+          z-index: 3;
+          height: 2px;
+          background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05), transparent);
+          opacity: 0.82;
+          pointer-events: none;
+          overflow: hidden;
+          border-radius: 999px;
+        }
+
+        .banner-trailer-scanline::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          height: 100%;
+          width: calc(var(--trailer-progress, 0) * 100%);
+          min-width: calc(var(--trailer-progress, 0) * 1px);
+          background: linear-gradient(90deg, rgba(var(--accent-color-rgb), 0.96), rgba(255, 255, 255, 0.45), rgba(var(--accent-color-rgb), 0.18));
+          box-shadow: 0 0 16px rgba(var(--accent-color-rgb), 0.55);
+          transition: width 240ms linear;
+        }
+
         .banner-content-box {
           position: relative;
           z-index: 10;
           max-width: 650px;
           height: calc(100% - 24px);
+          padding-bottom: 16px;
           display: flex;
           flex-direction: column;
           align-items: flex-start;
           justify-content: flex-end;
           pointer-events: auto;
           overflow: hidden;
+          transition: opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface);
         }
 
         .banner-transition-item {
@@ -786,6 +1301,42 @@ export default function GameMainBanner({
           overflow: visible;
           padding: 10px;
           box-sizing: border-box;
+          border-radius: 8px;
+          isolation: isolate;
+          transition: opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface);
+        }
+
+        .banner-title-container::before {
+          content: '';
+          position: absolute;
+          inset: -8px;
+          border-radius: 10px;
+          background: rgba(5, 7, 12, 0);
+          opacity: 0;
+          pointer-events: none;
+          z-index: -1;
+          transition: opacity 0.3s ease, background 0.3s ease;
+        }
+
+        .banner-title-container.contrast-medium::before,
+        .banner-title-container.contrast-strong::before {
+          opacity: 1;
+        }
+
+        .banner-title-container.contrast-medium::before {
+          background: rgba(5, 7, 12, 0.18);
+          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+        }
+
+        .banner-title-container.contrast-strong::before {
+          background: rgba(5, 7, 12, 0.32);
+          box-shadow: 0 18px 56px rgba(0, 0, 0, 0.28);
+        }
+
+        .banner-title-container.tone-dark.contrast-medium::before,
+        .banner-title-container.tone-dark.contrast-strong::before {
+          background: rgba(255, 255, 255, 0.22);
+          box-shadow: 0 14px 42px rgba(255, 255, 255, 0.08);
         }
 
         .banner-title-container.edit-mode-active {
@@ -980,6 +1531,17 @@ export default function GameMainBanner({
           box-shadow: var(--accent-glow);
         }
 
+        .auto-place-btn.auto-ready {
+          color: #66c0f4;
+          border-color: rgba(102, 192, 244, 0.32);
+          background: rgba(102, 192, 244, 0.08);
+        }
+
+        .auto-place-btn:disabled {
+          opacity: 0.56;
+          cursor: wait;
+        }
+
         .banner-logo-img {
           width: 100%;
           height: 100%;
@@ -987,6 +1549,10 @@ export default function GameMainBanner({
           filter: drop-shadow(0 0 25px rgba(0, 0, 0, 0.85));
           flex-shrink: 0;
           pointer-events: none;
+        }
+
+        .banner-title-container.tone-dark .banner-logo-img {
+          filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.56)) drop-shadow(0 5px 16px rgba(0, 0, 0, 0.5));
         }
 
         .banner-game-title {
@@ -1009,6 +1575,11 @@ export default function GameMainBanner({
           max-height: 100%;
           user-select: none;
           pointer-events: none;
+        }
+
+        .banner-title-container.tone-dark .banner-game-title {
+          color: #07070a;
+          text-shadow: 0 0 24px rgba(255, 255, 255, 0.88), 0 2px 14px rgba(255, 255, 255, 0.58);
         }
 
         .developer-meta {
@@ -1076,13 +1647,29 @@ export default function GameMainBanner({
           border-radius: 8px;
         }
 
-        .steam-rating {
+        .steam-rating,
+        .protondb-rating {
           font-size: var(--fs-12);
           font-weight: 600;
           color: rgba(255, 255, 255, 0.6);
           display: flex;
           align-items: center;
         }
+
+        .protondb-tier {
+          font-weight: 850;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin-left: 4px;
+          text-shadow: 0 0 10px rgba(0,0,0,0.4);
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.5); }
 
         .rating-highlight {
           font-weight: 800;
@@ -1179,7 +1766,9 @@ export default function GameMainBanner({
 
         .banner-actions-row {
           display: flex;
+          align-items: stretch;
           gap: 12px;
+          min-height: 46px;
           width: 100%;
           flex-shrink: 0;
         }

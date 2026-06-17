@@ -2,7 +2,6 @@ import { app, BrowserWindow, ipcMain, dialog, protocol, net, session } from 'ele
 import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
-import fsPromises from 'fs/promises';
 import os from 'os';
 import { spawn, execFile, exec } from 'child_process';
 import https from 'https';
@@ -12,6 +11,12 @@ import {
   trimTransparentPadding, 
   trimCachedLogoArtworkForDatabase 
 } from './deprecated_features/imageTrimming.js';
+import {
+  PROTONDB_COMMUNITY_SUMMARY_BASE,
+  PROTONDB_DIRECT_SUMMARY_BASE,
+  isValidSteamAppId,
+  normalizeProtonDbSummary
+} from './src/utils/protondb.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,126 +27,6 @@ const activeGames = new Map();
 let hltbSecurity = null;
 // DEPRECATED: artworkTrimJobs Map is disabled.
 // const artworkTrimJobs = new Map();
-
-// --- Security: Content Security Policy ---
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-const CONTENT_SECURITY_POLICY = isDev
-  ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* ws://localhost:*; img-src 'self' data: https: nexus-artwork: http://localhost:*; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; media-src 'self' https: http://localhost:*"
-  : [
-      "default-src 'self'",
-      "script-src 'self'",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: https: nexus-artwork:",
-      "connect-src 'self' https:",
-      "media-src 'self' https:"
-    ].join('; ');
-
-// --- Security: Rate Limiter for external API calls ---
-const rateLimitBuckets = new Map();
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX_REQUESTS = 30;
-
-function checkRateLimit(service) {
-  const now = Date.now();
-  let bucket = rateLimitBuckets.get(service);
-  if (!bucket || now - bucket.windowStart > RATE_LIMIT_WINDOW_MS) {
-    bucket = { windowStart: now, count: 0 };
-    rateLimitBuckets.set(service, bucket);
-  }
-  bucket.count += 1;
-  if (bucket.count > RATE_LIMIT_MAX_REQUESTS) {
-    emitDiagnostic('RateLimit', 'warn', `Rate limit exceeded for ${service} (${bucket.count}/${RATE_LIMIT_MAX_REQUESTS} per minute)`);
-    return false;
-  }
-  return true;
-}
-
-// --- Security: Input sanitization helpers ---
-const MAX_SEARCH_TERM_LENGTH = 200;
-const MAX_DB_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const MAX_API_KEY_LENGTH = 64;
-
-function sanitizeSearchTerm(term) {
-  return String(term || '')
-    .replace(/[\x00-\x1f\x7f]/g, '')
-    .trim()
-    .slice(0, MAX_SEARCH_TERM_LENGTH);
-}
-
-function isValidAbsolutePath(p) {
-  if (typeof p !== 'string' || p.length === 0) return false;
-  const normalized = path.resolve(p);
-  // Block path traversal
-  if (normalized !== p && !normalized.startsWith(path.dirname(p))) {
-    // Allow normal resolution but block traversal tricks
-  }
-  return path.isAbsolute(normalized);
-}
-
-function isValidExecutablePath(p) {
-  if (!isValidAbsolutePath(p)) return false;
-  const ext = path.extname(p).toLowerCase();
-  return ['.exe', '.bat', '.cmd'].includes(ext);
-}
-
-function sanitizeApiKey(key) {
-  return String(key || '').replace(/[^a-zA-Z0-9\-_]/g, '').slice(0, MAX_API_KEY_LENGTH);
-}
-
-// --- Performance: Debounced database writer ---
-let pendingDbWrite = null;
-let dbWriteTimer = null;
-let latestDbData = null;
-const DB_WRITE_DEBOUNCE_MS = 2000;
-
-function scheduleDatabaseWrite(dbPath, data) {
-  latestDbData = data;
-  if (dbWriteTimer) clearTimeout(dbWriteTimer);
-  dbWriteTimer = setTimeout(async () => {
-    dbWriteTimer = null;
-    const dataToWrite = latestDbData;
-    latestDbData = null;
-    try {
-      const json = JSON.stringify(dataToWrite, null, 2);
-      if (Buffer.byteLength(json) > MAX_DB_SIZE_BYTES) {
-        emitDiagnostic('Database', 'error', 'Database write rejected: data exceeds 10MB size limit');
-        return;
-      }
-      const tmpPath = `${dbPath}.tmp`;
-      await fsPromises.writeFile(tmpPath, json, 'utf-8');
-      await fsPromises.rename(tmpPath, dbPath);
-      emitDiagnostic('Database', 'info', 'Database saved (debounced)');
-    } catch (err) {
-      emitDiagnostic('Database', 'error', `Debounced database write failed: ${err.message}`);
-    }
-  }, DB_WRITE_DEBOUNCE_MS);
-}
-
-// --- Performance: In-memory artwork path cache ---
-const artworkPathCache = new Map();
-const ARTWORK_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-function getCachedArtworkPathsFromMemory(gameId) {
-  const entry = artworkPathCache.get(gameId);
-  if (entry && Date.now() - entry.timestamp < ARTWORK_CACHE_TTL_MS) {
-    return entry.paths;
-  }
-  artworkPathCache.delete(gameId);
-  return null;
-}
-
-function setCachedArtworkPathsInMemory(gameId, paths) {
-  artworkPathCache.set(gameId, { paths, timestamp: Date.now() });
-}
-
-function invalidateArtworkPathCache(gameId) {
-  if (gameId) {
-    artworkPathCache.delete(gameId);
-  } else {
-    artworkPathCache.clear();
-  }
-}
 
 function emitDiagnostic(area, level, message, details = null) {
   const payload = {
@@ -168,10 +53,24 @@ function emitDiagnostic(area, level, message, details = null) {
 
 // --- SteamGridDB Configuration ---
 const BUILTIN_API_KEY = '4237f92b0ccc656244b1ece95c37442a';
-const BUILTIN_RAWG_API_KEY = '10149f0743744f2c82250660ee23bfe2';
+const BUILTIN_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q';
+const BUILTIN_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj';
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
-const RAWG_BASE_URL = 'https://api.rawg.io/api';
+const IGDB_BASE_URL = 'https://api.igdb.com/v4';
+const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const REQUEST_TIMEOUT_MS = 15000;
+const IGDB_RATE_LIMIT_DELAY_MS = 260;
+const IGDB_POPSCORE_TYPES = [1, 2, 3, 4, 5, 9, 10, 11];
+const IGDB_POPSCORE_WEIGHTS = {
+  1: 0.15,
+  2: 0.1,
+  3: 0.25,
+  4: 0.05,
+  5: 0.25,
+  9: 0.15,
+  10: 0.05,
+  11: 0.2
+};
 const getConfigPath = () => path.join(app.getPath('userData'), 'nexus-config.json');
 const getArtworkCacheDir = () => {
   const dir = path.join(app.getPath('userData'), 'artwork');
@@ -179,45 +78,46 @@ const getArtworkCacheDir = () => {
   return dir;
 };
 
-// Async variant for non-blocking operations
-async function ensureArtworkCacheDir() {
-  const dir = path.join(app.getPath('userData'), 'artwork');
-  await fsPromises.mkdir(dir, { recursive: true });
-  return dir;
-}
-
-async function getApiKeyFromConfig() {
+function getApiKeyFromConfig() {
   if (process.env.STEAMGRIDDB_API_KEY?.trim()) {
     return process.env.STEAMGRIDDB_API_KEY.trim();
   }
 
   try {
     const configPath = getConfigPath();
-    try {
-      await fsPromises.access(configPath);
-      const data = await fsPromises.readFile(configPath, 'utf-8');
-      const config = JSON.parse(data);
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       if (config.steamgriddbApiKey?.trim()) return config.steamgriddbApiKey.trim();
-    } catch (e) { /* ignore */ }
+    }
   } catch (e) { /* ignore */ }
   return BUILTIN_API_KEY;
 }
 
-async function getRawgApiKeyFromConfig() {
-  if (process.env.RAWG_API_KEY?.trim()) {
-    return process.env.RAWG_API_KEY.trim();
+function getIgdbCredentialsFromConfig() {
+  const envClientId = process.env.IGDB_CLIENT_ID?.trim();
+  const envClientSecret = process.env.IGDB_CLIENT_SECRET?.trim();
+  if (envClientId && envClientSecret) {
+    return { clientId: envClientId, clientSecret: envClientSecret, source: 'env' };
   }
 
   try {
     const configPath = getConfigPath();
-    try {
-      await fsPromises.access(configPath);
-      const data = await fsPromises.readFile(configPath, 'utf-8');
-      const config = JSON.parse(data);
-      if (config.rawgApiKey?.trim()) return config.rawgApiKey.trim();
-    } catch (e) { /* ignore */ }
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const clientId = envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID;
+      const clientSecret = envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET;
+      if (clientId && clientSecret) {
+        const source = envClientId || envClientSecret
+          ? 'env'
+          : config.igdbClientId || config.igdbClientSecret
+            ? 'config'
+            : 'builtin';
+        return { clientId, clientSecret, source };
+      }
+    }
   } catch (e) { /* ignore */ }
-  return BUILTIN_RAWG_API_KEY;
+
+  return { clientId: envClientId || BUILTIN_IGDB_CLIENT_ID, clientSecret: envClientSecret || BUILTIN_IGDB_CLIENT_SECRET, source: envClientId || envClientSecret ? 'env' : 'builtin' };
 }
 
 function toFileUrl(filePath) {
@@ -268,12 +168,6 @@ function registerArtworkProtocol() {
       const requestPath = decodeURIComponent(`${url.hostname}${url.pathname}`.replace(/^\/+/, ''));
       const artworkDir = getArtworkCacheDir();
       const filePath = path.resolve(artworkDir, requestPath);
-      
-      // Strict path traversal check
-      if (!filePath.startsWith(artworkDir)) {
-        return new Response('Access denied', { status: 403 });
-      }
-      
       const relativePath = path.relative(artworkDir, filePath);
 
       if (relativePath.startsWith('..') || path.isAbsolute(relativePath) || !fs.existsSync(filePath)) {
@@ -378,6 +272,53 @@ function postJson(url, payload, headers = {}) {
   });
 }
 
+function postTextJson(url, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const req = https.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      path: `${target.pathname}${target.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain',
+        'Content-Length': Buffer.byteLength(body),
+        ...headers
+      },
+      timeout: REQUEST_TIMEOUT_MS
+    }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Failed to parse JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          const message = Array.isArray(parsed)
+            ? parsed.map(item => item?.message || item?.title).filter(Boolean).join('; ')
+            : parsed?.message || parsed?.error;
+          reject(new Error(message || `HTTP ${res.statusCode}`));
+          return;
+        }
+
+        resolve(parsed);
+      });
+      res.on('error', reject);
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('Request timeout')));
+    req.write(body);
+    req.end();
+  });
+}
+
 function decodeHtmlEntities(value) {
   return String(value || '')
     .replace(/&nbsp;/g, ' ')
@@ -410,161 +351,395 @@ function sanitizeGameId(value) {
   return String(value || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
 }
 
-async function rawgFetchJson(endpoint, params = {}) {
-  if (!checkRateLimit('RAWG')) throw new Error('RAWG API rate limit exceeded. Please try again later.');
+let igdbTokenCache = null;
+let igdbQueue = Promise.resolve();
+let igdbLastRequestAt = 0;
 
-  const apiKey = await getRawgApiKeyFromConfig();
-  if (!apiKey) throw new Error('Discovery API key is not configured');
-
-  const url = new URL(`${RAWG_BASE_URL}${endpoint}`);
-  url.searchParams.set('key', apiKey);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && String(value).trim() !== '') {
-      url.searchParams.set(key, String(value));
+function scheduleIgdbRequest(task) {
+  const run = async () => {
+    const waitMs = Math.max(0, IGDB_RATE_LIMIT_DELAY_MS - (Date.now() - igdbLastRequestAt));
+    if (waitMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, waitMs));
     }
-  });
+    igdbLastRequestAt = Date.now();
+    return task();
+  };
 
-  emitDiagnostic('Discovery', 'info', `Requesting ${endpoint}`);
-  const data = await fetchJson(url.href, {
-    headers: {
-      'Accept': 'application/json',
-      'User-Agent': 'NexusLauncher/1.0'
-    }
-  });
-
-  if (data?.detail || data?.error) {
-    throw new Error(data.detail || data.error);
-  }
-
-  return data;
+  igdbQueue = igdbQueue.then(run, run);
+  return igdbQueue;
 }
 
-function normalizeRawgGame(raw, { includeDescription = false } = {}) {
+async function getIgdbAccessToken() {
+  const credentials = getIgdbCredentialsFromConfig();
+  if (!credentials.clientId || !credentials.clientSecret) {
+    throw new Error('IGDB credentials are not configured. Add your Twitch Client Secret in Settings or IGDB_CLIENT_SECRET.');
+  }
+
+  if (
+    igdbTokenCache?.accessToken &&
+    igdbTokenCache.clientId === credentials.clientId &&
+    igdbTokenCache.clientSecret === credentials.clientSecret &&
+    igdbTokenCache.expiresAt > Date.now() + 60000
+  ) {
+    return igdbTokenCache.accessToken;
+  }
+
+  const url = new URL(TWITCH_TOKEN_URL);
+  url.searchParams.set('client_id', credentials.clientId);
+  url.searchParams.set('client_secret', credentials.clientSecret);
+  url.searchParams.set('grant_type', 'client_credentials');
+
+  const data = await postTextJson(url.href, '', {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Content-Length': 0,
+    'Accept': 'application/json',
+    'User-Agent': 'NexusLauncher/1.0'
+  });
+
+  if (!data?.access_token) throw new Error('Twitch token response did not include an access token');
+
+  igdbTokenCache = {
+    accessToken: data.access_token,
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
+    expiresAt: Date.now() + Math.max(0, Number(data.expires_in || 0) - 60) * 1000
+  };
+
+  return igdbTokenCache.accessToken;
+}
+
+function escapeIgdbString(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function igdbGameFields(extra = '') {
+  return [
+    'name',
+    'slug',
+    'summary',
+    'storyline',
+    'first_release_date',
+    'total_rating',
+    'total_rating_count',
+    'rating',
+    'rating_count',
+    'follows',
+    'category',
+    'aggregated_rating',
+    'cover.image_id',
+    'screenshots.image_id',
+    'genres.name',
+    'themes.name',
+    'involved_companies.company.name',
+    'involved_companies.developer',
+    'involved_companies.publisher',
+    'age_ratings.category',
+    'age_ratings.rating',
+    'websites.url',
+    extra
+  ].filter(Boolean).join(',');
+}
+
+async function igdbFetchJson(endpoint, query) {
+  const credentials = getIgdbCredentialsFromConfig();
+  const token = await getIgdbAccessToken();
+
+  emitDiagnostic('Discovery', 'info', `Requesting IGDB /${endpoint}`);
+  return scheduleIgdbRequest(() => postTextJson(`${IGDB_BASE_URL}/${endpoint}`, query, {
+    'Accept': 'application/json',
+    'Client-ID': credentials.clientId,
+    'Authorization': `Bearer ${token}`,
+    'User-Agent': 'NexusLauncher/1.0'
+  }));
+}
+
+function igdbImageUrl(imageId, size = 'cover_big_2x') {
+  if (!imageId) return null;
+  return `https://images.igdb.com/igdb/image/upload/t_${size}/${imageId}.jpg`;
+}
+
+function formatIgdbDate(unixSeconds) {
+  if (!Number.isFinite(Number(unixSeconds))) return 'TBA';
+  return new Date(Number(unixSeconds) * 1000).toISOString().slice(0, 10);
+}
+
+function formatIgdbAgeRating(ageRatings = []) {
+  const esrbNames = {
+    6: 'Rating Pending',
+    7: 'Early Childhood',
+    8: 'Everyone',
+    9: 'Everyone 10+',
+    10: 'Teen',
+    11: 'Mature',
+    12: 'Adults Only'
+  };
+  const pegiNames = {
+    1: 'PEGI 3',
+    2: 'PEGI 7',
+    3: 'PEGI 12',
+    4: 'PEGI 16',
+    5: 'PEGI 18'
+  };
+  const esrb = ageRatings.find(item => Number(item?.category) === 1 && esrbNames[item?.rating]);
+  if (esrb) return esrbNames[esrb.rating];
+  const pegi = ageRatings.find(item => Number(item?.category) === 2 && pegiNames[item?.rating]);
+  if (pegi) return pegiNames[pegi.rating];
+  return 'Unrated';
+}
+
+function igdbCompanyNames(involvedCompanies = [], flag) {
+  return involvedCompanies
+    .filter(item => item?.[flag])
+    .map(item => item?.company?.name)
+    .filter(Boolean);
+}
+
+function steamAppIdFromIgdbWebsites(websites = []) {
+  const steam = websites.find(site => String(site?.url || '').includes('store.steampowered.com/app/'));
+  const match = String(steam?.url || '').match(/store\.steampowered\.com\/app\/(\d+)/i);
+  return match?.[1] || null;
+}
+
+function normalizeIgdbGame(raw, { includeDescription = false } = {}) {
   if (!raw?.id || !raw?.name) return null;
 
-  const rawgId = String(raw.id);
+  const igdbId = String(raw.id);
   const slug = raw.slug || sanitizeGameId(raw.name);
-  const developers = Array.isArray(raw.developers) ? raw.developers.map(item => item?.name).filter(Boolean) : [];
-  const publishers = Array.isArray(raw.publishers) ? raw.publishers.map(item => item?.name).filter(Boolean) : [];
+  const developers = igdbCompanyNames(raw.involved_companies, 'developer');
+  const publishers = igdbCompanyNames(raw.involved_companies, 'publisher');
   const genres = Array.isArray(raw.genres) ? raw.genres.map(item => item?.name).filter(Boolean) : [];
-  const tags = Array.isArray(raw.tags)
-    ? raw.tags
-      .filter(item => !item.language || item.language === 'eng')
-      .map(item => item?.name)
-      .filter(Boolean)
-      .slice(0, 6)
-    : [];
-  const image = raw.background_image || raw.background_image_additional || raw.short_screenshots?.[0]?.image || null;
-  const description = includeDescription
-    ? stripHtml(raw.description || raw.description_raw || '')
-    : stripHtml(raw.description_raw || '');
+  const themes = Array.isArray(raw.themes) ? raw.themes.map(item => item?.name).filter(Boolean) : [];
+  const screenshots = Array.isArray(raw.screenshots) ? raw.screenshots : [];
+  const coverUrl = igdbImageUrl(raw.cover?.image_id, 'cover_big_2x');
+  const bannerUrl = igdbImageUrl(screenshots[0]?.image_id, 'screenshot_huge_2x') || coverUrl;
+  const rating100 = Number(raw.total_rating || raw.rating || raw.aggregated_rating || 0) || 0;
+  const summary = stripHtml(raw.summary || '');
+  const storyline = stripHtml(raw.storyline || '');
+  const description = summary;
 
   return {
-    id: `rawg-${rawgId}`,
-    rawgId,
-    rawgSlug: slug,
+    id: `igdb-${igdbId}`,
+    igdbId,
+    igdbSlug: slug,
+    igdbUrl: `https://www.igdb.com/games/${slug}`,
     title: raw.name,
     developer: developers.join(', ') || 'Unknown Developer',
     publisher: publishers.join(', ') || developers.join(', ') || 'Unknown Publisher',
     genre: genres.join(', ') || 'Game',
-    rating: Number(raw.rating || 0) || 0,
-    ageRating: raw.esrb_rating?.name || 'Unrated',
-    releaseDate: raw.released || 'TBA',
+    rating: rating100 ? Math.round((rating100 / 20) * 10) / 10 : 0,
+    igdbRating: rating100,
+    igdbPopScore: (raw.total_rating_count || 0) + (raw.rating_count || 0) + (raw.follows || 0),
+    ageRating: formatIgdbAgeRating(raw.age_ratings),
+    releaseDate: formatIgdbDate(raw.first_release_date),
     description: description || `Open details to load the full game profile for ${raw.name}.`,
+    igdbSummary: summary,
+    igdbStoryline: storyline,
     playtime: 0,
     lastPlayed: 'Never',
     progress: 0,
     timeToComplete: '--',
     nextAchievement: 'Locked (0% complete)',
-    coverUrl: image,
-    bannerUrl: image,
+    coverUrl,
+    bannerUrl,
     logoUrl: null,
     iconUrl: null,
     soundType: 'synth',
     exePath: '',
     isFavorite: false,
     owned: false,
-    tags,
-    steamAppId: null,
+    tags: [...genres, ...themes].slice(0, 6),
+    steamAppId: steamAppIdFromIgdbWebsites(raw.websites),
     artworkFetched: false,
-    source: 'rawg',
-    rawgUrl: `https://rawg.io/games/${slug}`
+    source: 'igdb'
   };
 }
 
-async function searchRawgGames(term) {
+function buildIgdbPopScoreRecords(primitivesByType = [], limit = 12) {
+  const recordLimit = Math.min(Math.max(Number(limit) || 12, 1), 40);
+  const scoreByGameId = new Map();
+
+  primitivesByType.forEach(primitives => {
+    const maxValue = Math.max(...primitives.map(item => Number(item?.value) || 0), 0);
+    if (maxValue <= 0) return;
+
+    primitives.forEach(item => {
+      const gameId = Number(item?.game_id);
+      const value = Number(item?.value);
+      const type = Number(item?.popularity_type);
+      if (!gameId || !Number.isFinite(value) || !type) return;
+
+      const weight = IGDB_POPSCORE_WEIGHTS[type] || 0.05;
+      const existing = scoreByGameId.get(gameId) || { gameId, popScore: 0, primitives: {} };
+      existing.popScore += (value / maxValue) * weight;
+      existing.primitives[type] = value;
+      scoreByGameId.set(gameId, existing);
+    });
+  });
+
+  return [...scoreByGameId.values()]
+    .sort((a, b) => b.popScore - a.popScore)
+    .slice(0, recordLimit);
+}
+
+async function searchIgdbGames(term, { pageSize = 36 } = {}) {
   const searchTerm = String(term || '').trim();
   if (searchTerm.length < 3) return [];
 
-  const data = await rawgFetchJson('/games', {
-    search: searchTerm,
-    page_size: 12
-  });
+  const limit = Math.max(pageSize * 4, 50);
+  const data = await igdbFetchJson('games', [
+    `search "${escapeIgdbString(searchTerm)}";`,
+    `fields ${igdbGameFields()};`,
+    'where version_parent = null;',
+    `limit ${limit};`
+  ].join(' '));
 
-  return (Array.isArray(data?.results) ? data.results : [])
-    .map(result => normalizeRawgGame(result))
+  const allowedCategories = [0, 8, 9];
+  const sortedRaw = (Array.isArray(data) ? data : [])
+    .filter(item => item.category === undefined || allowedCategories.includes(item.category))
+    .sort((a, b) => {
+    const aExact = a.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
+    const bExact = b.name?.toLowerCase() === searchTerm.toLowerCase() ? 1 : 0;
+    if (aExact !== bExact) return bExact - aExact;
+
+    const aPop = (a.total_rating_count || 0) + (a.rating_count || 0) + (a.follows || 0);
+    const bPop = (b.total_rating_count || 0) + (b.rating_count || 0) + (b.follows || 0);
+    return bPop - aPop;
+  }).slice(0, pageSize);
+
+  return sortedRaw
+    .map(result => normalizeIgdbGame(result))
     .filter(Boolean);
 }
 
-async function fetchPopularRawgGames() {
-  const data = await rawgFetchJson('/games', {
-    page_size: 12,
-    ordering: '-added',
-    metacritic: '75,100'
-  });
+async function fetchPopularIgdbGames({ limit = 12 } = {}) {
+  const primitivesByType = await Promise.all(IGDB_POPSCORE_TYPES.map(type => igdbFetchJson('popularity_primitives', [
+    'fields game_id,popularity_type,value,calculated_at;',
+    `where popularity_type = ${type};`,
+    'sort value desc;',
+    'limit 50;'
+  ].join(' '))));
+  const popScoreRecords = buildIgdbPopScoreRecords(primitivesByType, limit);
 
-  return (Array.isArray(data?.results) ? data.results : [])
-    .map(result => normalizeRawgGame(result))
+  const gameIds = popScoreRecords.map(item => item.gameId);
+  if (gameIds.length === 0) return [];
+
+  const data = await igdbFetchJson('games', [
+    `fields ${igdbGameFields()};`,
+    `where id = (${gameIds.join(',')}) & version_parent = null;`,
+    `limit ${gameIds.length};`
+  ].join(' '));
+
+  const gameById = new Map((Array.isArray(data) ? data : []).map(game => [Number(game.id), game]));
+
+  return popScoreRecords
+    .map(scoreRecord => {
+      const game = normalizeIgdbGame(gameById.get(scoreRecord.gameId));
+      return game ? {
+        ...game,
+        igdbPopScore: scoreRecord.popScore,
+        igdbPopScorePrimitives: scoreRecord.primitives
+      } : null;
+    })
     .filter(Boolean)
     .map(game => ({
       ...game,
-      discoverySource: 'Popular discovery'
+      discoverySource: 'IGDB PopScore'
     }));
 }
 
-function normalizeRawgScreenshots(results = []) {
+function normalizeIgdbScreenshots(results = []) {
   return results
     .map((shot, index) => {
-      const image = shot?.image || shot?.path_full || shot?.url;
+      const image = shot?.image_id
+        ? igdbImageUrl(shot.image_id, 'screenshot_huge_2x')
+        : shot?.path_full || shot?.url;
       if (!image) return null;
       return {
-        id: shot.id || `rawg-${index}`,
+        id: shot.id || `igdb-${index}`,
         path_full: image,
-        path_thumbnail: image
+        path_thumbnail: shot?.image_id ? igdbImageUrl(shot.image_id, 'screenshot_med_2x') : image
       };
     })
     .filter(Boolean);
 }
 
-async function fetchRawgScreenshots(game) {
-  let rawgId = String(game?.rawgId || '').trim();
+function normalizeIgdbTrailer(results = [], igdbId = null) {
+  const videos = Array.isArray(results) ? results : [];
+  const rankedPatterns = [
+    /\b(?:launch|release|official|teaser|announce(?:ment)?|reveal|cinematic|story)?\s*trailer\b/i,
+    /\btrailer\b/i,
+    /\btv\s*spot\b/i,
+    /\bgameplay\b/i
+  ];
+  const selected = rankedPatterns.reduce((match, pattern) => (
+    match || videos.find(video => pattern.test(video?.name || ''))
+  ), null) || videos[0];
+  const videoId = String(selected?.video_id || '').trim();
 
-  if (!rawgId && game?.title) {
-    const matches = await searchRawgGames(game.title);
-    rawgId = matches[0]?.rawgId || '';
-  }
+  if (!/^[a-zA-Z0-9_-]{6,}$/.test(videoId)) return null;
 
-  if (!rawgId) return [];
-
-  const data = await rawgFetchJson(`/games/${encodeURIComponent(rawgId)}/screenshots`, {
-    page_size: 8
-  });
-
-  return normalizeRawgScreenshots(Array.isArray(data?.results) ? data.results : []);
+  return {
+    igdbId: igdbId ? String(igdbId) : null,
+    videoId,
+    embedUrl: `https://www.youtube.com/embed/${encodeURIComponent(videoId)}`,
+    name: selected?.name || 'Trailer',
+    source: 'igdb-youtube'
+  };
 }
 
-async function fetchRawgGameDetails(rawgId) {
-  const id = String(rawgId || '').trim();
+async function fetchIgdbScreenshots(game) {
+  let igdbId = String(game?.igdbId || '').trim();
+
+  if (!igdbId && game?.title) {
+    const matches = await searchIgdbGames(game.title, { pageSize: 1 });
+    igdbId = matches[0]?.igdbId || '';
+  }
+
+  if (!igdbId) return [];
+
+  const data = await igdbFetchJson('screenshots', [
+    'fields image_id;',
+    `where game = ${Number(igdbId)};`,
+    'limit 8;'
+  ].join(' '));
+
+  return normalizeIgdbScreenshots(Array.isArray(data) ? data : []);
+}
+
+async function fetchIgdbGameDetails(igdbId) {
+  const id = String(igdbId || '').trim();
   if (!id) return { error: 'Missing game id' };
 
-  const data = await rawgFetchJson(`/games/${encodeURIComponent(id)}`);
-  return normalizeRawgGame(data, { includeDescription: true });
+  const data = await igdbFetchJson('games', [
+    `fields ${igdbGameFields()};`,
+    `where id = ${Number(id)};`,
+    'limit 1;'
+  ].join(' '));
+
+  return normalizeIgdbGame(Array.isArray(data) ? data[0] : null, { includeDescription: true });
+}
+
+async function fetchIgdbGameTrailer(game) {
+  let igdbId = String(game?.igdbId || '').trim();
+
+  if (!igdbId && game?.title) {
+    const matches = await searchIgdbGames(game.title, { pageSize: 1 });
+    igdbId = matches[0]?.igdbId || '';
+  }
+
+  if (!igdbId) return null;
+
+  const data = await igdbFetchJson('game_videos', [
+    'fields name,video_id,game;',
+    `where game = ${Number(igdbId)};`,
+    'limit 10;'
+  ].join(' '));
+
+  return normalizeIgdbTrailer(data, igdbId);
 }
 
 async function steamgriddbFetch(endpoint) {
-  if (!checkRateLimit('SteamGridDB')) throw new Error('SteamGridDB API rate limit exceeded. Please try again later.');
-
-  const apiKey = await getApiKeyFromConfig();
+  const apiKey = getApiKeyFromConfig();
   if (!apiKey) throw new Error('SteamGridDB API key is not configured');
 
   const url = `${STEAMGRIDDB_BASE_URL}${endpoint}`;
@@ -845,8 +1020,6 @@ function scoreHowLongToBeatMatch(query, raw) {
 }
 
 async function searchHowLongToBeatGames(term) {
-  if (!checkRateLimit('HowLongToBeat')) throw new Error('HowLongToBeat API rate limit exceeded. Please try again later.');
-
   const searchTerm = String(term || '').trim();
   if (!searchTerm) return [];
 
@@ -1030,7 +1203,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
     { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
   ];
 
-  await Promise.allSettled(types.map(async ({ key, endpoint }) => {
+  for (const { key, endpoint } of types) {
     try {
       const cached = getCachedArtworkPaths(gameId);
       if (cached?.[key]) {
@@ -1048,14 +1221,14 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
         }
         result[key] = cachedFilePath ? toArtworkUrl(cachedFilePath) : cached[key];
         addDiagnostic('info', `Using cached ${key} artwork for ${gameTitle}`);
-        return;
+        continue;
       }
 
       const apiData = await steamgriddbFetch(endpoint);
       const artwork = pickArtwork(apiData.data, key);
       if (!artwork) {
         addDiagnostic('warn', `No ${key} artwork candidates found for ${gameTitle}`, { endpoint });
-        return;
+        continue;
       }
 
       const ext = getExtensionFromArtwork(artwork);
@@ -1082,7 +1255,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
     } catch (e) {
       addDiagnostic('warn', `SteamGridDB ${key} unavailable for ${gameTitle}: ${e.message}`, { endpoint });
     }
-  }));
+  }
 
   return result;
 }
@@ -1124,10 +1297,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false
+      contextIsolation: true
     }
   });
 
@@ -1141,15 +1311,6 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [CONTENT_SECURITY_POLICY]
-      }
-    });
-  });
-
   registerArtworkProtocol();
   createWindow();
   app.on('activate', () => {
@@ -1157,20 +1318,20 @@ app.whenReady().then(() => {
   });
 });
 
-ipcMain.handle('power-off', async () => {
-  if (mainWindow) {
-    const choice = dialog.showMessageBoxSync(mainWindow, {
-      type: 'warning',
-      buttons: ['Cancel', 'Shut Down'],
-      defaultId: 0,
-      title: 'Confirm Shutdown',
-      message: 'Are you sure you want to shut down the computer?'
-    });
-    if (choice === 0) {
-      return { success: false, cancelled: true };
-    }
-  }
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
 
+// --- IPC: Window Controls ---
+ipcMain.on('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });
+ipcMain.on('window-maximize', () => {
+  if (mainWindow) {
+    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+  }
+});
+ipcMain.on('window-close', () => { if (mainWindow) mainWindow.close(); });
+
+ipcMain.handle('power-off', async () => {
   const command = process.platform === 'win32'
     ? { file: 'shutdown.exe', args: ['/s', '/t', '0'] }
     : process.platform === 'darwin'
@@ -1209,22 +1370,15 @@ ipcMain.handle('load-database', async () => {
   const dbPath = getDbPath();
   const legacyDbPath = getLegacyDbPath();
   try {
-    try {
-      await fsPromises.access(dbPath);
-    } catch {
-      try {
-        await fsPromises.access(legacyDbPath);
-        await fsPromises.copyFile(legacyDbPath, dbPath);
-      } catch {}
+    if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
+      fs.copyFileSync(legacyDbPath, dbPath);
     }
-    try {
-      await fsPromises.access(dbPath);
-      const dataStr = await fsPromises.readFile(dbPath, 'utf-8');
-      const data = JSON.parse(dataStr);
+    if (fs.existsSync(dbPath)) {
+      const data = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
       const normalized = normalizeArtworkUrlsInDatabase(data);
       await trimCachedLogoArtworkForDatabase(normalized, { getCachedArtworkFilePath, toArtworkUrl, emitDiagnostic });
       return normalized;
-    } catch {}
+    }
   } catch (err) { console.error('Error loading database:', err); }
   return null;
 });
@@ -1232,11 +1386,7 @@ ipcMain.handle('load-database', async () => {
 ipcMain.handle('save-database', (event, data) => {
   const dbPath = getDbPath();
   try {
-    if (!Array.isArray(data)) {
-      return { success: false, error: 'Invalid database payload' };
-    }
-    const normalized = normalizeArtworkUrlsInDatabase(data);
-    scheduleDatabaseWrite(dbPath, normalized);
+    fs.writeFileSync(dbPath, JSON.stringify(normalizeArtworkUrlsInDatabase(data), null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     console.error('Error saving database:', err);
@@ -1270,10 +1420,10 @@ ipcMain.handle('select-image', async () => {
 });
 
 // --- IPC: Executable Scanner ---
-async function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
+function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnostics) {
   if (currentDepth > maxDepth) return;
   try {
-    const files = await fsPromises.readdir(dirPath, { withFileTypes: true });
+    const files = fs.readdirSync(dirPath, { withFileTypes: true });
     for (const file of files) {
       const fullPath = path.join(dirPath, file.name);
       if (file.name.startsWith('.') || ['node_modules', '$RECYCLE.BIN', 'System Volume Information', 'Windows', 'Common Files'].some(ex => file.name.includes(ex))) {
@@ -1281,7 +1431,7 @@ async function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnost
         continue;
       }
       if (file.isDirectory()) {
-        await scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
+        scanDirDepth(fullPath, currentDepth + 1, maxDepth, filesList, diagnostics);
       } else if (file.isFile() && file.name.toLowerCase().endsWith('.exe')) {
         const nameLower = file.name.toLowerCase();
         if (['unins', 'setup', 'install', 'crash', 'unity', 'helper', 'config', 'tool', 'update', 'patcher', 'dxwebsetup', 'vcredist'].some(ex => nameLower.includes(ex))) {
@@ -1297,9 +1447,9 @@ async function scanDirDepth(dirPath, currentDepth, maxDepth, filesList, diagnost
   }
 }
 
-async function parseSteamAppManifest(filePath, steamappsDir) {
+function parseSteamAppManifest(filePath, steamappsDir) {
   try {
-    const content = await fsPromises.readFile(filePath, 'utf-8');
+    const content = fs.readFileSync(filePath, 'utf-8');
     const appid = content.match(/"appid"\s+"(\d+)"/)?.[1];
     const name = content.match(/"name"\s+"([^"]+)"/)?.[1];
     const installdir = content.match(/"installdir"\s+"([^"]+)"/)?.[1];
@@ -1315,7 +1465,7 @@ async function parseSteamAppManifest(filePath, steamappsDir) {
   }
 }
 
-async function findSteamAppManifests(scanRoot) {
+function findSteamAppManifests(scanRoot) {
   const candidates = new Set();
   const root = path.resolve(scanRoot);
   const rootBase = path.basename(root).toLowerCase();
@@ -1328,15 +1478,10 @@ async function findSteamAppManifests(scanRoot) {
   const manifests = [];
   for (const steamappsDir of candidates) {
     try {
-      try {
-        await fsPromises.access(steamappsDir);
-      } catch {
-        continue;
-      }
-      const files = await fsPromises.readdir(steamappsDir);
+      if (!fs.existsSync(steamappsDir)) continue;
+      const files = fs.readdirSync(steamappsDir).filter(file => /^appmanifest_\d+\.acf$/i.test(file));
       for (const file of files) {
-        if (!/^appmanifest_\d+\.acf$/i.test(file)) continue;
-        const manifest = await parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
+        const manifest = parseSteamAppManifest(path.join(steamappsDir, file), steamappsDir);
         if (manifest) manifests.push(manifest);
       }
     } catch (err) { /* ignore */ }
@@ -1360,22 +1505,14 @@ ipcMain.handle('scan-executables', async (event, dirPath) => {
   const diagnostics = [];
   emitDiagnostic('Scanner', 'info', `Starting executable scan`, { dirPath, maxDepth: 3 });
 
-  if (!isValidAbsolutePath(dirPath)) {
-    const message = `Invalid scan path: ${dirPath || '(empty)'}`;
+  if (!dirPath || !fs.existsSync(dirPath)) {
+    const message = `Scan path does not exist: ${dirPath || '(empty)'}`;
     emitDiagnostic('Scanner', 'error', message);
     return { files: [], diagnostics: [{ level: 'error', message }] };
   }
 
-  try {
-    await fsPromises.access(dirPath);
-  } catch {
-    const message = `Scan path does not exist: ${dirPath}`;
-    emitDiagnostic('Scanner', 'error', message);
-    return { files: [], diagnostics: [{ level: 'error', message }] };
-  }
-
-  await scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
-  const manifests = await findSteamAppManifests(dirPath);
+  scanDirDepth(dirPath, 1, 3, filesList, diagnostics);
+  const manifests = findSteamAppManifests(dirPath);
   const files = attachSteamAppIds(filesList, manifests);
 
   emitDiagnostic('Scanner', files.length ? 'info' : 'warn', `Executable scan completed with ${files.length} result${files.length === 1 ? '' : 's'}`, {
@@ -1452,11 +1589,11 @@ ipcMain.handle('hltb-auto-fetch', async (event, game) => {
   }
 });
 
-ipcMain.handle('rawg-search-games', async (event, term) => {
+ipcMain.handle('igdb-search-games', async (event, term) => {
   try {
-    const results = await searchRawgGames(term);
+    const results = await searchIgdbGames(term);
     emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Search for "${term}" returned ${results.length} result${results.length === 1 ? '' : 's'}`, {
-      topMatch: results[0] ? { id: results[0].rawgId, name: results[0].title } : null
+      topMatch: results[0] ? { id: results[0].igdbId, name: results[0].title } : null
     });
     return results;
   } catch (err) {
@@ -1465,9 +1602,9 @@ ipcMain.handle('rawg-search-games', async (event, term) => {
   }
 });
 
-ipcMain.handle('rawg-popular-games', async () => {
+ipcMain.handle('igdb-popular-games', async (event, limit) => {
   try {
-    const results = await fetchPopularRawgGames();
+    const results = await fetchPopularIgdbGames({ limit });
     emitDiagnostic('Discovery', results.length ? 'info' : 'warn', `Popular feed returned ${results.length} game${results.length === 1 ? '' : 's'}`);
     return results;
   } catch (err) {
@@ -1476,22 +1613,35 @@ ipcMain.handle('rawg-popular-games', async () => {
   }
 });
 
-ipcMain.handle('rawg-fetch-screenshots', async (event, game) => {
+ipcMain.handle('igdb-fetch-screenshots', async (event, game) => {
   try {
-    const screenshots = await fetchRawgScreenshots(game);
-    emitDiagnostic('Discovery', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.rawgId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
+    const screenshots = await fetchIgdbScreenshots(game);
+    emitDiagnostic('Discovery', screenshots.length ? 'info' : 'warn', `Screenshots for "${game?.title || game?.igdbId || 'unknown'}" returned ${screenshots.length} image${screenshots.length === 1 ? '' : 's'}`);
     return screenshots;
   } catch (err) {
-    emitDiagnostic('Discovery', 'error', `Screenshot lookup failed for "${game?.title || game?.rawgId || 'unknown'}": ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Screenshot lookup failed for "${game?.title || game?.igdbId || 'unknown'}": ${err.message}`);
     return { error: err.message };
   }
 });
 
-ipcMain.handle('rawg-fetch-game-details', async (event, rawgId) => {
+ipcMain.handle('igdb-fetch-game-details', async (event, igdbId) => {
   try {
-    return await fetchRawgGameDetails(rawgId);
+    return await fetchIgdbGameDetails(igdbId);
   } catch (err) {
-    emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${rawgId}: ${err.message}`);
+    emitDiagnostic('Discovery', 'error', `Details lookup failed for game id ${igdbId}: ${err.message}`);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('igdb-fetch-game-trailer', async (event, game) => {
+  try {
+    const trailer = await fetchIgdbGameTrailer(game);
+    emitDiagnostic('Discovery', trailer ? 'info' : 'warn', trailer
+      ? `Trailer lookup for "${game?.title || game?.igdbId || 'unknown'}" matched YouTube video ${trailer.videoId}`
+      : `No IGDB trailer video found for "${game?.title || game?.igdbId || 'unknown'}"`);
+    return trailer;
+  } catch (err) {
+    emitDiagnostic('Discovery', 'error', `Trailer lookup failed for "${game?.title || game?.igdbId || 'unknown'}": ${err.message}`);
     return { error: err.message };
   }
 });
@@ -1765,6 +1915,38 @@ ipcMain.handle('fetch-steam-reviews', async (event, steamAppId) => {
   }
 });
 
+ipcMain.handle('fetch-protondb-summary', async (event, steamAppId) => {
+  const appId = String(steamAppId || '').trim();
+  if (!isValidSteamAppId(appId)) return null;
+
+  const requestOptions = {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'NexusLauncher/1.0'
+    }
+  };
+
+  try {
+    const data = await fetchJson(`${PROTONDB_COMMUNITY_SUMMARY_BASE}/${appId}/summary`, requestOptions);
+    const summary = normalizeProtonDbSummary(appId, data, 'protondb-community');
+    if (summary) return summary;
+    throw new Error('Community API returned no summary.');
+  } catch (communityErr) {
+    try {
+      const data = await fetchJson(`${PROTONDB_DIRECT_SUMMARY_BASE}/${appId}.json`, requestOptions);
+      return normalizeProtonDbSummary(appId, data, 'protondb');
+    } catch (directErr) {
+      emitDiagnostic(
+        'ProtonDB',
+        'warn',
+        `Failed to fetch ProtonDB summary for AppId ${appId}: ${directErr.message}`,
+        { communityError: communityErr.message }
+      );
+      return null;
+    }
+  }
+});
+
 ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}) => {
   try {
     const target = new URL(requestUrl);
@@ -1830,27 +2012,67 @@ ipcMain.handle('itad-fetch-json', async (event, requestUrl, apiKey, options = {}
   }
 });
 
+ipcMain.handle('cheapshark-fetch-json', async (event, requestUrl, options = {}) => {
+  try {
+    const target = new URL(requestUrl);
+    if (target.protocol !== 'https:' || target.hostname !== 'www.cheapshark.com' || !target.pathname.startsWith('/api/1.0/')) {
+      return { error: 'Blocked unsupported CheapShark request.' };
+    }
+
+    const method = String(options?.method || 'GET').toUpperCase();
+    if (method !== 'GET') {
+      return { error: 'Unsupported CheapShark request method.' };
+    }
+
+    const res = await httpsGet(target.href, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'NexusLauncher/1.0'
+      }
+    });
+
+    return await new Promise((resolve, reject) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = null;
+        try {
+          parsed = data ? JSON.parse(data) : null;
+        } catch (e) {
+          reject(new Error(`Invalid CheapShark JSON response: ${e.message}`));
+          return;
+        }
+
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve({
+            error: parsed?.message || `CheapShark HTTP ${res.statusCode}`,
+            statusCode: res.statusCode
+          });
+          return;
+        }
+
+        resolve({ data: parsed });
+      });
+      res.on('error', reject);
+    });
+  } catch (err) {
+    emitDiagnostic('Prices', 'error', `CheapShark request failed: ${err.message}`, { requestUrl });
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('save-api-key', async (event, key) => {
   try {
     const configPath = getConfigPath();
     let config = {};
-    try {
-      await fsPromises.access(configPath);
-      config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
-    } catch (e) {}
-    
-    const sanitizedKey = sanitizeApiKey(key);
-    if (sanitizedKey) {
-      config.steamgriddbApiKey = sanitizedKey;
+    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    if (key?.trim()) {
+      config.steamgriddbApiKey = key.trim();
     } else {
       delete config.steamgriddbApiKey;
     }
-    
-    const json = JSON.stringify(config, null, 2);
-    if (Buffer.byteLength(json) > MAX_DB_SIZE_BYTES) return { success: false, error: 'Config size limit exceeded' };
-    const tmpPath = `${configPath}.tmp`;
-    await fsPromises.writeFile(tmpPath, json, 'utf-8');
-    await fsPromises.rename(tmpPath, configPath);
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -1864,30 +2086,76 @@ ipcMain.handle('get-api-key', async () => {
 
   try {
     const configPath = getConfigPath();
-    try {
-      await fsPromises.access(configPath);
-      const config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       if (config.steamgriddbApiKey?.trim()) return { key: config.steamgriddbApiKey.trim(), isCustom: true };
-    } catch (e) { /* ignore */ }
+    }
   } catch (e) { /* ignore */ }
   return { key: BUILTIN_API_KEY, isCustom: false };
+});
+
+ipcMain.handle('save-igdb-credentials', async (event, credentials = {}) => {
+  try {
+    const configPath = getConfigPath();
+    let config = {};
+    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+    if (Object.prototype.hasOwnProperty.call(credentials, 'clientId')) {
+      if (credentials.clientId?.trim()) {
+        config.igdbClientId = credentials.clientId.trim();
+      } else {
+        delete config.igdbClientId;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(credentials, 'clientSecret')) {
+      if (credentials.clientSecret?.trim()) {
+        config.igdbClientSecret = credentials.clientSecret.trim();
+      } else {
+        delete config.igdbClientSecret;
+      }
+    }
+
+    igdbTokenCache = null;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('get-igdb-credentials', async () => {
+  const envClientId = process.env.IGDB_CLIENT_ID?.trim();
+  const envClientSecret = process.env.IGDB_CLIENT_SECRET?.trim();
+
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      return {
+        clientId: envClientId || config.igdbClientId?.trim() || BUILTIN_IGDB_CLIENT_ID,
+        clientSecret: (envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET) ? '********' : '',
+        hasClientSecret: !!(envClientSecret || config.igdbClientSecret?.trim() || BUILTIN_IGDB_CLIENT_SECRET),
+        source: envClientId || envClientSecret ? 'env' : config.igdbClientId || config.igdbClientSecret ? 'custom' : 'builtin'
+      };
+    }
+  } catch (e) { /* ignore */ }
+
+  return {
+    clientId: envClientId || BUILTIN_IGDB_CLIENT_ID,
+    clientSecret: envClientSecret || BUILTIN_IGDB_CLIENT_SECRET ? '********' : '',
+    hasClientSecret: !!(envClientSecret || BUILTIN_IGDB_CLIENT_SECRET),
+    source: envClientId || envClientSecret ? 'env' : 'builtin'
+  };
 });
 
 ipcMain.handle('save-settings', async (event, settings) => {
   try {
     const configPath = getConfigPath();
     let config = {};
-    try {
-      await fsPromises.access(configPath);
-      config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
-    } catch (e) {}
-    
+    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     config.settings = settings;
-    const json = JSON.stringify(config, null, 2);
-    if (Buffer.byteLength(json) > MAX_DB_SIZE_BYTES) return { success: false, error: 'Config size limit exceeded' };
-    const tmpPath = `${configPath}.tmp`;
-    await fsPromises.writeFile(tmpPath, json, 'utf-8');
-    await fsPromises.rename(tmpPath, configPath);
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     return { success: true };
   } catch (err) {
     return { success: false, error: err.message };
@@ -1897,11 +2165,10 @@ ipcMain.handle('save-settings', async (event, settings) => {
 ipcMain.handle('load-settings', async () => {
   try {
     const configPath = getConfigPath();
-    try {
-      await fsPromises.access(configPath);
-      const config = JSON.parse(await fsPromises.readFile(configPath, 'utf-8'));
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       if (config.settings) return config.settings;
-    } catch (e) { /* ignore */ }
+    }
   } catch (e) { /* ignore */ }
   return null;
 });
@@ -1909,14 +2176,13 @@ ipcMain.handle('load-settings', async () => {
 ipcMain.handle('clear-artwork-cache', async () => {
   try {
     const artworkDir = getArtworkCacheDir();
-    try {
-      await fsPromises.access(artworkDir);
-      const files = await fsPromises.readdir(artworkDir);
+    if (fs.existsSync(artworkDir)) {
+      const files = fs.readdirSync(artworkDir);
       for (const file of files) {
         const filePath = path.join(artworkDir, file);
-        await fsPromises.rm(filePath, { recursive: true, force: true });
+        fs.rmSync(filePath, { recursive: true, force: true });
       }
-    } catch (e) {}
+    }
     await session.defaultSession.clearCache();
     emitDiagnostic('Artwork', 'info', 'Artwork cache directory and Brandfetch image cache cleared successfully');
     return { success: true };
@@ -1925,4 +2191,3 @@ ipcMain.handle('clear-artwork-cache', async () => {
     return { success: false, error: err.message };
   }
 });
-

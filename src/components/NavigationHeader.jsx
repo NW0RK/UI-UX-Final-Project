@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Settings, Minus, Square, X, CircleX } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
-import { useSystemStatus } from '../hooks/useSystemStatus';
 
 export default function NavigationHeader({ 
   onSearchChange, 
   searchQuery, 
   onOpenSettings,
+  cpuUsage,
+  ramUsage,
+  ramUsedGb,
   activeView,
   onViewChange,
   systemStatusTracking = true,
@@ -16,9 +18,6 @@ export default function NavigationHeader({
 }) {
   const [time, setTime] = useState('');
   const searchInputRef = useRef(null);
-  
-  const { cpuUsage, ramUsage, ramUsedGb } = useSystemStatus(systemStatusTracking);
-
   const activeRamLabel = Number.isFinite(ramUsedGb)
     ? `${ramUsedGb.toFixed(ramUsedGb >= 10 ? 0 : 1)}GB`
     : `${ramUsage}%`;

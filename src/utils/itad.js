@@ -1,4 +1,7 @@
 const ITAD_API_BASE = 'https://api.isthereanydeal.com';
+const DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8';
+const DEFAULT_ITAD_CLIENT_ID = 'c148f1514efb8478';
+const DEFAULT_ITAD_CLIENT_SECRET = '68dfada7b9d81f36cc171a0cded8176621930c2e';
 
 const STORE_NAMES = ['Steam', 'Humble Store', 'Fanatical', 'GOG', 'Green Man Gaming'];
 
@@ -8,6 +11,49 @@ function hashString(input = '') {
 
 function currency(amount, code = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(amount);
+}
+
+function numberOrNull(value) {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+function priceAmount(price) {
+  const amount = numberOrNull(price?.amount);
+  if (amount !== null) return amount;
+
+  const amountInt = numberOrNull(price?.amountInt);
+  return amountInt !== null ? amountInt / 100 : null;
+}
+
+function formatPrice(price, fallbackCurrency = 'USD') {
+  const amount = priceAmount(price);
+  if (amount === null) return null;
+  return currency(amount, price?.currency || fallbackCurrency);
+}
+
+function normalizeDealPoint(dealPoint, fallback = null) {
+  const price = dealPoint?.price;
+  const amount = priceAmount(price);
+  if (amount === null) return fallback;
+
+  const time = Date.parse(dealPoint?.timestamp || '');
+  const date = Number.isFinite(time) && time > 0
+    ? new Date(time).toISOString().slice(0, 10)
+    : fallback?.date || 'Tracked date';
+  const currencyCode = price?.currency || dealPoint?.regular?.currency || fallback?.currency || 'USD';
+
+  return {
+    date,
+    time: Number.isFinite(time) && time > 0 ? time : fallback?.time,
+    amount,
+    formatted: currency(amount, currencyCode),
+    shop: dealPoint?.shop?.name || fallback?.shop || 'Tracked shop',
+    regular: {
+      amount: priceAmount(dealPoint?.regular),
+      formatted: formatPrice(dealPoint?.regular, currencyCode)
+    }
+  };
 }
 
 function createSeededHistory(item) {
@@ -64,9 +110,9 @@ function createSeededHistory(item) {
 
 function getStoredApiKey() {
   try {
-    return localStorage.getItem('nexus_itad_api_key') || '31102aef52b50806cdca671678e52742c4845d9d';
+    return localStorage.getItem('nexus_itad_api_key') || DEFAULT_ITAD_API_KEY;
   } catch {
-    return '31102aef52b50806cdca671678e52742c4845d9d';
+    return DEFAULT_ITAD_API_KEY;
   }
 }
 
@@ -87,9 +133,32 @@ async function fetchJson(url, options = {}) {
     return result?.data ?? null;
   }
 
-  const response = await fetch(requestUrl, options);
+  const browserOptions = options.body && typeof options.body !== 'string'
+    ? { ...options, body: JSON.stringify(options.body) }
+    : options;
+  const response = await fetch(requestUrl, browserOptions);
   if (!response.ok) throw new Error(`Price request failed: ${response.status}`);
   return response.json();
+}
+
+async function fetchItadPriceOverview(itadId, { country = 'US' } = {}) {
+  const apiKey = getStoredApiKey();
+  if (!apiKey) throw new Error('Missing price API key.');
+  if (!itadId) throw new Error('Missing price-service game ID.');
+
+  const overviewUrl = new URL(`${ITAD_API_BASE}/games/overview/v2`);
+  overviewUrl.searchParams.set('country', country);
+
+  const data = await fetchJson(overviewUrl, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(apiKey),
+      'Content-Type': 'application/json'
+    },
+    body: [itadId]
+  });
+
+  return (Array.isArray(data?.prices) ? data.prices : []).find(entry => entry?.id === itadId) || null;
 }
 
 function normalizeItadDeal(item) {
@@ -100,8 +169,8 @@ function normalizeItadDeal(item) {
   const regular = deal.regular || {};
   const cut = Number(deal.cut || 0);
   const currencyCode = price.currency || regular.currency || 'USD';
-  const priceAmount = Number(price.amount);
-  const regularAmount = Number(regular.amount);
+  const dealPriceAmount = priceAmount(price);
+  const regularAmount = priceAmount(regular);
   const image = item.assets?.boxart || item.assets?.banner600 || item.assets?.banner400 || item.assets?.banner300 || null;
   const shop = deal.shop?.name || 'Tracked shop';
   const expiry = deal.expiry ? new Date(deal.expiry).toLocaleDateString() : null;
@@ -143,8 +212,8 @@ function normalizeItadDeal(item) {
     itadDeal: {
       shop,
       cut,
-      price: Number.isFinite(priceAmount) ? currency(priceAmount, currencyCode) : 'See price',
-      regular: Number.isFinite(regularAmount) ? currency(regularAmount, regular.currency || currencyCode) : null,
+      price: dealPriceAmount !== null ? currency(dealPriceAmount, currencyCode) : 'See price',
+      regular: regularAmount !== null ? currency(regularAmount, regular.currency || currencyCode) : null,
       expiry: expiry ? `Ends ${expiry}` : 'Tracked price',
       url: deal.url || null
     }
@@ -173,16 +242,20 @@ export async function fetchItadBestDeals({ country = 'US', limit = 10 } = {}) {
 export function normalizeItadHistory(historyLog = []) {
   return historyLog
     .map(entry => {
-      const amount = entry.deal?.price?.amount;
+      const amount = priceAmount(entry.deal?.price);
       const time = Date.parse(entry.timestamp);
       if (!Number.isFinite(amount) || !Number.isFinite(time) || time <= 0) return null;
-      const currencyCode = entry.deal.price.currency || 'USD';
+      const currencyCode = entry.deal?.price?.currency || entry.deal?.regular?.currency || 'USD';
       return {
         date: new Date(time).toISOString().slice(0, 10),
         time,
         amount,
         formatted: currency(amount, currencyCode),
-        shop: entry.shop?.name || 'Tracked shop'
+        shop: entry.shop?.name || 'Tracked shop',
+        regular: {
+          amount: priceAmount(entry.deal?.regular),
+          formatted: formatPrice(entry.deal?.regular, currencyCode)
+        }
       };
     })
     .filter(Boolean)
@@ -233,13 +306,13 @@ export async function fetchItadHistory(itadId, { country = 'US' } = {}) {
 function normalizeBundles(bundles = []) {
   return bundles.slice(0, 3).map(bundle => {
     const tier = bundle.tiers?.find(t => t.price) || bundle.tiers?.[0];
-    const amount = tier?.price?.amount;
+    const amount = priceAmount(tier?.price);
     const code = tier?.price?.currency || 'USD';
     return {
       id: bundle.id,
       title: bundle.title,
       shop: bundle.page?.name || 'Bundle',
-      price: Number.isFinite(amount) ? currency(amount, code) : 'See price',
+      price: amount !== null ? currency(amount, code) : 'See price',
       expiry: bundle.expiry ? `Ends ${new Date(bundle.expiry).toLocaleDateString()}` : 'Tracked price',
       url: bundle.details || bundle.url
     };
@@ -262,14 +335,20 @@ export async function getItadStoreInsights(item) {
     bundlesUrl.searchParams.set('id', itadId);
     bundlesUrl.searchParams.set('country', 'US');
 
-    const [historyResult, bundles] = await Promise.all([
+    const [overview, historyResult, bundles] = await Promise.all([
+      fetchItadPriceOverview(itadId, { country: 'US' }),
       fetchItadHistory(itadId, { country: 'US' }),
       fetchJson(bundlesUrl, { headers: authHeaders(apiKey) })
     ]);
 
     const history = historyResult.history;
-    const lowest = history.reduce((low, point) => point.amount < low.amount ? point : low, history[0] || seeded.lowestEver);
-    const current = history[history.length - 1] || seeded.current;
+    const current = normalizeDealPoint(overview?.current, seeded.current);
+    const lowest = normalizeDealPoint(overview?.lowest, history.reduce((low, point) => point.amount < low.amount ? point : low, history[0] || seeded.lowestEver));
+    const regular = current?.regular?.formatted
+      ? current.regular
+      : lowest?.regular?.formatted
+        ? lowest.regular
+        : seeded.regular;
 
     return {
       ...seeded,
@@ -277,6 +356,7 @@ export async function getItadStoreInsights(item) {
       itadId,
       current,
       lowestEver: lowest,
+      regular,
       history: history.length ? history : seeded.history,
       bundles: normalizeBundles(bundles).length ? normalizeBundles(bundles) : seeded.bundles
     };
@@ -289,9 +369,9 @@ export async function getItadStoreInsights(item) {
 export function getItadOAuthUrl() {
   const clientId = (() => {
     try {
-      return localStorage.getItem('nexus_itad_client_id') || '';
+      return localStorage.getItem('nexus_itad_client_id') || DEFAULT_ITAD_CLIENT_ID;
     } catch {
-      return '';
+      return DEFAULT_ITAD_CLIENT_ID;
     }
   })();
 
@@ -305,11 +385,12 @@ export function getItadOAuthUrl() {
 export function getItadOAuthStatus() {
   try {
     return {
-      hasClientId: !!localStorage.getItem('nexus_itad_client_id'),
+      hasClientId: !!(localStorage.getItem('nexus_itad_client_id') || DEFAULT_ITAD_CLIENT_ID),
+      hasClientSecret: !!(localStorage.getItem('nexus_itad_client_secret') || DEFAULT_ITAD_CLIENT_SECRET),
       isConnected: !!localStorage.getItem('nexus_itad_access_token')
     };
   } catch {
-    return { hasClientId: false, isConnected: false };
+    return { hasClientId: true, hasClientSecret: true, isConnected: false };
   }
 }
 

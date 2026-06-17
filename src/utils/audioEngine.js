@@ -12,6 +12,7 @@ let audioCtx = null;
 let ambientOscillators = [];
 let ambientGainNode = null;
 let isMuted = false;
+const activeUiSounds = new Set();
 
 // Create preloaded Audio elements for polyphonic UI sound effects
 const hoverAudio = new Audio(hoverTickSoundUrl);
@@ -27,8 +28,21 @@ const playSound = (audioElement, volume = 1.0) => {
   try {
     const playClone = audioElement.cloneNode();
     playClone.volume = volume;
+    activeUiSounds.add(playClone);
+    playClone.addEventListener('ended', () => activeUiSounds.delete(playClone), { once: true });
+    playClone.addEventListener('error', () => activeUiSounds.delete(playClone), { once: true });
     playClone.play().catch(() => {});
   } catch (e) {}
+};
+
+const stopActiveUiSounds = () => {
+  activeUiSounds.forEach(sound => {
+    try {
+      sound.pause();
+      sound.currentTime = 0;
+    } catch (e) {}
+  });
+  activeUiSounds.clear();
 };
 
 function getAudioContext() {
@@ -43,8 +57,9 @@ function getAudioContext() {
 
 export const audioEngine = {
   setMuted: (muted) => {
-    isMuted = muted;
+    isMuted = Boolean(muted);
     if (isMuted) {
+      stopActiveUiSounds();
       audioEngine.stopAmbience();
     }
   },

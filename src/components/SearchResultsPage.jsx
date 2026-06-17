@@ -2,24 +2,29 @@ import React from 'react';
 import { Check, Search } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
+import { getProtonDbSummary } from '../utils/protondb';
 
 export default function SearchResultsPage({
   query,
   results,
   ownedGames,
-  rawgSearchStatus = 'idle',
-  rawgSearchError = null,
+  igdbSearchStatus = 'idle',
+  igdbSearchError = null,
   onSelectItem,
   onPrefetchItem = () => {},
   onSelectLibraryGame,
-  onLaunchGame
+  onLaunchGame,
+  protonDbEnabled = false
 }) {
   const ownedIds = new Set(ownedGames.map(game => game.id));
+  const ownedIgdbIds = new Set(ownedGames.map(game => game.igdbId).filter(Boolean));
   const ownedRawgIds = new Set(ownedGames.map(game => game.rawgId).filter(Boolean));
-  const isSearching = rawgSearchStatus === 'loading' && query.trim().length >= 3;
+  const isSearching = igdbSearchStatus === 'loading' && query.trim().length >= 3;
 
   const isOwned = (item) => (
-    ownedIds.has(item.id) || (item.rawgId && ownedRawgIds.has(item.rawgId))
+    ownedIds.has(item.id) ||
+    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
+    (item.rawgId && ownedRawgIds.has(item.rawgId))
   );
 
   const handleResultClick = (item) => {
@@ -44,14 +49,6 @@ export default function SearchResultsPage({
     }
   };
 
-  const renderSourceBadge = (item) => {
-    if (item.resultType === 'library') return <span className="search-source-chip owned">Library</span>;
-    if (item.source === 'rawg') {
-      return <span className="search-source-chip">Discovery</span>;
-    }
-    return <span className="search-source-chip">Store</span>;
-  };
-
   return (
     <div className="search-results-viewport">
       <div className="search-results-header">
@@ -60,23 +57,24 @@ export default function SearchResultsPage({
           <h1>{query.trim() ? `Results for "${query.trim()}"` : 'Search Games'}</h1>
         </div>
         <span className="search-results-count">
-          {isSearching ? 'Searching discovery...' : `${results.length} result${results.length === 1 ? '' : 's'}`}
+          {isSearching ? 'Searching IGDB...' : `${results.length} result${results.length === 1 ? '' : 's'}`}
         </span>
       </div>
 
-      {rawgSearchError && (
-        <div className="search-results-note">Discovery search unavailable: {rawgSearchError}</div>
+      {igdbSearchError && (
+        <div className="search-results-note">Discovery search unavailable: {igdbSearchError}</div>
       )}
 
       {results.length === 0 ? (
         <div className="search-results-empty">
           <Search size={22} />
-          <span>{isSearching ? 'Searching discovery...' : 'No games matched your search.'}</span>
+          <span>{isSearching ? 'Searching IGDB...' : 'No games matched your search.'}</span>
         </div>
       ) : (
         <div className="search-results-grid">
           {results.map((item, index) => {
             const reviewScore = getSteamReviewScore(item.steamReviewScore || item.rating);
+            const protonSummary = protonDbEnabled ? getProtonDbSummary(item.protonDbSummary) : null;
             const owned = isOwned(item);
             return (
               <div
@@ -102,29 +100,38 @@ export default function SearchResultsPage({
                       Owned
                     </div>
                   )}
-                </div>
-                <div className="search-result-body">
-                  <div className="search-card-topline">{renderSourceBadge(item)}</div>
-                  <h2>{item.title}</h2>
-                  <p>{item.developer || 'Unknown Developer'}</p>
-                  <div className="search-result-meta">
-                    <span>{item.genre || 'Game'}</span>
-                    <span>{item.releaseDate || 'TBA'}</span>
-                    {item.ageRating && <span>{item.ageRating}</span>}
-                  </div>
-                  <div className="search-result-rating">
-                    <span>{item.source === 'rawg' ? 'Community Rating' : 'Rating'}</span>
-                    <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
-                  </div>
                   {item.resultType === 'library' && (
                     <button
                       type="button"
-                      className="search-launch-btn"
+                      className="search-launch-btn-overlay"
                       onClick={(event) => handleLaunchClick(event, item)}
                     >
-                      Play
+                      Play Now
                     </button>
                   )}
+                </div>
+                <div className="search-result-body">
+                  <h2>{item.title}</h2>
+                  <p>{item.developer || 'Unknown Developer'}</p>
+                  <p className="search-result-release">{item.releaseDate ? item.releaseDate.split('-')[0] : 'TBA'}</p>
+                  <div className="search-result-meta">
+                    {item.genre ? (
+                      item.genre.split(',').map((g, i) => (
+                        <span key={`genre-${i}`}>{g.trim()}</span>
+                      ))
+                    ) : (
+                      <span>Game</span>
+                    )}
+                    {item.ageRating && <span>{item.ageRating}</span>}
+                  </div>
+                  <div className="search-result-rating">
+                    <strong className={`steam-review-score ${reviewScore.className}`}>{reviewScore.label}</strong>
+                    {protonSummary && (
+                      <span className="search-protondb-badge">
+                        Linux <strong className={`protondb-tier ${protonSummary.className}`}>{protonSummary.label}</strong>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -182,112 +189,117 @@ export default function SearchResultsPage({
 
         .search-results-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-          gap: 18px;
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 24px;
         }
 
         .search-result-card {
-          min-width: 0;
-          display: grid;
-          grid-template-columns: 92px minmax(0, 1fr);
-          gap: 14px;
-          padding: 10px;
-          border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          background: rgba(255, 255, 255, 0.025);
+          display: flex;
+          flex-direction: column;
+          position: relative;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          background: rgba(255, 255, 255, 0.02);
+          overflow: hidden;
           cursor: pointer;
-          transition: all var(--transition-fast);
+          transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
 
         .search-result-card:hover,
         .search-result-card:focus-visible {
-          transform: translateY(-3px);
-          border-color: rgba(var(--accent-color-rgb), 0.28);
-          box-shadow: 0 12px 35px rgba(0, 0, 0, 0.42), 0 0 20px rgba(var(--accent-color-rgb), 0.08);
-          background: rgba(var(--accent-color-rgb), 0.035);
+          transform: translateY(-6px);
+          border-color: rgba(var(--accent-color-rgb), 0.4);
+          box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(var(--accent-color-rgb), 0.15);
           outline: none;
         }
 
         .search-result-card.owned {
-          border-color: rgba(var(--accent-color-rgb), 0.12);
+          border-color: rgba(var(--accent-color-rgb), 0.2);
         }
 
         .search-result-art {
           position: relative;
-          height: 128px;
-          overflow: hidden;
-          border-radius: 6px;
-          background: linear-gradient(145deg, rgba(var(--accent-color-rgb), 0.14), rgba(7, 7, 10, 0.94));
+          aspect-ratio: 3 / 4;
+          width: 100%;
+          background: #111;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: rgba(255, 255, 255, 0.68);
+          color: rgba(255, 255, 255, 0.4);
           font-family: var(--font-display);
-          font-size: var(--fs-10);
-          font-weight: 900;
-          letter-spacing: 0.8px;
+          font-size: var(--fs-12);
+          font-weight: 800;
           text-align: center;
-          text-transform: uppercase;
+          padding: 20px;
+          overflow: hidden;
         }
 
         .search-result-art img {
           width: 100%;
           height: 100%;
           object-fit: cover;
+          transition: transform 0.5s ease;
+        }
+
+        .search-result-card:hover .search-result-art img {
+          transform: scale(1.05);
         }
 
         .search-owned-badge {
           position: absolute;
-          top: 7px;
-          right: 7px;
+          top: 10px;
+          right: 10px;
           display: inline-flex;
           align-items: center;
           gap: 4px;
-          padding: 3px 7px;
-          border-radius: 8px;
-          background: rgba(var(--accent-color-rgb), 0.9);
-          color: #07070a;
+          padding: 4px 8px;
+          border-radius: 6px;
+          background: var(--accent-color);
+          color: #000;
           font-family: var(--font-display);
-          font-size: var(--fs-9);
+          font-size: 10px;
           font-weight: 900;
+          text-transform: uppercase;
+          z-index: 2;
+        }
+        
+        .search-launch-btn-overlay {
+          position: absolute;
+          bottom: 12px;
+          left: 50%;
+          transform: translateX(-50%) translateY(20px);
+          opacity: 0;
+          border: none;
+          border-radius: 20px;
+          background: var(--accent-color);
+          color: #000;
+          padding: 8px 16px;
+          font-family: var(--font-display);
+          font-size: var(--fs-11);
+          font-weight: 900;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: all 0.25s ease;
+          z-index: 2;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .search-result-card:hover .search-launch-btn-overlay {
+          transform: translateX(-50%) translateY(0);
+          opacity: 1;
+        }
+        
+        .search-launch-btn-overlay:hover {
+          background: #fff;
         }
 
         .search-result-body {
-          min-width: 0;
+          padding: 16px;
           display: flex;
           flex-direction: column;
           gap: 6px;
-        }
-
-        .search-card-topline,
-        .search-result-meta {
-          display: flex;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 6px;
-          min-width: 0;
-        }
-
-        .search-source-chip,
-        .search-result-meta span {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          max-width: 100%;
-          padding: 3px 7px;
-          border-radius: 8px;
-          border: 1px solid rgba(var(--accent-color-rgb), 0.2);
-          color: rgba(255, 255, 255, 0.7);
-          background: rgba(7, 7, 10, 0.48);
-          font-family: var(--font-display);
-          font-size: var(--fs-8);
-          font-weight: 800;
-          letter-spacing: 0.6px;
-          text-transform: uppercase;
-        }
-
-        .search-source-chip.owned {
-          color: var(--accent-color);
+          flex: 1;
+          background: linear-gradient(to top, rgba(10,10,15,0.95), rgba(10,10,15,0.8));
         }
 
         .search-result-body h2 {
@@ -296,47 +308,91 @@ export default function SearchResultsPage({
           font-size: var(--fs-15);
           font-weight: 850;
           letter-spacing: 0;
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
         }
 
         .search-result-body p {
           margin: 0;
-          color: rgba(255, 255, 255, 0.42);
+          color: rgba(255, 255, 255, 0.5);
           font-size: var(--fs-11);
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
+        }
+
+        .search-result-body p.search-result-release {
+          color: var(--accent-color);
+          font-weight: 800;
+          font-family: var(--font-display);
+          font-size: var(--fs-10);
+          margin-top: 2px;
+          text-transform: uppercase;
+        }
+
+        .search-result-meta {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          margin-top: 4px;
+        }
+
+        .search-result-meta span {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 6px;
+          border-radius: 4px;
+          background: rgba(var(--accent-color-rgb), 0.15);
+          color: var(--accent-color);
+          font-family: var(--font-display);
+          font-size: var(--fs-9);
+          font-weight: 800;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
         }
 
         .search-result-rating {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 3px;
           margin-top: auto;
-        }
-
-        .search-result-rating span {
-          color: rgba(255, 255, 255, 0.32);
-          font-family: var(--font-display);
-          font-size: var(--fs-8);
-          font-weight: 800;
-          letter-spacing: 0.8px;
-          text-transform: uppercase;
+          padding-top: 12px;
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-start;
+          align-items: center;
+          gap: 7px;
         }
 
         .steam-review-score {
-          max-width: 100%;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
           font-size: var(--fs-11);
-          font-weight: 800;
-          letter-spacing: 0.3px;
+          font-weight: 900;
+          letter-spacing: 0.5px;
           text-transform: uppercase;
         }
+
+        .search-protondb-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          color: rgba(255, 255, 255, 0.42);
+          font-size: var(--fs-9);
+          font-weight: 850;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier {
+          font-family: var(--font-display);
+          font-weight: 900;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+        }
+
+        .protondb-tier.platinum { color: #a8f3ff; }
+        .protondb-tier.gold { color: #ffd166; }
+        .protondb-tier.silver { color: #d9e2ec; }
+        .protondb-tier.bronze { color: #d39b62; }
+        .protondb-tier.borked { color: #ef4444; }
+        .protondb-tier.unavailable { color: rgba(255, 255, 255, 0.42); }
 
         .steam-review-score.overwhelmingly-positive,
         .steam-review-score.very-positive,
@@ -354,27 +410,14 @@ export default function SearchResultsPage({
           color: #ef4444;
         }
 
-        .search-launch-btn {
-          width: fit-content;
-          margin-top: 4px;
-          border: 1px solid rgba(var(--accent-color-rgb), 0.28);
-          border-radius: 8px;
-          background: rgba(var(--accent-color-rgb), 0.12);
-          color: var(--accent-color);
-          padding: 5px 12px;
-          font-size: var(--fs-10);
-          font-weight: 800;
-          cursor: pointer;
-        }
-
         .search-results-empty {
           min-height: 260px;
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 10px;
-          border-radius: 8px;
-          border: 1px solid rgba(255, 255, 255, 0.045);
+          border-radius: 12px;
+          border: 1px dashed rgba(255, 255, 255, 0.1);
           background: rgba(255, 255, 255, 0.018);
           color: rgba(255, 255, 255, 0.36);
           font-size: var(--fs-13);
@@ -382,19 +425,13 @@ export default function SearchResultsPage({
         }
 
         @media (max-width: 620px) {
-          .search-results-header {
-            align-items: flex-start;
-            flex-direction: column;
-            gap: 8px;
+          .search-results-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 16px;
           }
-
-          .search-result-card {
-            grid-template-columns: 78px minmax(0, 1fr);
-            gap: 10px;
-          }
-
-          .search-result-art {
-            height: 112px;
+          
+          .search-result-body h2 {
+            font-size: var(--fs-13);
           }
         }
       `}} />

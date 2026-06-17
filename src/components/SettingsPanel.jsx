@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck } from 'lucide-react';
+import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck, Clapperboard } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -13,6 +13,10 @@ export default function SettingsPanel({
   const [apiKey, setApiKey] = useState('');
   const [apiKeyStatus, setApiKeyStatus] = useState('loading'); // loading | custom | builtin
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [igdbClientId, setIgdbClientId] = useState('331ozbtylxc949s6y4o2amakole28q');
+  const [igdbClientSecret, setIgdbClientSecret] = useState('');
+  const [igdbStatus, setIgdbStatus] = useState('loading');
+  const [igdbSaved, setIgdbSaved] = useState(false);
 
   useEffect(() => {
     if (window.electronAPI) {
@@ -20,6 +24,18 @@ export default function SettingsPanel({
         setApiKey(result.key);
         setApiKeyStatus(result.isCustom ? 'custom' : 'builtin');
       }).catch(() => setApiKeyStatus('builtin'));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.electronAPI?.getIgdbCredentials) {
+      window.electronAPI.getIgdbCredentials().then(result => {
+        setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
+        setIgdbClientSecret(result.hasClientSecret ? '********' : '');
+        setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
+      }).catch(() => setIgdbStatus('missing-secret'));
+    } else {
+      setIgdbStatus('preview');
     }
   }, []);
 
@@ -35,8 +51,10 @@ export default function SettingsPanel({
 
   const handleAudioToggle = () => {
     const nextMute = !settings.isMuted;
-    audioEngine.playClickPulse();
     audioEngine.setMuted(nextMute);
+    if (!nextMute) {
+      audioEngine.playClickPulse();
+    }
     onUpdateSettings({ ...settings, isMuted: nextMute });
   };
 
@@ -50,9 +68,24 @@ export default function SettingsPanel({
     onUpdateSettings({ ...settings, bannerAnimation: !settings.bannerAnimation });
   };
 
+  const handleLibraryTrailerToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, libraryTrailerAutoplay: !settings.libraryTrailerAutoplay });
+  };
+
+  const handleLibraryTrailerMutedDefaultToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, libraryTrailerMutedByDefault: !settings.libraryTrailerMutedByDefault });
+  };
+
   const handleStudioLogosToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, studioLogosEnabled: !settings.studioLogosEnabled });
+  };
+
+  const handleProtonDbToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, protonDbEnabled: !settings.protonDbEnabled });
   };
 
   const handleBrandfetchClientIdChange = (value) => {
@@ -97,6 +130,34 @@ export default function SettingsPanel({
       const result = await window.electronAPI.getApiKey();
       setApiKey(result.key);
       setApiKeyStatus(result.isCustom ? 'custom' : 'builtin');
+    }
+  };
+
+  const handleSaveIgdbCredentials = async () => {
+    audioEngine.playClickPulse();
+    if (window.electronAPI?.saveIgdbCredentials) {
+      const payload = { clientId: igdbClientId };
+      if (igdbClientSecret !== '********') {
+        payload.clientSecret = igdbClientSecret;
+      }
+      await window.electronAPI.saveIgdbCredentials(payload);
+      const result = await window.electronAPI.getIgdbCredentials();
+      setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
+      setIgdbClientSecret(result.hasClientSecret ? '********' : '');
+      setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
+      setIgdbSaved(true);
+      setTimeout(() => setIgdbSaved(false), 2000);
+    }
+  };
+
+  const handleResetIgdbCredentials = async () => {
+    audioEngine.playClickPulse();
+    if (window.electronAPI?.saveIgdbCredentials) {
+      await window.electronAPI.saveIgdbCredentials({ clientId: '', clientSecret: '' });
+      const result = await window.electronAPI.getIgdbCredentials();
+      setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
+      setIgdbClientSecret(result.hasClientSecret ? '********' : '');
+      setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
     }
   };
 
@@ -320,6 +381,52 @@ export default function SettingsPanel({
               className="audio-toggle-card settings-subgroup"
               role="switch"
               tabIndex={0}
+              aria-checked={settings.libraryTrailerAutoplay}
+              onClick={handleLibraryTrailerToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Clapperboard size={20} className={settings.libraryTrailerAutoplay ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Trailer Preview</span>
+                  <span className="audio-card-desc">{settings.libraryTrailerAutoplay ? 'Library heroes transition to IGDB trailers after a short pause.' : 'Library heroes stay on artwork only.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.libraryTrailerAutoplay ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={!settings.libraryTrailerMutedByDefault}
+              onClick={handleLibraryTrailerMutedDefaultToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                {settings.libraryTrailerMutedByDefault
+                  ? <VolumeX size={20} className="mute-status-icon muted" />
+                  : <Volume2 size={20} className="mute-status-icon active-volume" />}
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Trailer Audio</span>
+                  <span className="audio-card-desc">{settings.libraryTrailerMutedByDefault ? 'Trailer previews start muted.' : 'Trailer previews start with audio on.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.libraryTrailerMutedByDefault ? 'sw-muted' : 'sw-active'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
               aria-checked={settings.studioLogosEnabled}
               onClick={handleStudioLogosToggle}
               onFocus={audioEngine.playHoverTick}
@@ -333,6 +440,28 @@ export default function SettingsPanel({
               </div>
               <div className="audio-card-right">
                 <div className={`checkbox-toggle-switch ${settings.studioLogosEnabled ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.protonDbEnabled}
+              onClick={handleProtonDbToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Activity size={20} className={settings.protonDbEnabled ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Linux Compatibility</span>
+                  <span className="audio-card-desc">{settings.protonDbEnabled ? 'Show ProtonDB compatibility for Steam-matched games.' : 'Hide ProtonDB compatibility and skip Linux compatibility lookups.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.protonDbEnabled ? 'sw-active' : 'sw-muted'}`}>
                   <div className="switch-knob" />
                 </div>
               </div>
@@ -387,6 +516,57 @@ export default function SettingsPanel({
                     onMouseEnter={audioEngine.playHoverTick}
                   >
                     Save Key
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="api-key-card settings-subgroup">
+              <div className="api-key-input-row">
+                <div className="api-key-status-icon">
+                  {igdbStatus === 'missing-secret' ? <Unlock size={14} /> : <Lock size={14} />}
+                </div>
+                <input
+                  type="text"
+                  className="glass-input api-key-input"
+                  value={igdbClientId}
+                  onChange={(e) => setIgdbClientId(e.target.value)}
+                  placeholder="IGDB Client ID..."
+                />
+              </div>
+              <div className="api-key-input-row api-key-secret-row">
+                <div className="api-key-status-icon">
+                  <Lock size={14} />
+                </div>
+                <input
+                  type="password"
+                  className="glass-input api-key-input"
+                  value={igdbClientSecret}
+                  onFocus={() => {
+                    if (igdbClientSecret === '********') setIgdbClientSecret('');
+                  }}
+                  onChange={(e) => setIgdbClientSecret(e.target.value)}
+                  placeholder="IGDB / Twitch Client Secret..."
+                />
+              </div>
+              <div className="api-key-actions">
+                <span className="api-key-status-text">
+                  {igdbSaved ? 'Saved!' : igdbStatus === 'missing-secret' ? 'IGDB secret required for discovery' : 'IGDB discovery credentials'}
+                </span>
+                <div className="api-key-buttons">
+                  <button
+                    className="glow-btn api-key-btn"
+                    onClick={handleResetIgdbCredentials}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    className="glow-btn glow-btn-primary api-key-btn"
+                    onClick={handleSaveIgdbCredentials}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    Save IGDB
                   </button>
                 </div>
               </div>

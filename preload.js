@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('electronAPI', Object.freeze({
+contextBridge.exposeInMainWorld('electronAPI', {
   // Window management
   windowMinimize: () => ipcRenderer.send('window-minimize'),
   windowMaximize: () => ipcRenderer.send('window-maximize'),
@@ -8,25 +8,16 @@ contextBridge.exposeInMainWorld('electronAPI', Object.freeze({
 
   // Database integrations
   loadDatabase: () => ipcRenderer.invoke('load-database'),
-  saveDatabase: (data) => {
-    if (!Array.isArray(data)) throw new Error('Database payload must be an array');
-    return ipcRenderer.invoke('save-database', data);
-  },
+  saveDatabase: (data) => ipcRenderer.invoke('save-database', data),
 
   // Native explorer APIs
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   selectExecutable: () => ipcRenderer.invoke('select-executable'),
   selectImage: () => ipcRenderer.invoke('select-image'),
-  scanExecutables: (dirPath) => {
-    if (typeof dirPath !== 'string') throw new Error('Directory path must be a string');
-    return ipcRenderer.invoke('scan-executables', dirPath);
-  },
+  scanExecutables: (dirPath) => ipcRenderer.invoke('scan-executables', dirPath),
 
   // Launch processes
-  launchGame: (gameId, exePath) => {
-    if (typeof gameId !== 'string' || typeof exePath !== 'string') throw new Error('Invalid game launch arguments');
-    return ipcRenderer.invoke('launch-game', gameId, exePath);
-  },
+  launchGame: (gameId, exePath) => ipcRenderer.invoke('launch-game', gameId, exePath),
 
   // System power management
   powerOff: () => ipcRenderer.invoke('power-off'),
@@ -41,15 +32,20 @@ contextBridge.exposeInMainWorld('electronAPI', Object.freeze({
   resolveSteamAppId: (title) => ipcRenderer.invoke('resolve-steam-app-id', title),
   fetchSteamDetails: (steamAppId) => ipcRenderer.invoke('fetch-steam-details', steamAppId),
   fetchSteamReviews: (steamAppId) => ipcRenderer.invoke('fetch-steam-reviews', steamAppId),
+  fetchProtonDbSummary: (steamAppId) => ipcRenderer.invoke('fetch-protondb-summary', steamAppId),
   fetchItadJson: (url, apiKey, options) => ipcRenderer.invoke('itad-fetch-json', url, apiKey, options),
+  fetchCheapSharkJson: (url, options) => ipcRenderer.invoke('cheapshark-fetch-json', url, options),
   searchHowLongToBeat: (term) => ipcRenderer.invoke('hltb-search', term),
   autoFetchHowLongToBeat: (game) => ipcRenderer.invoke('hltb-auto-fetch', game),
-  searchRawgGames: (term) => ipcRenderer.invoke('rawg-search-games', term),
-  fetchRawgPopularGames: () => ipcRenderer.invoke('rawg-popular-games'),
-  fetchRawgScreenshots: (game) => ipcRenderer.invoke('rawg-fetch-screenshots', game),
-  fetchRawgGameDetails: (rawgId) => ipcRenderer.invoke('rawg-fetch-game-details', rawgId),
+  searchIgdbGames: (term) => ipcRenderer.invoke('igdb-search-games', term),
+  fetchIgdbPopularGames: (limit) => ipcRenderer.invoke('igdb-popular-games', limit),
+  fetchIgdbScreenshots: (game) => ipcRenderer.invoke('igdb-fetch-screenshots', game),
+  fetchIgdbGameDetails: (igdbId) => ipcRenderer.invoke('igdb-fetch-game-details', igdbId),
+  fetchIgdbGameTrailer: (game) => ipcRenderer.invoke('igdb-fetch-game-trailer', game),
   saveApiKey: (key) => ipcRenderer.invoke('save-api-key', key),
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
+  saveIgdbCredentials: (credentials) => ipcRenderer.invoke('save-igdb-credentials', credentials),
+  getIgdbCredentials: () => ipcRenderer.invoke('get-igdb-credentials'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   loadSettings: () => ipcRenderer.invoke('load-settings'),
 
@@ -65,4 +61,4 @@ contextBridge.exposeInMainWorld('electronAPI', Object.freeze({
     ipcRenderer.on('diagnostic-event', subscription);
     return () => ipcRenderer.removeListener('diagnostic-event', subscription);
   }
-}));
+});

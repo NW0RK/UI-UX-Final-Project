@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import NavigationHeader from './components/NavigationHeader';
 import InteractiveCanvas from './components/InteractiveCanvas';
 import HorizontalLibrary from './components/HorizontalLibrary';
@@ -12,13 +12,16 @@ import SearchResultsPage from './components/SearchResultsPage';
 import FavouritesTrophyRoom from './components/FavouritesTrophyRoom';
 import ProfileOverlay from './components/ProfileOverlay';
 import ControllerHintOverlay from './components/ControllerHintOverlay';
+import ImportNamePrompt from './components/ImportNamePrompt';
 import { useUnifiedInput } from './hooks/useUnifiedInput';
 import { defaultGames, matchGameMetadata, storeCatalog } from './utils/mockDatabase';
 import { applyArtworkToGame, needsSteamGridDBArtwork } from './utils/steamgriddb';
 import { applySeededHltbToGame, shouldFetchHltb } from './utils/hltb';
+import { fetchCheapSharkBestDeals } from './utils/cheapshark';
 import { fetchItadBestDeals } from './utils/itad';
-import { fetchRawgGameDetailsBrowser, fetchRawgPopularGamesBrowser, fetchRawgScreenshotsBrowser, searchRawgGamesBrowser } from './utils/rawg';
+import { fetchIgdbGameDetailsBrowser, fetchIgdbGameTrailerBrowser, fetchIgdbPopularGamesBrowser, fetchIgdbScreenshotsBrowser, searchIgdbGamesBrowser } from './utils/igdb';
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
+import { fetchProtonDbSummaryBrowser, isValidSteamAppId } from './utils/protondb';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
@@ -29,12 +32,16 @@ const DEFAULT_SETTINGS = {
   particleSpeed: 1.0,
   trackSystemStatus: true,
   bannerAnimation: true,
+  libraryTrailerAutoplay: true,
+  libraryTrailerMutedByDefault: false,
   fontScale: 1.0,
   studioLogosEnabled: false,
-  brandfetchClientId: '1idcoEyG7GtzdighKVU'
+  brandfetchClientId: '1idcoEyG7GtzdighKVU',
+  protonDbEnabled: false
 };
 
 const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
+const STORE_TRENDING_FEED_LIMIT = 20;
 
 function normalizeStoreCacheTitle(title) {
   return String(title || '')
@@ -50,6 +57,9 @@ function getStoreItemCacheKey(item) {
   const steamAppId = String(item.steamAppId || '').trim();
   if (/^\d+$/.test(steamAppId)) return `steam:${steamAppId}`;
 
+  const igdbId = String(item.igdbId || '').trim();
+  if (igdbId) return `igdb:${igdbId}`;
+
   const rawgId = String(item.rawgId || '').trim();
   if (rawgId) return `rawg:${rawgId}`;
 
@@ -64,10 +74,14 @@ function getStoreItemCacheAliases(item, resolvedSteamAppId = null) {
   const aliases = new Set();
   const steamAppId = String(resolvedSteamAppId || item?.steamAppId || '').trim();
   if (/^\d+$/.test(steamAppId)) aliases.add(`steam:${steamAppId}`);
+  const igdbId = String(item?.igdbId || '').trim();
+  if (igdbId) aliases.add(`igdb:${igdbId}`);
   const rawgId = String(item?.rawgId || '').trim();
   if (rawgId) aliases.add(`rawg:${rawgId}`);
   const itadId = String(item?.itadId || '').trim();
   if (itadId) aliases.add(`itad:${itadId}`);
+  const cheapsharkGameId = String(item?.cheapsharkGameId || '').trim();
+  if (cheapsharkGameId) aliases.add(`cheapshark:${cheapsharkGameId}`);
   const title = normalizeStoreCacheTitle(item?.title);
   if (title) aliases.add(`title:${title}`);
   return [...aliases];
@@ -92,7 +106,7 @@ function getSelectedStoreMedia(media) {
   return null;
 }
 
-function buildStorePrefetchMedia(item, steamAppId, steamDetails, rawgScreenshots = []) {
+function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots = []) {
   if (steamDetails && (steamDetails.screenshots?.length || steamDetails.movies?.length)) {
     const media = {
       screenshots: steamDetails.screenshots || [],
@@ -120,20 +134,64 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, rawgScreenshots
     };
   }
 
-  const rawgImage = item?.bannerUrl || item?.coverUrl || null;
-  const screenshots = rawgScreenshots.length
-    ? rawgScreenshots
-    : rawgImage
-      ? [{ id: 'rawg-hero', path_full: rawgImage, path_thumbnail: rawgImage }]
+  const igdbImage = item?.bannerUrl || item?.coverUrl || null;
+  const screenshots = igdbScreenshots.length
+    ? igdbScreenshots
+    : igdbImage
+      ? [{ id: 'igdb-hero', path_full: igdbImage, path_thumbnail: igdbImage }]
       : [];
   const media = { screenshots, movies: [] };
 
   return {
     media,
     selectedMedia: getSelectedStoreMedia(media),
-    bannerUrl: rawgImage,
-    mediaSource: rawgScreenshots.length ? 'rawg' : 'fallback'
+    bannerUrl: igdbImage,
+    mediaSource: igdbScreenshots.length ? 'igdb' : 'fallback'
   };
+}
+
+function getExecutableNameFromPath(filePath) {
+  return String(filePath || '')
+    .split(/[\\/]/)
+    .pop()
+    .replace(/\.exe$/i, '');
+}
+
+function formatExecutableTitle(value) {
+  return String(value || 'Game')
+    .replace(/\.exe$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase()) || 'Game';
+}
+
+function normalizeImportFile(file) {
+  const path = typeof file === 'string' ? file : file?.path;
+  const rawName = typeof file === 'string'
+    ? getExecutableNameFromPath(file)
+    : file?.name || getExecutableNameFromPath(path);
+
+  return {
+    name: rawName || 'Game',
+    suggestedTitle: formatExecutableTitle(rawName),
+    path,
+    steamAppId: typeof file === 'string' ? null : file?.steamAppId || null
+  };
+}
+
+function createImportedGameId(title, exePath) {
+  const titleKey = String(title || 'game').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 34) || 'game';
+  const pathKey = String(exePath || '').toLowerCase().replace(/[^a-z0-9]+/g, '').slice(-8);
+  return `${titleKey}${pathKey}${Math.floor(Math.random() * 1000)}`;
+}
+
+function hasUsefulDescription(game) {
+  const description = String(game?.description || '').trim();
+  if (!description) return false;
+  return !/^Open details to load/i.test(description) &&
+    !/^A local executable found/i.test(description) &&
+    !/^Your scanned copy/i.test(description);
 }
 
 export default function App() {
@@ -153,6 +211,8 @@ export default function App() {
   const [isCcOpen, setIsCcOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const settingsLoadedRef = useRef(false);
   
   // --- Editable Gold Profile Screen States ---
   const [username, setUsername] = useState(() => {
@@ -176,17 +236,21 @@ export default function App() {
   const [bannerEditMode, setBannerEditMode] = useState(false);
   const [storeArtwork, setStoreArtwork] = useState({});
   const [storeReviewScores, setStoreReviewScores] = useState({});
+  const [storeProtonDbSummaries, setStoreProtonDbSummaries] = useState({});
   const [popularStoreGames, setPopularStoreGames] = useState([]);
   const [popularStoreStatus, setPopularStoreStatus] = useState('idle');
   const [popularStoreError, setPopularStoreError] = useState(null);
   const [itadDealGames, setItadDealGames] = useState([]);
   const [itadDealsStatus, setItadDealsStatus] = useState('idle');
   const [itadDealsError, setItadDealsError] = useState(null);
-  const [rawgSearchResults, setRawgSearchResults] = useState([]);
-  const [rawgSearchStatus, setRawgSearchStatus] = useState('idle');
-  const [rawgSearchError, setRawgSearchError] = useState(null);
+  const [igdbSearchResults, setIgdbSearchResults] = useState([]);
+  const [igdbSearchStatus, setIgdbSearchStatus] = useState('idle');
+  const [igdbSearchError, setIgdbSearchError] = useState(null);
   const [storeDetailCache, setStoreDetailCache] = useState({});
   const [diagnostics, setDiagnostics] = useState([]);
+  const [importQueue, setImportQueue] = useState([]);
+  const [importPromptIndex, setImportPromptIndex] = useState(0);
+  const [isImportProcessing, setIsImportProcessing] = useState(false);
   const libraryArtworkHydratedRef = useRef(false);
   const storeArtworkHydratedRef = useRef(false);
   const storeReviewsHydratedRef = useRef(false);
@@ -194,8 +258,13 @@ export default function App() {
   const popularStoreHydratedRef = useRef(false);
   const itadDealsHydratedRef = useRef(false);
   const hltbLookupAttemptedRef = useRef(new Set());
+  const protonDbLibraryAttemptedRef = useRef(new Set());
+  const protonDbStoreAttemptedRef = useRef(new Set());
   const storeDetailCacheRef = useRef({});
   const storeDetailInFlightRef = useRef(new Map());
+  const gamesRef = useRef([]);
+  const libraryTrailerVisitRef = useRef({ gameId: null, consumed: false });
+  const libraryTrailerRequestRef = useRef(0);
 
   const addDiagnostic = (area, level, message, details = null) => {
     setDiagnostics(prev => [{
@@ -206,6 +275,25 @@ export default function App() {
       timestamp: new Date().toISOString()
     }, ...prev].slice(0, 80));
   };
+
+  const fetchProtonDbSummary = useCallback(async (steamAppId, title = 'game') => {
+    const appId = String(steamAppId || '').trim();
+    if (!settings.protonDbEnabled || !isValidSteamAppId(appId)) return null;
+
+    try {
+      const summary = window.electronAPI?.fetchProtonDbSummary
+        ? await window.electronAPI.fetchProtonDbSummary(appId)
+        : await fetchProtonDbSummaryBrowser(appId);
+      return summary || null;
+    } catch (error) {
+      addDiagnostic('ProtonDB', 'warn', `Linux compatibility skipped for ${title}: ${error.message}`);
+      return null;
+    }
+  }, [settings.protonDbEnabled]);
+
+  useEffect(() => {
+    gamesRef.current = games;
+  }, [games]);
 
   const mergeStoreDetailCache = useCallback((item, patch = {}, resolvedSteamAppId = null) => {
     const aliases = getStoreItemCacheAliases(item, resolvedSteamAppId);
@@ -249,7 +337,16 @@ export default function App() {
     if (!initialKey) return null;
 
     const cached = storeDetailCacheRef.current[initialKey];
-    if (cached?.status === 'ready' && cached?.mediaLoaded && (cached?.steamMetadataLoaded || cached?.rawgDetailsLoaded || cached?.steamLookupStatus === 'missing')) {
+    const cacheHasNeededProtonDb = !settings.protonDbEnabled ||
+      cached?.protonDbSummary ||
+      cached?.protonDbStatus === 'unavailable' ||
+      cached?.steamLookupStatus === 'missing';
+    if (
+      cached?.status === 'ready' &&
+      cached?.mediaLoaded &&
+      (cached?.steamMetadataLoaded || cached?.igdbDetailsLoaded || cached?.steamLookupStatus === 'missing') &&
+      cacheHasNeededProtonDb
+    ) {
       return Promise.resolve(cached);
     }
 
@@ -314,53 +411,59 @@ export default function App() {
           }
         }
 
-        if (item?.rawgId && item.source === 'rawg') {
+        if (settings.protonDbEnabled && resolvedSteamAppId) {
+          const protonDbSummary = await fetchProtonDbSummary(resolvedSteamAppId, item?.title);
+          patch.protonDbSummary = protonDbSummary || null;
+          patch.protonDbStatus = protonDbSummary ? 'ready' : 'unavailable';
+        }
+
+        if (item?.igdbId && item.source === 'igdb') {
           try {
-            const details = window.electronAPI?.fetchRawgGameDetails
-              ? await window.electronAPI.fetchRawgGameDetails(item.rawgId)
-              : await fetchRawgGameDetailsBrowser(item.rawgId);
+            const details = window.electronAPI?.fetchIgdbGameDetails
+              ? await window.electronAPI.fetchIgdbGameDetails(item.igdbId)
+              : await fetchIgdbGameDetailsBrowser(item.igdbId);
 
             if (details?.error) {
-              patch.rawgDetailsError = details.error;
-              patch.errors.push({ source: 'rawg-details', message: details.error });
+              patch.igdbDetailsError = details.error;
+              patch.errors.push({ source: 'igdb-details', message: details.error });
             } else {
-              patch.rawgDetails = details;
-              patch.rawgDetailsLoaded = true;
+              patch.igdbDetails = details;
+              patch.igdbDetailsLoaded = true;
             }
           } catch (error) {
-            patch.rawgDetailsError = error.message;
-            patch.errors.push({ source: 'rawg-details', message: error.message });
+            patch.igdbDetailsError = error.message;
+            patch.errors.push({ source: 'igdb-details', message: error.message });
           }
         }
 
-        let rawgScreenshots = [];
-        const needsRawgScreenshots = !resolvedSteamAppId || !patch.steamDetails?.screenshots?.length;
-        if (needsRawgScreenshots && (item?.rawgId || item?.title)) {
+        let igdbScreenshots = [];
+        const needsIgdbScreenshots = !resolvedSteamAppId || !patch.steamDetails?.screenshots?.length;
+        if (needsIgdbScreenshots && (item?.igdbId || item?.title)) {
           try {
             const payload = {
-              rawgId: item.rawgId,
+              igdbId: item.igdbId,
               title: item.title
             };
-            const screenshots = window.electronAPI?.fetchRawgScreenshots
-              ? await window.electronAPI.fetchRawgScreenshots(payload)
-              : await fetchRawgScreenshotsBrowser(payload);
+            const screenshots = window.electronAPI?.fetchIgdbScreenshots
+              ? await window.electronAPI.fetchIgdbScreenshots(payload)
+              : await fetchIgdbScreenshotsBrowser(payload);
 
             if (screenshots?.error) {
-              patch.errors.push({ source: 'rawg-screenshots', message: screenshots.error });
+              patch.errors.push({ source: 'igdb-screenshots', message: screenshots.error });
             } else {
-              rawgScreenshots = Array.isArray(screenshots) ? screenshots : [];
-              patch.rawgScreenshots = rawgScreenshots;
+              igdbScreenshots = Array.isArray(screenshots) ? screenshots : [];
+              patch.igdbScreenshots = igdbScreenshots;
             }
           } catch (error) {
-            patch.errors.push({ source: 'rawg-screenshots', message: error.message });
+            patch.errors.push({ source: 'igdb-screenshots', message: error.message });
           }
         }
 
         const mediaPatch = buildStorePrefetchMedia(
-          patch.rawgDetails ? { ...item, ...patch.rawgDetails } : item,
+          patch.igdbDetails ? { ...item, ...patch.igdbDetails } : item,
           resolvedSteamAppId,
           patch.steamDetails,
-          rawgScreenshots
+          igdbScreenshots
         );
 
         const finalRecord = mergeStoreDetailCache(item, {
@@ -392,13 +495,21 @@ export default function App() {
 
     storeDetailInFlightRef.current.set(initialKey, request);
     return request;
-  }, [mergeStoreDetailCache]);
+  }, [fetchProtonDbSummary, mergeStoreDetailCache, settings.protonDbEnabled]);
 
   // --- System Diagnostic Metrics ---
+  const [cpuUsage, setCpuUsage] = useState(12);
+  const [ramUsage, setRamUsage] = useState(34);
+  const [ramUsedGb, setRamUsedGb] = useState(null);
 
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const settingsLoadedRef = useRef(false);
   const [cacheVersion, setCacheVersion] = useState(0);
+  const [libraryTrailerPlayback, setLibraryTrailerPlayback] = useState({
+    gameId: null,
+    embedUrl: null,
+    videoId: null,
+    title: null,
+    visible: false
+  });
 
   // --- 1. Load Local Database or Fallback to Defaults ---
   useEffect(() => {
@@ -475,6 +586,10 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
+    audioEngine.setMuted(settings.isMuted);
+  }, [settings.isMuted]);
+
+  useEffect(() => {
     if (!window.electronAPI?.onDiagnosticEvent) return;
 
     return window.electronAPI.onDiagnosticEvent((event) => {
@@ -485,38 +600,38 @@ export default function App() {
   useEffect(() => {
     const term = searchQuery.trim();
     if (term.length < 3 || (activeView !== 'search' && activeView !== 'store-item')) {
-      setRawgSearchResults([]);
-      setRawgSearchStatus('idle');
-      setRawgSearchError(null);
+      setIgdbSearchResults([]);
+      setIgdbSearchStatus('idle');
+      setIgdbSearchError(null);
       return;
     }
 
     let cancelled = false;
-    setRawgSearchStatus('loading');
-    setRawgSearchError(null);
+    setIgdbSearchStatus('loading');
+    setIgdbSearchError(null);
 
     const timer = setTimeout(async () => {
       try {
-        const results = window.electronAPI?.searchRawgGames
-          ? await window.electronAPI.searchRawgGames(term)
-          : await searchRawgGamesBrowser(term);
+        const results = window.electronAPI?.searchIgdbGames
+          ? await window.electronAPI.searchIgdbGames(term)
+          : await searchIgdbGamesBrowser(term);
         if (cancelled) return;
 
         if (results?.error) {
-          setRawgSearchResults([]);
-          setRawgSearchStatus('error');
-          setRawgSearchError(results.error);
+          setIgdbSearchResults([]);
+          setIgdbSearchStatus('error');
+          setIgdbSearchError(results.error);
           addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${results.error}`);
           return;
         }
 
-        setRawgSearchResults(Array.isArray(results) ? results : []);
-        setRawgSearchStatus('ready');
+        setIgdbSearchResults(Array.isArray(results) ? results : []);
+        setIgdbSearchStatus('ready');
       } catch (error) {
         if (cancelled) return;
-        setRawgSearchResults([]);
-        setRawgSearchStatus('error');
-        setRawgSearchError(error.message);
+        setIgdbSearchResults([]);
+        setIgdbSearchStatus('error');
+        setIgdbSearchError(error.message);
         addDiagnostic('Discovery', 'warn', `Search failed for ${term}: ${error.message}`);
       }
     }, 450);
@@ -538,9 +653,9 @@ export default function App() {
 
     async function hydratePopularGames() {
       try {
-        const results = window.electronAPI?.fetchRawgPopularGames
-          ? await window.electronAPI.fetchRawgPopularGames()
-          : await fetchRawgPopularGamesBrowser();
+        const results = window.electronAPI?.fetchIgdbPopularGames
+          ? await window.electronAPI.fetchIgdbPopularGames(STORE_TRENDING_FEED_LIMIT)
+          : await fetchIgdbPopularGamesBrowser({ limit: STORE_TRENDING_FEED_LIMIT });
         if (cancelled) return;
 
         if (results?.error) {
@@ -579,19 +694,40 @@ export default function App() {
     setItadDealsError(null);
 
     async function hydrateItadDeals() {
-      try {
-        const deals = await fetchItadBestDeals({ country: 'US', limit: 10 });
-        if (cancelled) return;
+      const [itadResult, cheapsharkResult] = await Promise.allSettled([
+        fetchItadBestDeals({ country: 'US', limit: 10 }),
+        fetchCheapSharkBestDeals({ limit: 10 })
+      ]);
+      if (cancelled) return;
 
-        setItadDealGames(deals.map(applySeededHltbToGame));
-        setItadDealsStatus('ready');
-      } catch (error) {
-        if (cancelled) return;
-        setItadDealGames([]);
-        setItadDealsStatus(error.message === 'Missing price API key.' ? 'missing-key' : 'error');
-        setItadDealsError(error.message);
-        addDiagnostic('Prices', 'warn', `Best deals feed unavailable: ${error.message}`);
+      const deals = [];
+      const errors = [];
+      let missingItadKey = false;
+
+      if (itadResult.status === 'fulfilled') {
+        deals.push(...itadResult.value);
+      } else {
+        missingItadKey = itadResult.reason?.message === 'Missing price API key.';
+        errors.push(`ITAD: ${itadResult.reason?.message || 'Unavailable'}`);
       }
+
+      if (cheapsharkResult.status === 'fulfilled') {
+        deals.push(...cheapsharkResult.value);
+      } else {
+        errors.push(`CheapShark: ${cheapsharkResult.reason?.message || 'Unavailable'}`);
+      }
+
+      setItadDealGames(deals.map(applySeededHltbToGame));
+
+      if (deals.length > 0) {
+        setItadDealsStatus('ready');
+        setItadDealsError(errors.length ? errors.join(' | ') : null);
+      } else {
+        setItadDealsStatus(missingItadKey ? 'missing-key' : 'error');
+        setItadDealsError(errors.join(' | ') || 'No deal services returned results.');
+      }
+
+      errors.forEach(message => addDiagnostic('Prices', 'warn', `Best deals feed unavailable: ${message}`));
     }
 
     hydrateItadDeals();
@@ -698,7 +834,7 @@ export default function App() {
 
   useEffect(() => {
     const candidates = popularStoreGames.filter(item => (
-      item?.source === 'rawg' &&
+      item?.source === 'igdb' &&
       item.title &&
       !storeSteamMetadataHydratedRef.current.has(item.id) &&
       (!item.steamAppId || !item.steamReviewScore)
@@ -763,6 +899,58 @@ export default function App() {
       cancelled = true;
     };
   }, [popularStoreGames]);
+
+  useEffect(() => {
+    if (!settings.protonDbEnabled) return;
+
+    const sourceItems = [
+      ...popularStoreGames,
+      ...itadDealGames,
+      ...storeCatalog,
+      ...igdbSearchResults
+    ];
+    const candidates = sourceItems.filter(item => {
+      const appId = String(item?.steamAppId || '').trim();
+      const key = `${item?.id}:${appId}`;
+      return item?.id &&
+        isValidSteamAppId(appId) &&
+        !item.protonDbSummary &&
+        !storeProtonDbSummaries[item.id] &&
+        !protonDbStoreAttemptedRef.current.has(key);
+    });
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+
+    async function hydrateStoreProtonDb() {
+      const summaries = {};
+
+      for (const item of candidates) {
+        const appId = String(item.steamAppId || '').trim();
+        protonDbStoreAttemptedRef.current.add(`${item.id}:${appId}`);
+        const summary = await fetchProtonDbSummary(appId, item.title);
+        if (cancelled) return;
+        if (summary) summaries[item.id] = summary;
+      }
+
+      if (!cancelled && Object.keys(summaries).length > 0) {
+        setStoreProtonDbSummaries(prev => ({ ...prev, ...summaries }));
+      }
+    }
+
+    hydrateStoreProtonDb();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    fetchProtonDbSummary,
+    igdbSearchResults,
+    itadDealGames,
+    popularStoreGames,
+    settings.protonDbEnabled,
+    storeProtonDbSummaries
+  ]);
 
   useEffect(() => {
     if (!window.electronAPI?.autoFetchHowLongToBeat || games.length === 0) return;
@@ -838,6 +1026,35 @@ export default function App() {
     document.documentElement.style.setProperty('--fs-38', `${38 * fontScale}px`);
     document.documentElement.style.setProperty('--fs-48', `${48 * fontScale}px`);
     
+    if (!settings.trackSystemStatus) return;
+
+    const updateSystemStatus = async () => {
+      setCpuUsage(prev => {
+        const delta = Math.floor(Math.random() * 8) - 4;
+        return Math.max(5, Math.min(85, prev + delta));
+      });
+
+      if (window.electronAPI?.getSystemMemoryUsage) {
+        const memory = await window.electronAPI.getSystemMemoryUsage();
+        if (memory && Number.isFinite(memory.usagePercent)) {
+          setRamUsage(Math.max(0, Math.min(100, memory.usagePercent)));
+          setRamUsedGb(Number.isFinite(memory.usedGb) ? memory.usedGb : null);
+        }
+        return;
+      }
+
+      setRamUsage(prev => {
+        const delta = Math.floor(Math.random() * 4) - 2;
+        const nextUsage = Math.max(25, Math.min(95, prev + delta));
+        setRamUsedGb((nextUsage / 100) * 16);
+        return nextUsage;
+      });
+    };
+
+    updateSystemStatus();
+    const sysTimer = setInterval(updateSystemStatus, 4000);
+
+    return () => clearInterval(sysTimer);
   }, [settings]);
 
   // --- 3. Ambient Audio Soundtrack Controls ---
@@ -914,7 +1131,7 @@ export default function App() {
         if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
       };
     }
-  }, []);
+  }, [games]);
 
   // --- Action Trigger: Game Launching ---
   const handleLaunchGame = async (game) => {
@@ -1058,58 +1275,297 @@ export default function App() {
     }
   };
 
-  // --- Action Trigger: Folder Scanning Batch Imports ---
-  const handleImportScannedGames = async (matchedImports) => {
-    const addedList = [...games];
-    const newGameIds = [];
-    let duplicateCount = 0;
-    matchedImports.forEach(scannedFile => {
-      // Exclude if path already matches
-      const exists = addedList.find(g => g.exePath === scannedFile.path);
-      if (!exists) {
-        const metadata = matchGameMetadata(scannedFile.name, scannedFile.path);
-        // Create clean ID
-        const cleanId = scannedFile.name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
-        addedList.push(applySeededHltbToGame({
-          ...metadata,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null,
-          id: cleanId
-        }));
-        newGameIds.push(cleanId);
-        addDiagnostic('Importer', 'info', `Prepared import for ${metadata.title}`, {
-          exePath: scannedFile.path,
-          steamAppId: scannedFile.steamAppId || metadata.steamAppId || null
-        });
-      } else {
-        duplicateCount += 1;
-        addDiagnostic('Importer', 'warn', `Skipped duplicate executable ${scannedFile.path}`);
-      }
+  const persistGames = async (nextGames) => {
+    setGames(nextGames);
+    gamesRef.current = nextGames;
+    if (window.electronAPI) {
+      await window.electronAPI.saveDatabase(nextGames);
+    } else {
+      localStorage.setItem('nexus_games_cache', JSON.stringify(nextGames));
+    }
+  };
+
+  useEffect(() => {
+    if (!settings.protonDbEnabled || games.length === 0) return;
+
+    const candidates = games.filter(game => {
+      const appId = String(game.steamAppId || '').trim();
+      const key = `${game.id}:${appId}`;
+      return isValidSteamAppId(appId) && !game.protonDbSummary && !protonDbLibraryAttemptedRef.current.has(key);
     });
+    if (candidates.length === 0) return;
 
-    addDiagnostic('Importer', newGameIds.length ? 'info' : 'warn', `Import selection processed: ${newGameIds.length} new, ${duplicateCount} duplicate`);
+    let cancelled = false;
 
-    if (window.electronAPI?.autoFetchArtwork) {
-      for (const gameId of newGameIds) {
-        const game = addedList.find(item => item.id === gameId);
-        const artwork = await window.electronAPI.autoFetchArtwork({ ...game, forceTitleLookup: true });
-        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-          const index = addedList.findIndex(item => item.id === gameId);
-          addedList[index] = applyArtworkToGame(addedList[index], artwork);
-          addDiagnostic('SteamGridDB', 'info', `Artwork applied to imported game ${game.title}`);
-        } else if (artwork?.error) {
-          addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${game.title}: ${artwork.error}`);
+    async function hydrateLibraryProtonDb() {
+      const summariesById = {};
+
+      for (const game of candidates) {
+        const appId = String(game.steamAppId || '').trim();
+        protonDbLibraryAttemptedRef.current.add(`${game.id}:${appId}`);
+        const summary = await fetchProtonDbSummary(appId, game.title);
+        if (cancelled) return;
+        if (summary) summariesById[game.id] = summary;
+      }
+
+      if (cancelled || Object.keys(summariesById).length === 0) return;
+
+      const updatedList = gamesRef.current.map(game =>
+        summariesById[game.id]
+          ? { ...game, protonDbSummary: summariesById[game.id] }
+          : game
+      );
+      setGames(updatedList);
+      gamesRef.current = updatedList;
+      setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || prev);
+
+      if (window.electronAPI) {
+        await window.electronAPI.saveDatabase(updatedList);
+      } else {
+        localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+      }
+    }
+
+    hydrateLibraryProtonDb();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchProtonDbSummary, games, settings.protonDbEnabled]);
+
+  const cacheLibraryTrailerForGame = useCallback(async (gameId, trailerPatch) => {
+    const currentGames = gamesRef.current;
+    const updatedList = currentGames.map(game => (
+      game.id === gameId
+        ? {
+            ...game,
+            ...trailerPatch,
+            trailerFetchedAt: new Date().toISOString()
+          }
+        : game
+    ));
+
+    setGames(updatedList);
+    gamesRef.current = updatedList;
+    setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || prev);
+
+    if (window.electronAPI) {
+      await window.electronAPI.saveDatabase(updatedList);
+    } else {
+      localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+    }
+  }, []);
+
+  const handleImportSuggestionSearch = useCallback(async (term) => {
+    const results = window.electronAPI?.searchIgdbGames
+      ? await window.electronAPI.searchIgdbGames(term)
+      : await searchIgdbGamesBrowser(term);
+
+    if (results?.error) throw new Error(results.error);
+    return Array.isArray(results) ? results : [];
+  }, []);
+
+  const buildImportedGame = (file, title, suggestion = null) => {
+    const baseTitle = String(title || file.suggestedTitle || file.name || 'Game').trim();
+    const fallback = matchGameMetadata(baseTitle, file.path);
+    const source = suggestion ? { ...suggestion } : fallback;
+
+    return applySeededHltbToGame({
+      ...source,
+      id: createImportedGameId(source.title || baseTitle, file.path),
+      title: source.title || baseTitle,
+      developer: source.developer || fallback.developer,
+      publisher: source.publisher || fallback.publisher || source.developer || fallback.developer,
+      genre: source.genre || fallback.genre,
+      rating: source.rating || fallback.rating || 4.0,
+      releaseDate: source.releaseDate || fallback.releaseDate,
+      description: source.description || fallback.description,
+      tags: Array.isArray(source.tags) && source.tags.length ? source.tags : (fallback.tags || ['Local Import']),
+      steamAppId: file.steamAppId || source.steamAppId || fallback.steamAppId || null,
+      exePath: file.path,
+      owned: true,
+      playtime: 0,
+      lastPlayed: 'Never',
+      progress: 0,
+      timeToComplete: '--',
+      nextAchievement: 'Locked (0% complete)',
+      isFavorite: false,
+      artworkFetched: false
+    });
+  };
+
+  const enrichImportedGame = async (game) => {
+    let enriched = { ...game };
+
+    if (!enriched.steamAppId && enriched.title) {
+      try {
+        const match = window.electronAPI?.resolveSteamAppId
+          ? await window.electronAPI.resolveSteamAppId(enriched.title)
+          : await resolveSteamAppIdBrowser(enriched.title);
+
+        if (match?.steamAppId) {
+          enriched = {
+            ...enriched,
+            steamAppId: match.steamAppId,
+            steamMatchName: match.name || null,
+            steamMatchScore: match.matchScore ?? null
+          };
+          addDiagnostic('Steam', 'info', `Resolved Steam AppID for ${enriched.title}`, match);
+        } else if (match?.error) {
+          addDiagnostic('Steam', 'warn', `Steam AppID lookup failed for ${enriched.title}: ${match.error}`);
+        }
+      } catch (error) {
+        addDiagnostic('Steam', 'warn', `Steam AppID lookup failed for ${enriched.title}: ${error.message}`);
+      }
+    }
+
+    if (enriched.steamAppId) {
+      try {
+        const [details, reviews] = await Promise.all([
+          window.electronAPI?.fetchSteamDetails
+            ? window.electronAPI.fetchSteamDetails(enriched.steamAppId)
+            : fetchSteamDetailsBrowser(enriched.steamAppId),
+          window.electronAPI?.fetchSteamReviews
+            ? window.electronAPI.fetchSteamReviews(enriched.steamAppId)
+            : fetchSteamReviewSummaryBrowser(enriched.steamAppId)
+        ]);
+
+        const steamGenres = Array.isArray(details?.genres) ? details.genres.map(item => item?.description).filter(Boolean) : [];
+        const steamCategories = Array.isArray(details?.categories) ? details.categories.map(item => item?.description).filter(Boolean) : [];
+        const steamTags = [...steamGenres, ...steamCategories].slice(0, 6);
+        enriched = {
+          ...enriched,
+          developer: enriched.developer && enriched.developer !== 'Unknown Developer'
+            ? enriched.developer
+            : details?.developers?.join(', ') || enriched.developer,
+          publisher: enriched.publisher && enriched.publisher !== 'Unknown Publisher'
+            ? enriched.publisher
+            : details?.publishers?.join(', ') || enriched.publisher,
+          genre: enriched.genre && enriched.genre !== 'Game' && enriched.genre !== 'Indie Game'
+            ? enriched.genre
+            : steamGenres.join(', ') || enriched.genre,
+          description: hasUsefulDescription(enriched)
+            ? enriched.description
+            : details?.short_description || enriched.description,
+          coverUrl: enriched.coverUrl || details?.header_image || null,
+          bannerUrl: enriched.bannerUrl || getSteamStoreBannerUrl(details, enriched.steamAppId),
+          tags: Array.isArray(enriched.tags) && enriched.tags.length && !enriched.tags.includes('Local Import')
+            ? enriched.tags
+            : steamTags.length ? steamTags : enriched.tags,
+          steamReviewScore: reviews || enriched.steamReviewScore || null
+        };
+        addDiagnostic('Steam', 'info', `Steam metadata merged for ${enriched.title}`);
+      } catch (error) {
+        addDiagnostic('Steam', 'warn', `Steam metadata failed for ${enriched.title}: ${error.message}`);
+      }
+
+      if (settings.protonDbEnabled) {
+        const protonDbSummary = await fetchProtonDbSummary(enriched.steamAppId, enriched.title);
+        if (protonDbSummary) {
+          enriched = {
+            ...enriched,
+            protonDbSummary
+          };
+          addDiagnostic('ProtonDB', 'info', `Linux compatibility merged for ${enriched.title}`);
         }
       }
     }
 
-    setGames(addedList);
-    setSelectedGame(addedList[addedList.length - 1]); // Highlight newly added game
-    
-    if (window.electronAPI) {
-      await window.electronAPI.saveDatabase(addedList);
-    } else {
-      localStorage.setItem('nexus_games_cache', JSON.stringify(addedList));
+    enriched = applySeededHltbToGame(enriched);
+    if (window.electronAPI?.autoFetchHowLongToBeat && shouldFetchHltb(enriched)) {
+      try {
+        const hltb = await window.electronAPI.autoFetchHowLongToBeat(enriched);
+        if (!hltb?.error) {
+          enriched = { ...enriched, hltb };
+          addDiagnostic('HowLongToBeat', 'info', `HLTB applied to imported game ${enriched.title}`);
+        } else {
+          addDiagnostic('HowLongToBeat', 'warn', `HLTB lookup failed for ${enriched.title}: ${hltb.error}`);
+        }
+      } catch (error) {
+        addDiagnostic('HowLongToBeat', 'warn', `HLTB lookup failed for ${enriched.title}: ${error.message}`);
+      }
     }
+
+    if (window.electronAPI?.autoFetchArtwork) {
+      try {
+        const artwork = await window.electronAPI.autoFetchArtwork({ ...enriched, forceTitleLookup: true });
+        if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
+          enriched = applyArtworkToGame(enriched, artwork);
+          addDiagnostic('SteamGridDB', 'info', `Artwork applied to imported game ${enriched.title}`);
+        } else if (artwork?.error) {
+          addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${enriched.title}: ${artwork.error}`);
+        }
+      } catch (error) {
+        addDiagnostic('SteamGridDB', 'warn', `Artwork failed for imported game ${enriched.title}: ${error.message}`);
+      }
+    }
+
+    return enriched;
+  };
+
+  const startImportPromptQueue = (files) => {
+    const normalizedFiles = (Array.isArray(files) ? files : [files])
+      .map(normalizeImportFile)
+      .filter(file => file.path);
+
+    if (normalizedFiles.length === 0) return;
+    setImportPromptIndex(0);
+    setImportQueue(normalizedFiles);
+    setIsCcOpen(false);
+    addDiagnostic('Importer', 'info', `Queued ${normalizedFiles.length} local executable${normalizedFiles.length === 1 ? '' : 's'} for naming`);
+  };
+
+  const advanceImportPromptQueue = () => {
+    setImportQueue(prev => {
+      const next = prev.slice(1);
+      setImportPromptIndex(index => next.length > 0 ? index + 1 : 0);
+      return next;
+    });
+  };
+
+  const handleConfirmImportName = async ({ title, suggestion }) => {
+    const currentFile = importQueue[0];
+    if (!currentFile || isImportProcessing) return;
+
+    const existing = gamesRef.current.find(game => game.exePath === currentFile.path);
+    if (existing) {
+      addDiagnostic('Importer', 'warn', `Skipped duplicate executable ${currentFile.path}`);
+      advanceImportPromptQueue();
+      return;
+    }
+
+    setIsImportProcessing(true);
+    try {
+      const baseGame = buildImportedGame(currentFile, title, suggestion);
+      addDiagnostic('Importer', 'info', `Preparing import for ${baseGame.title}`, {
+        exePath: currentFile.path,
+        source: suggestion ? 'igdb' : 'typed-name'
+      });
+
+      const enrichedGame = await enrichImportedGame(baseGame);
+      const updated = [...gamesRef.current, enrichedGame];
+      await persistGames(updated);
+      setSelectedGame(enrichedGame);
+      setActiveView('library');
+      addDiagnostic('Importer', 'info', `Imported ${enrichedGame.title}`);
+    } finally {
+      setIsImportProcessing(false);
+      advanceImportPromptQueue();
+    }
+  };
+
+  const handleCancelImportName = () => {
+    if (isImportProcessing) return;
+    const currentFile = importQueue[0];
+    if (currentFile) {
+      addDiagnostic('Importer', 'warn', `Skipped local executable ${currentFile.path}`);
+    }
+    advanceImportPromptQueue();
+  };
+
+  // --- Action Trigger: Folder Scanning Batch Imports ---
+  const handleImportScannedGames = async (matchedImports) => {
+    startImportPromptQueue(matchedImports);
   };
 
   // --- Action Trigger: Manual EXE Import ---
@@ -1123,32 +1579,8 @@ export default function App() {
       return;
     }
 
-    const name = mockExe.split('\\').pop().replace('.exe', '');
-    const cleanId = name.toLowerCase().replace(/[^a-z0-9]/g, "") + Math.floor(Math.random()*100);
-    const metadata = matchGameMetadata(name, mockExe);
     addDiagnostic('Importer', 'info', `Manual executable selected: ${mockExe}`);
-
-    let newGame = applySeededHltbToGame({ ...metadata, id: cleanId });
-    if (window.electronAPI?.autoFetchArtwork) {
-      const artwork = await window.electronAPI.autoFetchArtwork({ ...newGame, forceTitleLookup: true });
-      if (!artwork?.error && (artwork.grid || artwork.hero || artwork.logo || artwork.icon)) {
-        newGame = applyArtworkToGame(newGame, artwork);
-        addDiagnostic('SteamGridDB', 'info', `Artwork applied to manual import ${newGame.title}`);
-      } else if (artwork?.error) {
-        addDiagnostic('SteamGridDB', 'warn', `Artwork failed for manual import ${newGame.title}: ${artwork.error}`);
-      }
-    }
-
-    const updated = [...games, newGame];
-    setGames(updated);
-    setSelectedGame(updated[updated.length - 1]);
-    setIsCcOpen(false);
-
-    if (window.electronAPI) {
-      window.electronAPI.saveDatabase(updated);
-    } else {
-      localStorage.setItem('nexus_games_cache', JSON.stringify(updated));
-    }
+    startImportPromptQueue(mockExe);
   };
 
   // --- Action Trigger: Factory DB Resets ---
@@ -1277,8 +1709,11 @@ export default function App() {
   const handleMarkOwned = async (storeItem) => {
     const existing = games.find(g =>
       g.id === storeItem.id ||
+      (storeItem.igdbId && g.igdbId === storeItem.igdbId) ||
       (storeItem.rawgId && g.rawgId === storeItem.rawgId) ||
-      (storeItem.itadId && g.itadId === storeItem.itadId)
+      (storeItem.itadId && g.itadId === storeItem.itadId) ||
+      (storeItem.cheapsharkGameId && g.cheapsharkGameId === storeItem.cheapsharkGameId) ||
+      (storeItem.steamAppId && String(g.steamAppId || '') === String(storeItem.steamAppId))
     );
     if (existing) {
       const updatedList = games.map(g =>
@@ -1334,13 +1769,13 @@ export default function App() {
   };
 
   // --- Filter Catalog Search ---
-  const filteredGames = useMemo(() => {
+  const getFilteredGames = () => {
     return games.filter(g => 
       g.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       g.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       g.genre?.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [games, searchQuery]);
+  };
 
   // --- Action Trigger: Batch SteamGridDB Artwork Fetch ---
   const handleBatchFetchArtwork = async () => {
@@ -1380,78 +1815,237 @@ export default function App() {
     );
   };
 
-  const filteredFavoriteGames = useMemo(() => {
-    return filteredGames.filter(g => g.isFavorite);
-  }, [filteredGames]);
+  const getFilteredFavoriteGames = () => {
+    return getFilteredGames().filter(g => g.isFavorite);
+  };
 
   // Sync store catalog ownership with games library
-  const syncedCatalog = useMemo(() => storeCatalog.map(item => applySeededHltbToGame({
+  const syncedCatalog = storeCatalog.map(item => applySeededHltbToGame({
     ...item,
     ...storeArtwork[item.id],
     steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
+    protonDbSummary: settings.protonDbEnabled
+      ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+      : null,
     owned: games.some(g => g.id === item.id && g.owned)
-  })), [storeArtwork, storeReviewScores, games]);
-
-  const ownedRawgIds = useMemo(() => new Set(games.map(game => game.rawgId).filter(Boolean)), [games]);
-  const ownedItadIds = useMemo(() => new Set(games.map(game => game.itadId).filter(Boolean)), [games]);
-  
-  const isOwnedStoreItem = useCallback((item) => (
+  }));
+  const ownedIgdbIds = new Set(games.map(game => game.igdbId).filter(Boolean));
+  const ownedRawgIds = new Set(games.map(game => game.rawgId).filter(Boolean));
+  const ownedItadIds = new Set(games.map(game => game.itadId).filter(Boolean));
+  const ownedCheapSharkIds = new Set(games.map(game => game.cheapsharkGameId).filter(Boolean));
+  const ownedSteamAppIds = new Set(games.map(game => String(game.steamAppId || '')).filter(Boolean));
+  const isOwnedStoreItem = (item) => (
     games.some(game => game.id === item.id) ||
+    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
     (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
-    (item.itadId && ownedItadIds.has(item.itadId))
-  ), [games, ownedRawgIds, ownedItadIds]);
-
-  const syncedPopularGames = useMemo(() => popularStoreGames.map(item => ({
+    (item.itadId && ownedItadIds.has(item.itadId)) ||
+    (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
+    (item.steamAppId && ownedSteamAppIds.has(String(item.steamAppId)))
+  );
+  const syncedPopularGames = popularStoreGames.map(item => ({
     ...item,
+    protonDbSummary: settings.protonDbEnabled
+      ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+      : null,
     owned: isOwnedStoreItem(item)
-  })), [popularStoreGames, isOwnedStoreItem]);
-
-  const syncedItadDeals = useMemo(() => itadDealGames.map(item => ({
+  }));
+  const syncedItadDeals = itadDealGames.map(item => ({
     ...item,
+    protonDbSummary: settings.protonDbEnabled
+      ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+      : null,
     owned: isOwnedStoreItem(item)
-  })), [itadDealGames, isOwnedStoreItem]);
-
-  const mergedStoreCatalog = useMemo(() => [
+  }));
+  const mergedStoreCatalog = [
     ...syncedPopularGames,
     ...syncedItadDeals,
     ...syncedCatalog
-  ], [syncedPopularGames, syncedItadDeals, syncedCatalog]);
-
-  const searchResults = useMemo(() => {
-    const normalizedSearchTitles = new Set();
-    return [
-      ...filteredGames.map(item => ({ ...item, resultType: 'library', owned: true })),
-      ...syncedCatalog
-        .filter(item => (
-          item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          item.genre?.toLowerCase().includes(searchQuery.toLowerCase())
-        ))
-        .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
-      ...rawgSearchResults
-        .filter(item => item.source === 'rawg' && item.rawgId)
-        .map(item => ({ ...item, resultType: 'rawg', owned: isOwnedStoreItem(item) }))
-    ].filter(item => {
-      const key = item.rawgId ? `rawg:${item.rawgId}` : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-      if (!key || normalizedSearchTitles.has(key)) return false;
-      normalizedSearchTitles.add(key);
-      return true;
-    });
-  }, [filteredGames, syncedCatalog, rawgSearchResults, searchQuery, isOwnedStoreItem]);
-
-  const activeStoreItem = useMemo(() => selectedStoreItem
+  ];
+  const normalizedSearchTitles = new Set();
+  const searchResults = [
+    ...getFilteredGames().map(item => ({ ...item, resultType: 'library', owned: true })),
+    ...syncedCatalog
+      .filter(item => (
+        item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.genre?.toLowerCase().includes(searchQuery.toLowerCase())
+      ))
+      .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
+    ...igdbSearchResults
+      .filter(item => item.source === 'igdb' && item.igdbId)
+      .map(item => ({
+        ...item,
+        protonDbSummary: settings.protonDbEnabled
+          ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+          : null,
+        resultType: 'igdb',
+        owned: isOwnedStoreItem(item)
+      }))
+  ].filter(item => {
+    const key = item.igdbId
+      ? `igdb:${item.igdbId}`
+      : item.rawgId
+        ? `rawg:${item.rawgId}`
+        : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    if (!key || normalizedSearchTitles.has(key)) return false;
+    normalizedSearchTitles.add(key);
+    return true;
+  }).sort((a, b) => {
+    const popDiff = (b.igdbPopScore || 0) - (a.igdbPopScore || 0);
+    if (popDiff !== 0) return popDiff;
+    const aExact = a.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
+    const bExact = b.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
+    return bExact - aExact;
+  }).slice(0, 20);
+  const activeStoreItem = selectedStoreItem
     ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
-    : null, [selectedStoreItem, mergedStoreCatalog]);
-
-  const activeStoreItemCacheKey = useMemo(() => getStoreItemCacheKey(activeStoreItem), [activeStoreItem]);
-  const activeStoreItemCachedDetails = useMemo(() => activeStoreItemCacheKey
+    : null;
+  const activeStoreItemCacheKey = getStoreItemCacheKey(activeStoreItem);
+  const activeStoreItemCachedDetails = activeStoreItemCacheKey
     ? storeDetailCache[activeStoreItemCacheKey]
-    : null, [activeStoreItemCacheKey, storeDetailCache]);
+    : null;
+  const currentImportFile = importQueue[0] || null;
+  const importPromptTotal = importPromptIndex + importQueue.length;
 
-  const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode;
+  const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode || !!currentImportFile;
   const primaryViews = ['store', 'library', 'favourites'];
 
+  useEffect(() => {
+    const gameId = selectedGame?.id || null;
+
+    if (libraryTrailerVisitRef.current.gameId !== gameId) {
+      libraryTrailerVisitRef.current = { gameId, consumed: false };
+      setLibraryTrailerPlayback({
+        gameId,
+        embedUrl: null,
+        videoId: null,
+        title: null,
+        visible: false
+      });
+    }
+
+    const canArmTrailer = Boolean(
+      settings.libraryTrailerAutoplay &&
+      gameId &&
+      activeView === 'library' &&
+      !hasBlockingOverlay &&
+      !isCcOpen &&
+      !libraryTrailerPlayback.visible
+    );
+    const shouldHideTrailer = activeView !== 'library' ||
+      !settings.libraryTrailerAutoplay ||
+      hasBlockingOverlay ||
+      isCcOpen;
+
+    if (!canArmTrailer || libraryTrailerVisitRef.current.consumed) {
+      if (shouldHideTrailer) {
+        setLibraryTrailerPlayback(prev => prev.visible ? { ...prev, visible: false } : prev);
+      }
+      return undefined;
+    }
+
+    const requestId = libraryTrailerRequestRef.current + 1;
+    libraryTrailerRequestRef.current = requestId;
+
+    const timer = setTimeout(async () => {
+      if (
+        libraryTrailerRequestRef.current !== requestId ||
+        libraryTrailerVisitRef.current.gameId !== gameId ||
+        libraryTrailerVisitRef.current.consumed
+      ) {
+        return;
+      }
+
+      const currentGame = gamesRef.current.find(game => game.id === gameId);
+      if (!currentGame) return;
+
+      let trailer = currentGame.trailerEmbedUrl
+        ? {
+            embedUrl: currentGame.trailerEmbedUrl,
+            videoId: currentGame.trailerVideoId || null,
+            name: currentGame.trailerName || `${currentGame.title} trailer`
+          }
+        : null;
+
+      if (!trailer && currentGame.trailerLookupStatus !== 'missing') {
+        try {
+          const result = window.electronAPI?.fetchIgdbGameTrailer
+            ? await window.electronAPI.fetchIgdbGameTrailer(currentGame)
+            : await fetchIgdbGameTrailerBrowser(currentGame);
+
+          if (result?.error) {
+            throw new Error(result.error);
+          }
+
+          if (result?.embedUrl && result?.videoId) {
+            trailer = result;
+            await cacheLibraryTrailerForGame(gameId, {
+              trailerVideoId: result.videoId,
+              trailerEmbedUrl: result.embedUrl,
+              trailerName: result.name || `${currentGame.title} trailer`,
+              trailerIgdbId: result.igdbId || currentGame.igdbId || null,
+              trailerLookupStatus: 'ready',
+              trailerSource: 'igdb-youtube'
+            });
+          } else {
+            libraryTrailerVisitRef.current.consumed = true;
+            if (!window.electronAPI?.fetchIgdbGameTrailer) {
+              addDiagnostic('Discovery', 'warn', `No IGDB trailer video found for ${currentGame.title}`);
+            }
+            await cacheLibraryTrailerForGame(gameId, {
+              trailerLookupStatus: 'missing',
+              trailerVideoId: null,
+              trailerEmbedUrl: null,
+              trailerName: null,
+              trailerIgdbId: currentGame.igdbId || null,
+              trailerSource: 'igdb-youtube'
+            });
+            return;
+          }
+        } catch (error) {
+          addDiagnostic('Discovery', 'warn', `Trailer lookup skipped ${currentGame.title}: ${error.message}`);
+          return;
+        }
+      }
+
+      if (!trailer?.embedUrl || libraryTrailerVisitRef.current.consumed) return;
+
+      setLibraryTrailerPlayback({
+        gameId,
+        embedUrl: trailer.embedUrl,
+        videoId: trailer.videoId || null,
+        title: trailer.name || `${currentGame.title} trailer`,
+        visible: true
+      });
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeView,
+    cacheLibraryTrailerForGame,
+    hasBlockingOverlay,
+    isCcOpen,
+    libraryTrailerPlayback.visible,
+    selectedGame?.id,
+    settings.libraryTrailerAutoplay
+  ]);
+
+  const handleLibraryTrailerEnded = useCallback((gameId) => {
+    if (libraryTrailerVisitRef.current.gameId === gameId) {
+      libraryTrailerVisitRef.current.consumed = true;
+    }
+
+    setLibraryTrailerPlayback(prev => (
+      prev.gameId === gameId ? { ...prev, visible: false } : prev
+    ));
+  }, []);
+
   const handleControllerBack = () => {
+    if (currentImportFile) {
+      if (isImportProcessing) return true;
+      handleCancelImportName();
+      return true;
+    }
     if (isMetadataOpen) {
       setIsMetadataOpen(false);
       return true;
@@ -1531,12 +2125,14 @@ export default function App() {
       selectedStoreItem?.id,
       searchQuery,
       games.length,
-      rawgSearchResults.length,
+      igdbSearchResults.length,
       isCcOpen,
       isSettingsOpen,
       isMetadataOpen,
       isProfileOpen,
-      bannerEditMode
+      bannerEditMode,
+      importQueue.length,
+      isImportProcessing
     ]
   });
 
@@ -1553,9 +2149,13 @@ export default function App() {
       <NavigationHeader 
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={() => { audioEngine.playClickPulse(); setIsSettingsOpen(true); }}
+        cpuUsage={cpuUsage}
+        ramUsage={ramUsage}
+        ramUsedGb={ramUsedGb}
         activeView={activeView}
         onViewChange={handleViewChange}
+        systemStatusTracking={settings.trackSystemStatus}
         username={username}
         userAvatar={userAvatar}
         onOpenProfile={() => setIsProfileOpen(true)}
@@ -1573,16 +2173,20 @@ export default function App() {
               onRemoveGame={handleRemoveGame}
               isRunning={runningGameId === selectedGame?.id}
               bannerAnimation={settings.bannerAnimation}
+              trailerPlayback={libraryTrailerPlayback}
+              trailerMutedByDefault={settings.libraryTrailerMutedByDefault}
+              onTrailerEnded={handleLibraryTrailerEnded}
               studioLogosEnabled={settings.studioLogosEnabled}
               brandfetchClientId={settings.brandfetchClientId}
               brandfetchCacheVersion={cacheVersion}
+              protonDbEnabled={settings.protonDbEnabled}
               onUpdateGameBannerLayout={handleUpdateGameBannerLayout}
               editMode={bannerEditMode}
               setEditMode={setBannerEditMode}
             />
 
             <HorizontalLibrary 
-              games={filteredGames}
+              games={getFilteredGames()}
               selectedGame={selectedGame}
               onSelectGame={setSelectedGame}
               onLaunchGame={handleLaunchGame}
@@ -1595,7 +2199,7 @@ export default function App() {
 
         {activeView === 'favourites' && (
           <FavouritesTrophyRoom
-            games={filteredFavoriteGames}
+            games={getFilteredFavoriteGames()}
             selectedGame={selectedGame}
             onSelectGame={setSelectedGame}
             onLaunchGame={handleLaunchGame}
@@ -1619,6 +2223,7 @@ export default function App() {
             popularError={popularStoreError}
             dealsStatus={itadDealsStatus}
             dealsError={itadDealsError}
+            protonDbEnabled={settings.protonDbEnabled}
           />
         )}
 
@@ -1627,12 +2232,13 @@ export default function App() {
             query={searchQuery}
             results={searchResults}
             ownedGames={games}
-            rawgSearchStatus={rawgSearchStatus}
-            rawgSearchError={rawgSearchError}
+            igdbSearchStatus={igdbSearchStatus}
+            igdbSearchError={igdbSearchError}
             onSelectItem={(item) => handleSelectStoreItem(item, 'search')}
             onPrefetchItem={prefetchStoreItemDetails}
             onSelectLibraryGame={handleSelectSearchLibraryGame}
             onLaunchGame={handleLaunchGame}
+            protonDbEnabled={settings.protonDbEnabled}
           />
         )}
 
@@ -1649,6 +2255,7 @@ export default function App() {
             onLaunch={handleLaunchGame}
             onEditMetadata={handleOpenMetadata}
             onRemoveGame={handleRemoveGame}
+            protonDbEnabled={settings.protonDbEnabled}
           />
         )}
       </main>
@@ -1662,11 +2269,25 @@ export default function App() {
         onImportScannedGames={handleImportScannedGames}
         onBatchFetchArtwork={handleBatchFetchArtwork}
         isBatchFetchingArtwork={isBatchFetchingArtwork}
+        cpuUsage={cpuUsage}
+        ramUsage={ramUsage}
         games={games}
         systemStatusTracking={settings.trackSystemStatus}
         diagnostics={diagnostics}
         onClearDiagnostics={() => setDiagnostics([])}
       />
+
+      {currentImportFile && (
+        <ImportNamePrompt
+          file={currentImportFile}
+          index={importPromptIndex}
+          total={importPromptTotal}
+          onSearchSuggestions={handleImportSuggestionSearch}
+          onConfirm={handleConfirmImportName}
+          onCancel={handleCancelImportName}
+          isBusy={isImportProcessing}
+        />
+      )}
 
       <ControllerHintOverlay
         activeView={activeView}

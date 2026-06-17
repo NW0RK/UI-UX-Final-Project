@@ -49,6 +49,8 @@ export default function HorizontalLibrary({
     return (
       <div style={{
         ...style,
+        top: `${parseFloat(style.top) + 15}px`, // Offset to allow hover scaling
+        height: `${parseFloat(style.height) - 30}px`,
         paddingLeft: index === 0 ? 20 : 0,
         display: 'flex',
         alignItems: 'flex-start'

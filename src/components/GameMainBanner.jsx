@@ -57,6 +57,11 @@ function isCanvasReadBlocked(error) {
     || message.includes('insecure operation');
 }
 
+function hasFetchedBannerBackground(game) {
+  if (!game?.bannerUrl) return false;
+  return Boolean(game.artworkFetched || game.mediaLoaded);
+}
+
 export default function GameMainBanner({ 
   game, 
   onLaunch, 
@@ -152,6 +157,8 @@ export default function GameMainBanner({
     }];
   }, []);
 
+  const canAutoPlaceFetchedBanner = hasFetchedBannerBackground(game);
+
   const applyAutoPlacement = useCallback(async ({ persist = false, animate = false } = {}) => {
     const image = backdropImgRef.current;
     const bannerRect = bannerRef.current?.getBoundingClientRect();
@@ -205,7 +212,7 @@ export default function GameMainBanner({
   }, [game?.bannerUrl, game?.id, getReservedRects, onUpdateGameBannerLayout]);
 
   useEffect(() => {
-    if (!game?.id || !game?.bannerUrl || game?.bannerLayout) return;
+    if (!game?.id || !game?.bannerUrl || !canAutoPlaceFetchedBanner || game?.bannerLayout) return;
     if (autoPlacementGameRef.current === game.id) return;
 
     const frame = requestAnimationFrame(() => {
@@ -217,7 +224,15 @@ export default function GameMainBanner({
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [applyAutoPlacement, game?.bannerLayout, game?.bannerUrl, game?.id]);
+  }, [
+    applyAutoPlacement,
+    canAutoPlaceFetchedBanner,
+    game?.artworkFetched,
+    game?.bannerLayout,
+    game?.bannerUrl,
+    game?.id,
+    game?.mediaLoaded
+  ]);
 
   const getSteamRating = (rating) => {
     let numericRating = parseFloat(rating);

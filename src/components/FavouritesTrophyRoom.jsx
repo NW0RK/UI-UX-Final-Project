@@ -173,7 +173,8 @@ export default function FavouritesTrophyRoom({
   }
 
   const isRunning = runningGameId === spotlightGame?.id;
-  const heroImage = spotlightGame?.bannerUrl || spotlightGame?.coverUrl;
+  const heroGridImage = spotlightGame?.coverUrl || null;
+  const backdropImage = spotlightGame?.bannerUrl || heroGridImage;
   const heroTags = spotlightGame?.tags?.filter(Boolean).slice(0, 4) || [];
   const progressValue = Math.max(0, Math.min(100, Number(spotlightGame?.progress) || 0));
   const description = spotlightGame?.description || 'No description has been added yet. Open Metadata to tune this entry for your vault.';
@@ -182,8 +183,8 @@ export default function FavouritesTrophyRoom({
   return (
     <div className="favourites-room gallery-vault">
       <div className="gallery-vault-backdrop" aria-hidden="true">
-        {heroImage ? (
-          <img src={heroImage} alt="" className="gallery-vault-backdrop-image" key={spotlightGame?.id} />
+        {backdropImage ? (
+          <img src={backdropImage} alt="" className="gallery-vault-backdrop-image" key={spotlightGame?.id} />
         ) : (
           <div className="gallery-vault-backdrop-fallback" />
         )}
@@ -197,8 +198,8 @@ export default function FavouritesTrophyRoom({
           aria-label="Selected favourite"
         >
           <div className="vault-hero-media">
-            {heroImage ? (
-              <img src={heroImage} alt={spotlightGame?.title} className="vault-hero-image" />
+            {heroGridImage ? (
+              <img src={heroGridImage} alt={spotlightGame?.title} className="vault-hero-image" />
             ) : (
               <div className="vault-hero-placeholder">
                 <Sparkles size={34} />

@@ -60,7 +60,7 @@ npm run build
 | `src/utils/protondb.js` | Renderer/shared ProtonDB summary endpoint constants, Steam App ID validation, browser fallback fetch, and tier normalization. | ProtonDB endpoint behavior, Linux compatibility tiers, or summary field mapping changes. |
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/bannerPlacement.js` | Browser-side Library banner title placement analysis: saliency-style masking, maximum empty rectangle selection, and contrast tone selection. | Banner title auto-placement, safe-region scoring, or layout contrast behavior changes. |
-| `src/utils/audioEngine.js` | UI sound effects and procedural ambience. | Audio assets, mute behavior, ambience styles. |
+| `src/utils/audioEngine.js` | UI sound effects, looping menu music, and procedural ambience. | Audio assets, mute behavior, menu music, ambience styles. |
 | `docs/LLM_DESIGN_CONTEXT.md` | Saved product/design context for LLM-assisted UI, UX, product, and frontend work. | Product positioning, design language, interaction expectations, or LLM design guidance changes. |
 | `deprecated_features/` | Archived image trimming code and notes. | Only when restoring or documenting deprecated trimming behavior. |
 | Root asset folders | Controller button/icon packs and audio assets. | Asset lookup, controller hints, or media licensing changes. |
@@ -143,7 +143,7 @@ Persistence locations:
 | Data | Desktop persistence | Browser fallback |
 | --- | --- | --- |
 | Game database | Electron user data `nexus-db.json`; legacy path copied if present. | `localStorage` key `nexus_games_cache`. |
-| Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options, Library trailer autoplay/default-audio preferences, and the default-off `protonDbEnabled` Linux compatibility toggle. | `localStorage` key `nexus_settings`. |
+| Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options, launcher volume, looping menu music preference, Library trailer autoplay/default-audio preferences, and the default-off `protonDbEnabled` Linux compatibility toggle. | `localStorage` key `nexus_settings`. |
 | SteamGridDB API key | Electron user data `nexus-config.json`, or `STEAMGRIDDB_API_KEY` env var. | Not used by most desktop-only fetch paths. |
 | IGDB credentials | Electron user data `nexus-config.json`, or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` can use `.env.local` credentials through the Vite IGDB proxy. |
 | Profile | `localStorage` keys `nexus_username`, `nexus_user_avatar`. | Same. |
@@ -171,7 +171,7 @@ Store and pricing:
 - Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB PopScore trending games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
 - Store landing uses `fetchIgdbPopularGames(limit)` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive, and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed. Trending requests enough real IGDB cards to match the best-deals feed rows when deals are loaded.
-- Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned. Marking a store/search item as owned enriches the saved library record with Steam/IGDB media, trailer metadata, SteamGridDB artwork, HLTB, and enabled ProtonDB data before persistence when the relevant APIs are available.
+- Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned. Marking a store/search item as owned persists the library record immediately without copying transient card/result artwork into library `coverUrl`, `bannerUrl`, `logoUrl`, or `iconUrl`, then enriches it in the background with Steam/IGDB media, trailer metadata, SteamGridDB artwork, HLTB, and enabled ProtonDB data when the relevant APIs are available.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
 - `StoreItemPage.jsx` fetches IGDB details for IGDB-backed items through `fetchIgdbGameDetails`.
@@ -188,7 +188,7 @@ Import and launch:
 - `ControlCenter.jsx` triggers manual import or folder scan.
 - `main.js` scans directories and attaches Steam App IDs when it can.
 - `App.jsx` queues selected executables, shows `ImportNamePrompt` for each one after import is chosen, and uses the confirmed typed title or IGDB suggestion before saving the game record.
-- Imported local games are enriched through existing Steam, IGDB, HLTB, store/detail media, trailer, and SteamGridDB helpers while preserving `exePath`, `owned`, and common library fields.
+- Imported local games are saved to the library immediately after name confirmation, then enriched in the background through existing Steam, IGDB, HLTB, store/detail media, trailer, and SteamGridDB helpers while preserving `exePath`, `owned`, and common library fields.
 - `main.js` launches executables with `spawn` and emits `game-status-changed`; `App.jsx` updates session time and persisted playtime.
 
 Controller and keyboard:

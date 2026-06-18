@@ -1177,6 +1177,9 @@ function pickArtwork(items, key) {
   return [...activeItems].sort((a, b) => {
     const score = (item) => {
       let value = 0;
+      const communityScore = Number(item.score ?? item.likes ?? item.votes ?? 0);
+      if (Number.isFinite(communityScore)) value += communityScore;
+      if (key === 'grid' && item.style === 'no_logo') value += 100;
       if (item.style === 'alternate') value += 4;
       if (item.style === 'official') value += 3;
       if (item.verified) value += 2;
@@ -1201,7 +1204,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   addDiagnostic('info', `Fetching artwork for ${gameTitle}`, { sgdbId, gameId });
 
   const types = [
-    { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static` },
+    { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static&styles=no_logo` },
     { key: 'hero', endpoint: `/heroes/game/${sgdbId}?types=static` },
     { key: 'logo', endpoint: `/logos/game/${sgdbId}?types=static` },
     { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
@@ -1210,7 +1213,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   for (const { key, endpoint } of types) {
     try {
       const cached = getCachedArtworkPaths(gameId);
-      if (cached?.[key]) {
+      if (cached?.[key] && key !== 'grid') {
         let cachedFilePath = getCachedArtworkFilePath(gameId, key);
         if ((key === 'logo' || key === 'icon') && cachedFilePath) {
           try {
@@ -1804,10 +1807,11 @@ async function fetchArtworkWithFallback(game) {
     }
   }
 
-  // Stage 3 (SteamGridDB Fallback): For any missing artwork keys, query SteamGridDB!
+  // Stage 3 (SteamGridDB Fallback): refresh the grid from SteamGridDB and fill missing assets.
   const missingKeys = keys.filter(k => !result[k]);
-  if (missingKeys.length > 0) {
-    addDiagnostic('info', `Stage 3: Falling back to SteamGridDB for missing assets: ${missingKeys.join(', ')}`);
+  const steamGridDbKeys = Array.from(new Set(['grid', ...missingKeys]));
+  if (steamGridDbKeys.length > 0) {
+    addDiagnostic('info', `Stage 3: Fetching SteamGridDB grid and missing assets: ${steamGridDbKeys.join(', ')}`);
     try {
       const sgdbGame = await resolveSteamGridDBGame({
         ...game,
@@ -1818,7 +1822,7 @@ async function fetchArtworkWithFallback(game) {
         addDiagnostic('info', `Stage 3: Resolved SteamGridDB game ID: ${sgdbGame.id} (${sgdbGame.name})`);
 
         const sgdbArtwork = await fetchArtworkForGame(sgdbGame.id, game.id, game.title);
-        for (const key of missingKeys) {
+        for (const key of steamGridDbKeys) {
           if (sgdbArtwork[key]) {
             result[key] = sgdbArtwork[key];
             addDiagnostic('info', `Stage 3: Retrieved ${key} from SteamGridDB`);

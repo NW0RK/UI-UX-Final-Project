@@ -7,27 +7,74 @@
 import hoverTickSoundUrl from '../../audio/Switch Between.mp3';
 import clickPulseSoundUrl from '../../audio/Select.mp3';
 import launchSwellSoundUrl from '../../audio/Game Launch.mp3';
+import menuMusicSoundUrl from '../../audio/Menu Music.mp3';
 
 let audioCtx = null;
 let ambientOscillators = [];
 let ambientGainNode = null;
 let isMuted = false;
+let masterVolume = 1;
+let menuMusicEnabled = false;
+let menuMusicPendingUnlock = false;
 const activeUiSounds = new Set();
+const MENU_MUSIC_BASE_VOLUME = 0.336;
 
 // Create preloaded Audio elements for polyphonic UI sound effects
 const hoverAudio = new Audio(hoverTickSoundUrl);
 const clickAudio = new Audio(clickPulseSoundUrl);
 const launchAudio = new Audio(launchSwellSoundUrl);
+const menuMusicAudio = new Audio(menuMusicSoundUrl);
 
 hoverAudio.preload = 'auto';
 clickAudio.preload = 'auto';
 launchAudio.preload = 'auto';
+menuMusicAudio.preload = 'auto';
+menuMusicAudio.loop = true;
+menuMusicAudio.volume = MENU_MUSIC_BASE_VOLUME;
+
+const clampVolume = (value) => {
+  const volume = Number(value);
+  if (!Number.isFinite(volume)) return 1;
+  return Math.min(1, Math.max(0, volume));
+};
+
+const applyMenuMusicVolume = () => {
+  menuMusicAudio.volume = MENU_MUSIC_BASE_VOLUME * masterVolume;
+};
+
+const applyAmbienceVolume = () => {
+  if (!ambientGainNode || !audioCtx) return;
+  try {
+    ambientGainNode.gain.setTargetAtTime(0.05 * masterVolume, audioCtx.currentTime, 0.05);
+  } catch (e) {}
+};
+
+const removeMenuMusicUnlockListeners = () => {
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('pointerdown', handleMenuMusicUnlock, true);
+  window.removeEventListener('keydown', handleMenuMusicUnlock, true);
+  window.removeEventListener('touchstart', handleMenuMusicUnlock, true);
+};
+
+function handleMenuMusicUnlock() {
+  menuMusicPendingUnlock = false;
+  removeMenuMusicUnlockListeners();
+  audioEngine.startMenuMusic();
+}
+
+const queueMenuMusicUnlock = () => {
+  if (typeof window === 'undefined' || menuMusicPendingUnlock) return;
+  menuMusicPendingUnlock = true;
+  window.addEventListener('pointerdown', handleMenuMusicUnlock, { once: true, capture: true });
+  window.addEventListener('keydown', handleMenuMusicUnlock, { once: true, capture: true });
+  window.addEventListener('touchstart', handleMenuMusicUnlock, { once: true, capture: true });
+};
 
 const playSound = (audioElement, volume = 1.0) => {
   if (isMuted) return;
   try {
     const playClone = audioElement.cloneNode();
-    playClone.volume = volume;
+    playClone.volume = clampVolume(volume * masterVolume);
     activeUiSounds.add(playClone);
     playClone.addEventListener('ended', () => activeUiSounds.delete(playClone), { once: true });
     playClone.addEventListener('error', () => activeUiSounds.delete(playClone), { once: true });
@@ -61,10 +108,19 @@ export const audioEngine = {
     if (isMuted) {
       stopActiveUiSounds();
       audioEngine.stopAmbience();
+      audioEngine.stopMenuMusic();
     }
   },
   
   getMuted: () => isMuted,
+
+  setMasterVolume: (volume) => {
+    masterVolume = clampVolume(volume);
+    applyMenuMusicVolume();
+    applyAmbienceVolume();
+  },
+
+  getMasterVolume: () => masterVolume,
 
   /**
    * Quick premium UI tick on item hover
@@ -87,6 +143,40 @@ export const audioEngine = {
     playSound(launchAudio, 0.5);
   },
 
+  startMenuMusic: () => {
+    menuMusicEnabled = true;
+    if (isMuted) return;
+
+    try {
+      removeMenuMusicUnlockListeners();
+      menuMusicPendingUnlock = false;
+      applyMenuMusicVolume();
+
+      if (!menuMusicAudio.paused) return;
+
+      const playPromise = menuMusicAudio.play();
+      if (playPromise?.catch) {
+        playPromise.catch(() => {
+          if (menuMusicEnabled && !isMuted) {
+            queueMenuMusicUnlock();
+          }
+        });
+      }
+    } catch (e) {
+      queueMenuMusicUnlock();
+    }
+  },
+
+  stopMenuMusic: () => {
+    menuMusicEnabled = false;
+    menuMusicPendingUnlock = false;
+    removeMenuMusicUnlockListeners();
+    try {
+      menuMusicAudio.pause();
+      menuMusicAudio.currentTime = 0;
+    } catch (e) {}
+  },
+
   /**
    * Plays soft, continuous ambient drones tailored to selected game's style.
    */
@@ -99,7 +189,7 @@ export const audioEngine = {
       ambientGainNode = ctx.createGain();
       ambientGainNode.connect(ctx.destination);
       ambientGainNode.gain.setValueAtTime(0.001, ctx.currentTime);
-      ambientGainNode.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 1.0); // Soft fade-in
+      ambientGainNode.gain.linearRampToValueAtTime(0.05 * masterVolume, ctx.currentTime + 1.0); // Soft fade-in
 
       const now = ctx.currentTime;
 
@@ -243,8 +333,10 @@ export const audioEngine = {
     try {
       if (ambientGainNode) {
         // Soft fade-out
-        ambientGainNode.gain.setValueAtTime(ambientGainNode.gain.value, getAudioContext().currentTime);
-        ambientGainNode.gain.exponentialRampToValueAtTime(0.001, getAudioContext().currentTime + 0.4);
+        const ctx = getAudioContext();
+        ambientGainNode.gain.cancelScheduledValues(ctx.currentTime);
+        ambientGainNode.gain.setValueAtTime(ambientGainNode.gain.value, ctx.currentTime);
+        ambientGainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
       }
       
       setTimeout(() => {

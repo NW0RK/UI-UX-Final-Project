@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck, Clapperboard } from 'lucide-react';
+import { X, Volume2, VolumeX, RefreshCw, Layers, Lock, Unlock, Activity, Image, Trash2, BadgeCheck, Clapperboard, Music } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 
 export default function SettingsPanel({ 
@@ -56,6 +56,11 @@ export default function SettingsPanel({
       audioEngine.playClickPulse();
     }
     onUpdateSettings({ ...settings, isMuted: nextMute });
+  };
+
+  const handleMenuMusicToggle = () => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, menuMusicEnabled: !settings.menuMusicEnabled });
   };
 
   const handleSystemStatusToggle = () => {
@@ -322,7 +327,7 @@ export default function SettingsPanel({
           {/* Audio */}
           <div className="settings-section">
             <h3 className="section-label-heading">Audio</h3>
-            <p className="section-description">Turn launcher sound effects and ambient audio on or off.</p>
+            <p className="section-description">Turn launcher sound effects, menu music, and ambient audio on or off.</p>
             
             <div
               className="audio-toggle-card"
@@ -341,6 +346,44 @@ export default function SettingsPanel({
               </div>
               <div className="audio-card-right">
                 <div className={`checkbox-toggle-switch ${settings.isMuted ? 'sw-muted' : 'sw-active'}`}>
+                  <div className="switch-knob" />
+                </div>
+              </div>
+            </div>
+
+            <div className="slider-input-group settings-subgroup">
+              <div className="slider-labels">
+                <span>Overall Volume</span>
+                <span>{Math.round((settings.launcherVolume ?? 1.0) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                className="settings-slider-bar"
+                value={Math.round((settings.launcherVolume ?? 1.0) * 100)}
+                onChange={(e) => handleSliderChange('launcherVolume', parseFloat(e.target.value) / 100)}
+              />
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={settings.menuMusicEnabled && !settings.isMuted}
+              onClick={handleMenuMusicToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Music size={20} className={settings.menuMusicEnabled && !settings.isMuted ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Menu Music</span>
+                  <span className="audio-card-desc">{settings.menuMusicEnabled ? 'The menu soundtrack loops in the background.' : 'The menu soundtrack is off.'}</span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${settings.menuMusicEnabled && !settings.isMuted ? 'sw-active' : 'sw-muted'}`}>
                   <div className="switch-knob" />
                 </div>
               </div>
@@ -571,6 +614,7 @@ export default function SettingsPanel({
                 </div>
               </div>
             </div>
+
           </div>
 
           {/* System */}

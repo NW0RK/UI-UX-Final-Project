@@ -26,6 +26,8 @@ import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
   theme: 'theme-aether',
   isMuted: false,
+  menuMusicEnabled: true,
+  launcherVolume: 1.0,
   glassBlur: 20,
   glassOpacity: 0.4,
   particleDensity: 1.0,
@@ -112,10 +114,14 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
       screenshots: steamDetails.screenshots || [],
       movies: steamDetails.movies || []
     };
+    const steamBanner = getSteamStoreBannerUrl(steamDetails, steamAppId) ||
+      media.screenshots[0]?.path_full ||
+      media.screenshots[0]?.url ||
+      null;
     return {
       media,
       selectedMedia: getSelectedStoreMedia(media),
-      bannerUrl: getSteamStoreBannerUrl(steamDetails, steamAppId) || item?.bannerUrl || item?.coverUrl || null,
+      bannerUrl: steamBanner,
       mediaSource: 'steam'
     };
   }
@@ -129,12 +135,13 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
     return {
       media,
       selectedMedia: getSelectedStoreMedia(media),
-      bannerUrl: steamImage || item?.bannerUrl || item?.coverUrl || null,
+      bannerUrl: steamImage || null,
       mediaSource: 'steam'
     };
   }
 
-  const igdbImage = item?.bannerUrl || item?.coverUrl || null;
+  const igdbFetchedImage = igdbScreenshots[0]?.path_full || igdbScreenshots[0]?.url || null;
+  const igdbImage = igdbFetchedImage || item?.bannerUrl || item?.coverUrl || null;
   const screenshots = igdbScreenshots.length
     ? igdbScreenshots
     : igdbImage
@@ -145,15 +152,47 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
   return {
     media,
     selectedMedia: getSelectedStoreMedia(media),
-    bannerUrl: igdbImage,
+    bannerUrl: igdbFetchedImage,
     mediaSource: igdbScreenshots.length ? 'igdb' : 'fallback'
   };
 }
 
 function hasUsableStoreMedia(detailRecord) {
+  if (!detailRecord?.mediaSource || detailRecord.mediaSource === 'fallback' || detailRecord.mediaSource === 'mock') {
+    return false;
+  }
+
   const screenshots = Array.isArray(detailRecord?.media?.screenshots) ? detailRecord.media.screenshots : [];
   const movies = Array.isArray(detailRecord?.media?.movies) ? detailRecord.media.movies : [];
   return Boolean(detailRecord?.mediaLoaded && (screenshots.length > 0 || movies.length > 0));
+}
+
+function stripTransientStoreArtwork(item) {
+  if (!item) return item;
+  const {
+    coverUrl,
+    bannerUrl,
+    logoUrl,
+    iconUrl,
+    artworkFetched,
+    artworkSource,
+    steamGridDbId,
+    steamGridDbName,
+    bannerLayout,
+    ...rest
+  } = item;
+  return {
+    ...rest,
+    coverUrl: null,
+    bannerUrl: null,
+    logoUrl: null,
+    iconUrl: null,
+    artworkFetched: false,
+    artworkSource: null,
+    steamGridDbId: null,
+    steamGridDbName: null,
+    bannerLayout: null
+  };
 }
 
 function applyStoreDetailMediaToGame(game, detailRecord) {
@@ -182,7 +221,8 @@ function applyStoreDetailMediaToGame(game, detailRecord) {
     updated.protonDbSummary = detailRecord.protonDbSummary;
   }
 
-  if (detailRecord.bannerUrl && (!updated.bannerUrl || updated.artworkSource !== 'steamgriddb')) {
+  const hasFetchedDetailBanner = detailRecord.mediaSource && detailRecord.mediaSource !== 'fallback';
+  if (hasFetchedDetailBanner && detailRecord.bannerUrl && (!updated.bannerUrl || updated.artworkSource !== 'steamgriddb')) {
     updated.bannerUrl = detailRecord.bannerUrl;
   }
 
@@ -262,6 +302,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isMetadataOpen, setIsMetadataOpen] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settingsReady, setSettingsReady] = useState(false);
   const settingsLoadedRef = useRef(false);
   
   // --- Editable Gold Profile Screen States ---
@@ -621,23 +662,31 @@ export default function App() {
         }
       }
       settingsLoadedRef.current = true;
+      setSettingsReady(true);
     }
     loadSettings();
   }, []);
 
   // --- 1b. Persist settings to storage whenever they change ---
   useEffect(() => {
-    if (!settingsLoadedRef.current) return;
+    if (!settingsReady || !settingsLoadedRef.current) return;
     if (window.electronAPI) {
       window.electronAPI.saveSettings(settings);
     } else {
       localStorage.setItem('nexus_settings', JSON.stringify(settings));
     }
-  }, [settings]);
+  }, [settings, settingsReady]);
 
   useEffect(() => {
+    if (!settingsReady) return;
+    audioEngine.setMasterVolume(settings.launcherVolume ?? DEFAULT_SETTINGS.launcherVolume);
     audioEngine.setMuted(settings.isMuted);
-  }, [settings.isMuted]);
+    if (!settings.isMuted && settings.menuMusicEnabled) {
+      audioEngine.startMenuMusic();
+    } else {
+      audioEngine.stopMenuMusic();
+    }
+  }, [settings.isMuted, settings.launcherVolume, settings.menuMusicEnabled, settingsReady]);
 
   useEffect(() => {
     if (!window.electronAPI?.onDiagnosticEvent) return;
@@ -1087,13 +1136,18 @@ export default function App() {
 
   // --- 3. Ambient Audio Soundtrack Controls ---
   useEffect(() => {
+    if (!settingsReady || settings.menuMusicEnabled) {
+      audioEngine.stopAmbience();
+      return undefined;
+    }
+
     if (selectedGame) {
       audioEngine.startAmbience(selectedGame.soundType);
     } else {
       audioEngine.stopAmbience();
     }
     return () => audioEngine.stopAmbience();
-  }, [selectedGame, settings.isMuted]);
+  }, [selectedGame, settings.isMuted, settings.menuMusicEnabled, settingsReady]);
 
   // --- 4. Native Subprocess State Listener ---
   useEffect(() => {
@@ -1311,6 +1365,45 @@ export default function App() {
     } else {
       localStorage.setItem('nexus_games_cache', JSON.stringify(nextGames));
     }
+  };
+
+  const mergeEnrichedLibraryGame = (currentGame, enrichedGame) => {
+    if (!currentGame || !enrichedGame) return currentGame || enrichedGame;
+
+    return {
+      ...currentGame,
+      ...enrichedGame,
+      id: currentGame.id,
+      exePath: currentGame.exePath,
+      owned: currentGame.owned,
+      isFavorite: currentGame.isFavorite,
+      playtime: currentGame.playtime,
+      lastPlayed: currentGame.lastPlayed,
+      progress: currentGame.progress
+    };
+  };
+
+  const enrichLibraryGameInBackground = (game, reason = 'Library') => {
+    if (!game?.id) return;
+
+    enrichLibraryGame(game)
+      .then(async (enrichedGame) => {
+        const currentGames = gamesRef.current;
+        const currentGame = currentGames.find(existing => existing.id === game.id);
+        if (!currentGame) return;
+
+        const mergedGame = mergeEnrichedLibraryGame(currentGame, enrichedGame);
+        const updatedList = currentGames.map(existing =>
+          existing.id === game.id ? mergedGame : existing
+        );
+
+        await persistGames(updatedList);
+        setSelectedGame(prev => prev?.id === game.id ? mergedGame : prev);
+        addDiagnostic(reason, 'info', `Background media updated for ${mergedGame.title}`);
+      })
+      .catch(error => {
+        addDiagnostic(reason, 'warn', `Background media update failed for ${game.title}: ${error.message}`);
+      });
   };
 
   useEffect(() => {
@@ -1627,12 +1720,12 @@ export default function App() {
         source: suggestion ? 'igdb' : 'typed-name'
       });
 
-      const enrichedGame = await enrichLibraryGame(baseGame);
-      const updated = [...gamesRef.current, enrichedGame];
+      const updated = [...gamesRef.current, baseGame];
       await persistGames(updated);
-      setSelectedGame(enrichedGame);
+      setSelectedGame(baseGame);
       setActiveView('library');
-      addDiagnostic('Importer', 'info', `Imported ${enrichedGame.title}`);
+      addDiagnostic('Importer', 'info', `Imported ${baseGame.title}`);
+      enrichLibraryGameInBackground(baseGame, 'Importer');
     } finally {
       setIsImportProcessing(false);
       advanceImportPromptQueue();
@@ -1793,6 +1886,7 @@ export default function App() {
   // --- Store: Mark as Owned ---
   const handleMarkOwned = async (storeItem) => {
     const currentGames = gamesRef.current;
+    const libraryStoreItem = stripTransientStoreArtwork(storeItem);
     const existing = currentGames.find(g =>
       g.id === storeItem.id ||
       (storeItem.igdbId && g.igdbId === storeItem.igdbId) ||
@@ -1805,8 +1899,17 @@ export default function App() {
     if (existing) {
       const mergedGame = applySeededHltbToGame({
         ...existing,
-        ...storeItem,
+        ...libraryStoreItem,
         id: existing.id,
+        coverUrl: existing.coverUrl || null,
+        bannerUrl: existing.bannerUrl || null,
+        logoUrl: existing.logoUrl || null,
+        iconUrl: existing.iconUrl || null,
+        artworkFetched: existing.artworkFetched || false,
+        artworkSource: existing.artworkSource || null,
+        steamGridDbId: existing.steamGridDbId || null,
+        steamGridDbName: existing.steamGridDbName || null,
+        bannerLayout: existing.bannerLayout || null,
         exePath: existing.exePath || storeItem.exePath || '',
         isFavorite: existing.isFavorite || false,
         playtime: existing.playtime ?? 0,
@@ -1814,17 +1917,17 @@ export default function App() {
         progress: existing.progress ?? 0,
         owned: true
       });
-      const enrichedGame = await enrichLibraryGame(mergedGame);
       const updatedList = currentGames.map(g =>
-        g.id === existing.id ? enrichedGame : g
+        g.id === existing.id ? mergedGame : g
       );
       await persistGames(updatedList);
-      setSelectedGame(enrichedGame);
+      setSelectedGame(mergedGame);
+      enrichLibraryGameInBackground(mergedGame, 'Media');
       return;
     }
 
-    const newGame = await enrichLibraryGame(applySeededHltbToGame({
-      ...storeItem,
+    const newGame = applySeededHltbToGame({
+      ...libraryStoreItem,
       playtime: 0,
       lastPlayed: "Never",
       progress: 0,
@@ -1833,11 +1936,12 @@ export default function App() {
       exePath: "",
       isFavorite: false,
       owned: true
-    }));
+    });
 
     const updatedList = [...currentGames, newGame];
     await persistGames(updatedList);
     setSelectedGame(newGame);
+    enrichLibraryGameInBackground(newGame, 'Media');
   };
 
   // --- Store: Link Executable ---
@@ -1845,10 +1949,7 @@ export default function App() {
     const existing = gamesRef.current.find(g => g.id === gameId);
     if (!existing) return;
 
-    let updatedGame = { ...existing, exePath };
-    if (!updatedGame.mediaLoaded || needsSteamGridDBArtwork(updatedGame)) {
-      updatedGame = await enrichLibraryGame(updatedGame);
-    }
+    const updatedGame = { ...existing, exePath };
 
     const updatedList = gamesRef.current.map(g =>
       g.id === gameId ? updatedGame : g
@@ -1856,6 +1957,10 @@ export default function App() {
     await persistGames(updatedList);
     const updated = updatedList.find(g => g.id === gameId);
     if (updated) setSelectedGame(updated);
+
+    if (!updatedGame.mediaLoaded || needsSteamGridDBArtwork(updatedGame)) {
+      enrichLibraryGameInBackground(updatedGame, 'Media');
+    }
   };
 
   // --- Filter Catalog Search ---

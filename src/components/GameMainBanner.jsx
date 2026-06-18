@@ -34,6 +34,29 @@ function loadYouTubeIframeApi() {
   return youtubeIframeApiPromise;
 }
 
+function loadCanvasReadableImage(src) {
+  if (typeof Image === 'undefined') {
+    return Promise.reject(new Error('Image loading is unavailable'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Banner image is not CORS-readable'));
+    image.src = src;
+  });
+}
+
+function isCanvasReadBlocked(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.name === 'SecurityError'
+    || message.includes('tainted')
+    || message.includes('cross-origin')
+    || message.includes('cors')
+    || message.includes('insecure operation');
+}
+
 export default function GameMainBanner({ 
   game, 
   onLaunch, 
@@ -67,6 +90,7 @@ export default function GameMainBanner({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [autoPlacementStatus, setAutoPlacementStatus] = useState('idle');
+  const [animateTitlePlacement, setAnimateTitlePlacement] = useState(false);
   const [isTrailerMuted, setIsTrailerMuted] = useState(Boolean(trailerMutedByDefault));
   const [isTrailerCurtainLifted, setIsTrailerCurtainLifted] = useState(false);
   const [trailerProgress, setTrailerProgress] = useState(0);
@@ -89,6 +113,7 @@ export default function GameMainBanner({
   // Sync state when game changes
   useEffect(() => {
     const updated = normalizeBannerLayout(game?.bannerLayout);
+    setAnimateTitlePlacement(Boolean(game?.bannerLayout));
     setActiveLayout(updated);
     layoutRef.current = updated;
     setAutoPlacementStatus('idle');
@@ -127,7 +152,7 @@ export default function GameMainBanner({
     }];
   }, []);
 
-  const applyAutoPlacement = useCallback(async ({ persist = false } = {}) => {
+  const applyAutoPlacement = useCallback(async ({ persist = false, animate = false } = {}) => {
     const image = backdropImgRef.current;
     const bannerRect = bannerRef.current?.getBoundingClientRect();
 
@@ -141,15 +166,29 @@ export default function GameMainBanner({
 
     setAutoPlacementStatus('analyzing');
 
-    try {
-      const nextLayout = analyzeBannerTitlePlacement({
-        image,
-        containerWidth: bannerRect.width,
-        containerHeight: bannerRect.height,
-        preferredLayout: layoutRef.current,
-        reservedRects: getReservedRects()
-      });
+    const buildPlacement = (analysisImage) => analyzeBannerTitlePlacement({
+      image: analysisImage,
+      containerWidth: bannerRect.width,
+      containerHeight: bannerRect.height,
+      preferredLayout: layoutRef.current,
+      reservedRects: getReservedRects()
+    });
 
+    try {
+      let nextLayout;
+
+      try {
+        nextLayout = buildPlacement(image);
+      } catch (error) {
+        if (!isCanvasReadBlocked(error)) {
+          throw error;
+        }
+
+        const readableImage = await loadCanvasReadableImage(game.bannerUrl);
+        nextLayout = buildPlacement(readableImage);
+      }
+
+      setAnimateTitlePlacement(animate);
       setActiveLayout(nextLayout);
       layoutRef.current = nextLayout;
       setAutoPlacementStatus('ready');
@@ -170,7 +209,7 @@ export default function GameMainBanner({
     if (autoPlacementGameRef.current === game.id) return;
 
     const frame = requestAnimationFrame(() => {
-      applyAutoPlacement({ persist: false }).then((layout) => {
+      applyAutoPlacement({ persist: true, animate: false }).then((layout) => {
         if (layout) {
           autoPlacementGameRef.current = game.id;
         }
@@ -485,7 +524,7 @@ export default function GameMainBanner({
 
   const handleBackdropLoad = () => {
     if (!game?.bannerLayout) {
-      applyAutoPlacement({ persist: false }).then((layout) => {
+      applyAutoPlacement({ persist: true, animate: false }).then((layout) => {
         if (layout) {
           autoPlacementGameRef.current = game.id;
         }
@@ -495,7 +534,7 @@ export default function GameMainBanner({
 
   const handleAutoPlacementClick = () => {
     audioEngine.playClickPulse();
-    applyAutoPlacement({ persist: true });
+    applyAutoPlacement({ persist: true, animate: true });
   };
 
   // Drag start handler
@@ -872,7 +911,7 @@ export default function GameMainBanner({
           top: `${activeLayout.topPercent}%`,
           width: `${activeLayout.width}px`,
           height: `${activeLayout.height}px`,
-          transition: (isDragging || isResizing) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface)',
+          transition: (isDragging || isResizing || !animateTitlePlacement) ? 'none' : 'left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease, opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface)',
           zIndex: 50,
           pointerEvents: 'auto'
         }}
@@ -931,6 +970,7 @@ export default function GameMainBanner({
                   const newLayout = point.width && point.height
                     ? { leftPercent: point.leftPercent, topPercent: point.topPercent, width: point.width, height: point.height }
                     : { ...activeLayout, leftPercent: point.leftPercent, topPercent: point.topPercent };
+                  setAnimateTitlePlacement(true);
                   setActiveLayout(newLayout);
                   if (onUpdateGameBannerLayout) {
                     onUpdateGameBannerLayout(game.id, newLayout);
@@ -1552,7 +1592,7 @@ export default function GameMainBanner({
         }
 
         .banner-title-container.tone-dark .banner-logo-img {
-          filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.56)) drop-shadow(0 5px 16px rgba(0, 0, 0, 0.5));
+          filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.72));
         }
 
         .banner-game-title {
@@ -1776,13 +1816,17 @@ export default function GameMainBanner({
         .play-game-btn {
           padding: 12px 30px;
           font-size: var(--fs-14);
+          box-shadow: 0 0 8px rgba(var(--accent-color-rgb), 0.24);
+        }
+
+        .play-game-btn:hover {
+          box-shadow: 0 0 12px rgba(255, 255, 255, 0.48);
         }
 
         .play-game-btn.running-pulse {
           background: #ef4444 !important;
           border-color: #ef4444 !important;
           color: #fff !important;
-          animation: running-pulse-glow 1.5s infinite ease-in-out;
         }
 
         .action-pill-btn {

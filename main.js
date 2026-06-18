@@ -169,7 +169,16 @@ function registerArtworkProtocol() {
         return new Response('Artwork not found', { status: 404 });
       }
 
-      return net.fetch(pathToFileURL(filePath).toString());
+      const response = await net.fetch(pathToFileURL(filePath).toString());
+      const headers = new Headers(response.headers);
+      headers.set('Access-Control-Allow-Origin', '*');
+      headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      });
     } catch (err) {
       emitDiagnostic('Artwork', 'error', `Artwork protocol failed: ${err.message}`);
       return new Response('Artwork protocol error', { status: 500 });
@@ -178,7 +187,7 @@ function registerArtworkProtocol() {
 }
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: ARTWORK_PROTOCOL, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
+  { scheme: ARTWORK_PROTOCOL, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
 ]);
 
 function httpsGet(url, options = {}, redirectCount = 0) {
@@ -1346,6 +1355,11 @@ ipcMain.on('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });
 ipcMain.on('window-maximize', () => {
   if (mainWindow) {
     mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+  }
+});
+ipcMain.on('window-toggle-fullscreen', () => {
+  if (mainWindow) {
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
   }
 });
 ipcMain.on('window-close', () => { if (mainWindow) mainWindow.close(); });

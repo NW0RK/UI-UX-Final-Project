@@ -2,6 +2,10 @@ import React, { useEffect, useRef } from 'react';
 
 const MAX_PARTICLES = 120;
 const PARTICLE_AREA_DENSITY = 10000;
+const CLICK_WAVE_MAX_RADIUS = 320;
+const CLICK_WAVE_SPEED = 8;
+const CLICK_WAVE_THICKNESS = 24;
+const CLICK_WAVE_FORCE = 2.2;
 
 export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 }) {
   const canvasRef = useRef(null);
@@ -109,11 +113,11 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
           const cDy = this.y - clickWave.y;
           const cDist = Math.sqrt(cDx * cDx + cDy * cDy);
           const waveRadius = clickWave.radius;
-          const thickness = 40;
 
-          if (cDist < waveRadius && cDist > waveRadius - thickness) {
+          if (cDist < waveRadius && cDist > waveRadius - CLICK_WAVE_THICKNESS) {
             const angle = Math.atan2(cDy, cDx);
-            const push = 6 * (1 - cDist / 600); // Shock push decreases with distance
+            const falloff = Math.max(0, 1 - cDist / CLICK_WAVE_MAX_RADIUS);
+            const push = CLICK_WAVE_FORCE * falloff; // Shock push decreases with distance
             this.vx += Math.cos(angle) * push;
             this.vy += Math.sin(angle) * push;
             this.alpha = 1; // Ignite stardust
@@ -193,8 +197,8 @@ export default function InteractiveCanvas({ theme, speedFactor = 1, density = 1 
       // Handle shockwave progression
       const wave = clickWaveRef.current;
       if (wave.active) {
-        wave.radius += 12; // Expands outward
-        if (wave.radius > 800) {
+        wave.radius += CLICK_WAVE_SPEED; // Expands outward
+        if (wave.radius > CLICK_WAVE_MAX_RADIUS) {
           wave.active = false;
         }
       }

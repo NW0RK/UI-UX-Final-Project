@@ -272,6 +272,7 @@ export default function ControllerHintOverlay({
       return [
         { action: 'confirm', label: focusedLabel, tone: 'primary' },
         { action: 'secondary', label: 'Toggle favourite' },
+        ...(selectedGame ? [{ action: 'tertiary', label: 'Metadata' }] : []),
         { action: 'dpad', label: 'Browse favourites' },
         { action: 'shoulderLeft', label: 'Previous tab' },
         { action: 'shoulderRight', label: 'Next tab' },

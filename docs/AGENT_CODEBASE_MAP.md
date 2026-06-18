@@ -73,7 +73,7 @@ npm run build
 | `InteractiveCanvas.jsx` | Ambient canvas background driven by theme, speed, density. | Receives settings from `App.jsx`. |
 | `GameMainBanner.jsx` | Primary selected-game hero, trailer preview overlay, launch/favorite/edit/remove actions, manual title positioning, and automatic safe-title placement. | Uses HLTB, Brandfetch, and banner placement helpers; includes `LibraryOverflowMenu`. |
 | `HorizontalLibrary.jsx` | Horizontal library cards for the main library view. | Uses `data-controller-*` selection attributes. |
-| `FavouritesTrophyRoom.jsx` | Favorites view with trophy-room style cards. | Uses `data-controller-*` selection attributes and local injected styles. |
+| `FavouritesTrophyRoom.jsx` | Favorites Gallery Vault with selected-game showcase, sortable favourite cards, stats, and quick play/favourite/metadata actions. | Uses `data-controller-*` selection attributes and local injected styles. |
 | `StoreGrid.jsx` | Store landing view with IGDB PopScore trending games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
 | `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and IGDB discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
 | `StoreItemPage.jsx` | Store detail view, Steam/IGDB media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and IGDB detail/media IPC, and executable picker. |
@@ -93,7 +93,7 @@ npm run build
 - Active views are currently `library`, `favourites`, `store`, `search`, and `store-item`.
 - `NavigationHeader` changes top-level views and search text.
 - `GameMainBanner` plus `HorizontalLibrary` render the library view.
-- `FavouritesTrophyRoom` renders favorite games.
+- `FavouritesTrophyRoom` renders favorite games as the sortable Gallery Vault.
 - `StoreGrid` renders the split IGDB PopScore trending-games and ITAD/CheapShark best-deals store landing view.
 - `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and IGDB discovery matches.
 - `StoreItemPage` renders one store or search item detail.
@@ -107,7 +107,7 @@ Current IPC groups:
 
 | Group | Bridge methods | Main handlers/events |
 | --- | --- | --- |
-| Window controls | `windowMinimize`, `windowMaximize`, `windowClose` | `window-minimize`, `window-maximize`, `window-close` |
+| Window controls | `windowMinimize`, `windowMaximize`, `windowToggleFullscreen`, `windowClose` | `window-minimize`, `window-maximize`, `window-toggle-fullscreen`, `window-close` |
 | Database | `loadDatabase`, `saveDatabase` | `load-database`, `save-database` |
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
@@ -135,7 +135,7 @@ Common fields include:
 
 - Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`.
 - Library state: `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `timeToComplete`, `nextAchievement`, `exePath`.
-- Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`, `trailerVideoId`, `trailerEmbedUrl`, `trailerLookupStatus`. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
+- Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`, `media`, `selectedMedia`, `mediaLoaded`, `mediaSource`, `mediaFetchedAt`, `trailerVideoId`, `trailerEmbedUrl`, `trailerLookupStatus`. `media` stores store/detail gameplay screenshots and movies for newly added library games. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
 - Integrations: `hltb` for HowLongToBeat data; `protonDbSummary` for opt-in ProtonDB Linux compatibility summaries keyed by Steam App ID; `igdbId`, `igdbSlug`, `igdbUrl`, `igdbRating`, and `source: 'igdb'` for IGDB-backed discovery/library records; legacy `rawgId` records are still recognized for ownership matching; transient store items can include `steamReviewScore` from Steam review summaries.
 
 Persistence locations:
@@ -171,7 +171,7 @@ Store and pricing:
 - Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB PopScore trending games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
 - Store landing uses `fetchIgdbPopularGames(limit)` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive, and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed. Trending requests enough real IGDB cards to match the best-deals feed rows when deals are loaded.
-- Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned.
+- Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned. Marking a store/search item as owned enriches the saved library record with Steam/IGDB media, trailer metadata, SteamGridDB artwork, HLTB, and enabled ProtonDB data before persistence when the relevant APIs are available.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
 - `StoreItemPage.jsx` fetches IGDB details for IGDB-backed items through `fetchIgdbGameDetails`.
@@ -188,7 +188,7 @@ Import and launch:
 - `ControlCenter.jsx` triggers manual import or folder scan.
 - `main.js` scans directories and attaches Steam App IDs when it can.
 - `App.jsx` queues selected executables, shows `ImportNamePrompt` for each one after import is chosen, and uses the confirmed typed title or IGDB suggestion before saving the game record.
-- Imported local games are enriched through existing Steam, IGDB, HLTB, and SteamGridDB helpers while preserving `exePath`, `owned`, and common library fields.
+- Imported local games are enriched through existing Steam, IGDB, HLTB, store/detail media, trailer, and SteamGridDB helpers while preserving `exePath`, `owned`, and common library fields.
 - `main.js` launches executables with `spawn` and emits `game-status-changed`; `App.jsx` updates session time and persisted playtime.
 
 Controller and keyboard:

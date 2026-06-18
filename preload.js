@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Window management
   windowMinimize: () => ipcRenderer.send('window-minimize'),
   windowMaximize: () => ipcRenderer.send('window-maximize'),
+  windowToggleFullscreen: () => ipcRenderer.send('window-toggle-fullscreen'),
   windowClose: () => ipcRenderer.send('window-close'),
 
   // Database integrations

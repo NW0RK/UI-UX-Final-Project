@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Settings, Minus, Square, X, CircleX } from 'lucide-react';
+import { Search, Settings, Minus, Square, X, CircleX, Maximize2 } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { useSystemStatus } from '../hooks/useSystemStatus';
 
@@ -41,6 +41,23 @@ export default function NavigationHeader({
 
   const handleControlClick = (action) => {
     audioEngine.playClickPulse();
+    const toggleBrowserFullscreen = () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.();
+      } else {
+        document.documentElement.requestFullscreen?.();
+      }
+    };
+
+    if (action === 'fullscreen') {
+      if (window.electronAPI?.windowToggleFullscreen) {
+        window.electronAPI.windowToggleFullscreen();
+      } else {
+        toggleBrowserFullscreen();
+      }
+      return;
+    }
+
     if (window.electronAPI) {
       if (action === 'minimize') window.electronAPI.windowMinimize();
       if (action === 'maximize') window.electronAPI.windowMaximize();
@@ -123,12 +140,24 @@ export default function NavigationHeader({
 
       {/* Right Profiles, Telemetry, and Settings */}
       <div className="nav-right">
-        {/* Settings button next to dashboard */}
+        <button
+          type="button"
+          className="nav-icon-btn"
+          onClick={() => handleControlClick('fullscreen')}
+          onMouseEnter={audioEngine.playHoverTick}
+          title="Toggle Fullscreen"
+          aria-label="Toggle Fullscreen"
+        >
+          <Maximize2 size={16} />
+        </button>
+
         <button 
+          type="button"
           className="nav-icon-btn" 
           onClick={onOpenSettings}
           onMouseEnter={audioEngine.playHoverTick}
           title="Launcher Settings"
+          aria-label="Launcher Settings"
         >
           <Settings size={16} />
         </button>
@@ -184,23 +213,29 @@ export default function NavigationHeader({
         {/* Native Windows Frameless Window Buttons */}
         <div className="titlebar-controls-container">
           <button 
+            type="button"
             className="titlebar-btn" 
             onClick={() => handleControlClick('minimize')}
             title="Minimize"
+            aria-label="Minimize"
           >
             <Minus size={14} />
           </button>
           <button 
+            type="button"
             className="titlebar-btn" 
             onClick={() => handleControlClick('maximize')}
             title="Maximize/Restore"
+            aria-label="Maximize/Restore"
           >
             <Square size={10} />
           </button>
           <button 
+            type="button"
             className="titlebar-btn close-btn" 
             onClick={() => handleControlClick('close')}
             title="Close"
+            aria-label="Close"
           >
             <X size={14} />
           </button>
@@ -367,9 +402,8 @@ export default function NavigationHeader({
         .nav-right {
           display: flex;
           align-items: center;
-          gap: 20px;
+          gap: 14px;
           z-index: 10000;
-          margin-right: 120px;
           -webkit-app-region: no-drag;
         }
 

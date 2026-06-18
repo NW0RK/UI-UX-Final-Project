@@ -130,6 +130,12 @@ body.controller-navigation-active .aspect-ratio-preview:focus {
   box-shadow: 0 0 0 3px rgba(var(--accent-color-rgb), 0.14), var(--accent-glow-subtle);
 }
 
+.library-card:focus-visible,
+body.controller-navigation-active .library-card:focus {
+  outline: none;
+  box-shadow: none;
+}
+
 .controller-focus-pulse {
   animation: controller-focus-pop 220ms var(--ease-interface);
 }
@@ -294,12 +300,12 @@ body {
 }
 
 .titlebar-controls-container {
-  position: absolute;
-  top: 15px;
-  right: 25px;
   z-index: 10000;
-  display: flex;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  align-items: center;
+  gap: 8px;
+  transform: translateX(12px);
   -webkit-app-region: no-drag;
 }
 
@@ -309,6 +315,7 @@ body {
   border-radius: 50%;
   width: 28px;
   height: 28px;
+  min-width: 28px;
   display: flex;
   align-items: center;
   justify-content: center;

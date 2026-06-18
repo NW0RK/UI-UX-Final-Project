@@ -395,7 +395,7 @@ export default function ControlCenter({
       <style dangerouslySetInnerHTML={{__html: `
         .control-center-drawer-container {
           position: fixed;
-          bottom: -380px;
+          bottom: -364px;
           left: 0;
           width: 100%;
           z-index: 1001;
@@ -407,7 +407,7 @@ export default function ControlCenter({
         }
 
         .control-center-drawer-container.drawer-open {
-          bottom: 0;
+          bottom: 12px;
         }
 
         .drawer-trigger-handle {

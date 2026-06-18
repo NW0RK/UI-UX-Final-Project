@@ -6,8 +6,8 @@ import { audioEngine } from '../utils/audioEngine';
 const CARD_WIDTH = 210;
 const CARD_GAP = 26;
 const CARD_EDGE_GUTTER = 30;
-const CARD_VERTICAL_GUTTER = 18;
-const VIRTUAL_LIST_HEIGHT = 404;
+const CARD_VERTICAL_GUTTER = 34;
+const VIRTUAL_LIST_HEIGHT = 436;
 const VIRTUALIZE_AFTER = 32;
 
 export default function HorizontalLibrary({ 
@@ -19,9 +19,14 @@ export default function HorizontalLibrary({
 }) {
   const shelfRef = useRef(null);
   const listRef = useRef(null);
+  const pointerFocusGameIdRef = useRef(null);
   const [shelfWidth, setShelfWidth] = useState(() => (
     typeof window === 'undefined' ? 1200 : window.innerWidth
   ));
+
+  const handleCardPointerDown = useCallback((game) => {
+    pointerFocusGameIdRef.current = game.id;
+  }, []);
 
   const handleCardClick = useCallback((game) => {
     audioEngine.playClickPulse();
@@ -29,6 +34,11 @@ export default function HorizontalLibrary({
   }, [onSelectGame]);
 
   const handleCardFocus = useCallback((game) => {
+    if (pointerFocusGameIdRef.current === game.id) {
+      pointerFocusGameIdRef.current = null;
+      return;
+    }
+
     if (selectedGame?.id !== game.id) {
       onSelectGame(game);
       audioEngine.playHoverTick();
@@ -80,10 +90,11 @@ export default function HorizontalLibrary({
     games,
     selectedGame,
     runningGameId,
+    handleCardPointerDown,
     handleCardClick,
     handleCardFocus,
     onLaunchGame
-  }), [games, handleCardClick, handleCardFocus, onLaunchGame, runningGameId, selectedGame]);
+  }), [games, handleCardClick, handleCardFocus, handleCardPointerDown, onLaunchGame, runningGameId, selectedGame]);
 
   const getVirtualItemSize = useCallback((index) => (
     CARD_WIDTH +
@@ -127,6 +138,7 @@ export default function HorizontalLibrary({
                 game={game}
                 isSelected={isSelected}
                 isRunning={isRunning}
+                onPointerDown={() => handleCardPointerDown(game)}
                 onClick={() => handleCardClick(game)}
                 onFocus={() => handleCardFocus(game)}
                 onLaunch={() => onLaunchGame(game)}
@@ -175,7 +187,7 @@ export default function HorizontalLibrary({
           gap: 26px;
           overflow-x: auto;
           overflow-y: hidden;
-          padding: 15px 10px 20px 10px;
+          padding: 34px 10px 30px 10px;
           scroll-behavior: smooth;
         }
 
@@ -220,6 +232,7 @@ export default function HorizontalLibrary({
         }
 
         .library-card {
+          position: relative;
           flex: 0 0 210px;
           width: 210px;
           min-width: 210px;
@@ -231,9 +244,13 @@ export default function HorizontalLibrary({
           display: flex;
           flex-direction: column;
           gap: 6px;
-          contain: layout style;
-          content-visibility: auto;
-          contain-intrinsic-size: 210px 365px;
+        }
+
+        .library-card:hover,
+        .library-card:focus,
+        .library-card:focus-within,
+        .library-card.selected {
+          z-index: 5;
         }
 
         .library-card-image-wrapper {
@@ -472,7 +489,7 @@ export default function HorizontalLibrary({
 }
 
 function VirtualCard({ index, style, data }) {
-  const { games, selectedGame, runningGameId, handleCardClick, handleCardFocus, onLaunchGame } = data;
+  const { games, selectedGame, runningGameId, handleCardPointerDown, handleCardClick, handleCardFocus, onLaunchGame } = data;
   const game = games[index];
   const isSelected = selectedGame?.id === game.id;
   const isRunning = runningGameId === game.id;
@@ -490,6 +507,7 @@ function VirtualCard({ index, style, data }) {
         game={game}
         isSelected={isSelected}
         isRunning={isRunning}
+        onPointerDown={() => handleCardPointerDown(game)}
         onClick={() => handleCardClick(game)}
         onFocus={() => handleCardFocus(game)}
         onLaunch={() => onLaunchGame(game)}
@@ -498,7 +516,7 @@ function VirtualCard({ index, style, data }) {
   );
 }
 
-const GameCard = memo(function GameCard({ game, isSelected, isRunning, onClick, onFocus, onLaunch }) {
+const GameCard = memo(function GameCard({ game, isSelected, isRunning, onPointerDown, onClick, onFocus, onLaunch }) {
   const handleLaunchClick = (e) => {
     e.stopPropagation();
     onLaunch();
@@ -513,6 +531,7 @@ const GameCard = memo(function GameCard({ game, isSelected, isRunning, onClick, 
       data-controller-item="true"
       data-controller-confirm-label={`Select ${game.title}`}
       data-controller-selected={isSelected ? 'true' : undefined}
+      onPointerDown={onPointerDown}
       onClick={onClick}
       onFocus={onFocus}
       onMouseEnter={audioEngine.playHoverTick}

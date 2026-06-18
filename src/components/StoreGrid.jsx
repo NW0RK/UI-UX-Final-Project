@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { BadgePercent, Check, Flame, Search, ShoppingCart } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
@@ -20,6 +20,7 @@ export default function StoreGrid({
   onPrefetchItem = () => {},
   protonDbEnabled = false
 }) {
+  const pointerFocusItemIdRef = useRef(null);
   const normalizedQuery = searchQuery.toLowerCase();
   const hasSearch = normalizedQuery.trim().length > 0;
   const filtered = catalog.filter(g =>
@@ -48,6 +49,22 @@ export default function StoreGrid({
   const handleItemPreview = (item) => {
     audioEngine.playHoverTick();
     onPrefetchItem(item);
+  };
+
+  const getItemPointerKey = (item) => `${item.source || 'store'}-${item.id}`;
+
+  const handleItemPointerDown = (item) => {
+    pointerFocusItemIdRef.current = getItemPointerKey(item);
+  };
+
+  const handleItemFocus = (item) => {
+    const pointerKey = getItemPointerKey(item);
+    if (pointerFocusItemIdRef.current === pointerKey) {
+      pointerFocusItemIdRef.current = null;
+      return;
+    }
+
+    handleItemPreview(item);
   };
 
   const isOwned = (item) => (
@@ -128,9 +145,10 @@ export default function StoreGrid({
       data-controller-item="true"
       data-controller-confirm-label={`View ${item.title}`}
       data-controller-default={section === 'popular' && index === 0 ? 'true' : undefined}
+      onPointerDown={() => handleItemPointerDown(item)}
       onClick={() => handleItemClick(item)}
       onMouseEnter={() => handleItemPreview(item)}
-      onFocus={() => handleItemPreview(item)}
+      onFocus={() => handleItemFocus(item)}
     >
       {renderImage(item)}
       <div className="store-feed-card-info">
@@ -156,9 +174,10 @@ export default function StoreGrid({
       data-controller-item="true"
       data-controller-confirm-label={`View ${item.title}`}
       data-controller-default={index === 0 ? 'true' : undefined}
+      onPointerDown={() => handleItemPointerDown(item)}
       onClick={() => handleItemClick(item)}
       onMouseEnter={() => handleItemPreview(item)}
-      onFocus={() => handleItemPreview(item)}
+      onFocus={() => handleItemFocus(item)}
     >
       {renderImage(item)}
       <div className="store-card-info">
@@ -365,6 +384,7 @@ export default function StoreGrid({
           align-content: start;
           gap: 18px;
           min-height: 260px;
+          padding-top: 8px;
         }
 
         .store-feed-card {
@@ -388,6 +408,7 @@ export default function StoreGrid({
         .store-feed-card:focus-visible,
         .store-card:hover,
         .store-card:focus-visible {
+          z-index: 5;
           transform: translateY(-3px);
           border-color: rgba(var(--accent-color-rgb), 0.34);
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 38px rgba(0, 0, 0, 0.46), 0 0 24px rgba(var(--accent-color-rgb), 0.1);
@@ -724,9 +745,11 @@ export default function StoreGrid({
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
           gap: 18px;
+          padding-top: 8px;
         }
 
         .store-card {
+          position: relative;
           min-width: 0;
           background:
             linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.012)),

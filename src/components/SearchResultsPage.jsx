@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Check, Search } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
@@ -16,6 +16,7 @@ export default function SearchResultsPage({
   onLaunchGame,
   protonDbEnabled = false
 }) {
+  const pointerFocusResultIdRef = useRef(null);
   const ownedIds = new Set(ownedGames.map(game => game.id));
   const ownedIgdbIds = new Set(ownedGames.map(game => game.igdbId).filter(Boolean));
   const ownedRawgIds = new Set(ownedGames.map(game => game.rawgId).filter(Boolean));
@@ -47,6 +48,22 @@ export default function SearchResultsPage({
     if (item.resultType !== 'library') {
       onPrefetchItem(item);
     }
+  };
+
+  const getResultPointerKey = (item) => `${item.resultType || item.source || 'item'}-${item.id}`;
+
+  const handleResultPointerDown = (item) => {
+    pointerFocusResultIdRef.current = getResultPointerKey(item);
+  };
+
+  const handleResultFocus = (item) => {
+    const pointerKey = getResultPointerKey(item);
+    if (pointerFocusResultIdRef.current === pointerKey) {
+      pointerFocusResultIdRef.current = null;
+      return;
+    }
+
+    handleResultPreview(item);
   };
 
   return (
@@ -84,9 +101,10 @@ export default function SearchResultsPage({
                 tabIndex={0}
                 data-controller-confirm-label={`View ${item.title}`}
                 data-controller-default={index === 0 ? 'true' : undefined}
+                onPointerDown={() => handleResultPointerDown(item)}
                 onClick={() => handleResultClick(item)}
                 onMouseEnter={() => handleResultPreview(item)}
-                onFocus={() => handleResultPreview(item)}
+                onFocus={() => handleResultFocus(item)}
               >
                 <div className="search-result-art">
                   {item.coverUrl ? (
@@ -191,6 +209,7 @@ export default function SearchResultsPage({
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
           gap: 24px;
+          padding-top: 10px;
         }
 
         .search-result-card {
@@ -207,6 +226,7 @@ export default function SearchResultsPage({
 
         .search-result-card:hover,
         .search-result-card:focus-visible {
+          z-index: 5;
           transform: translateY(-6px);
           border-color: rgba(var(--accent-color-rgb), 0.4);
           box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(var(--accent-color-rgb), 0.15);

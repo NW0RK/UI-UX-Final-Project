@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import NavigationHeader from './components/NavigationHeader';
 import InteractiveCanvas from './components/InteractiveCanvas';
 import HorizontalLibrary from './components/HorizontalLibrary';
@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS = {
 
 const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
 const STORE_TRENDING_FEED_LIMIT = 20;
+const PRIMARY_VIEWS = ['store', 'library', 'favourites'];
 
 function normalizeStoreCacheTitle(title) {
   return String(title || '')
@@ -1964,13 +1965,14 @@ export default function App() {
   };
 
   // --- Filter Catalog Search ---
-  const getFilteredGames = () => {
-    return games.filter(g => 
-      g.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      g.genre?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  };
+  const normalizedSearchQuery = useMemo(() => searchQuery.toLowerCase(), [searchQuery]);
+  const filteredGames = useMemo(() => (
+    games.filter(g =>
+      g.title?.toLowerCase().includes(normalizedSearchQuery) ||
+      g.developer?.toLowerCase().includes(normalizedSearchQuery) ||
+      g.genre?.toLowerCase().includes(normalizedSearchQuery)
+    )
+  ), [games, normalizedSearchQuery]);
 
   // --- Action Trigger: Batch SteamGridDB Artwork Fetch ---
   const handleBatchFetchArtwork = async () => {
@@ -2013,92 +2015,123 @@ export default function App() {
     );
   };
 
-  const getFilteredFavoriteGames = () => {
-    return getFilteredGames().filter(g => g.isFavorite);
-  };
+  const filteredFavoriteGames = useMemo(
+    () => filteredGames.filter(g => g.isFavorite),
+    [filteredGames]
+  );
 
   // Sync store catalog ownership with games library
-  const syncedCatalog = storeCatalog.map(item => applySeededHltbToGame({
+  const ownedGameLookups = useMemo(() => ({
+    libraryIds: new Set(games.map(game => game.id)),
+    ownedLibraryIds: new Set(games.filter(game => game.owned).map(game => game.id)),
+    igdbIds: new Set(games.map(game => game.igdbId).filter(Boolean)),
+    rawgIds: new Set(games.map(game => game.rawgId).filter(Boolean)),
+    itadIds: new Set(games.map(game => game.itadId).filter(Boolean)),
+    cheapsharkIds: new Set(games.map(game => game.cheapsharkGameId).filter(Boolean)),
+    steamAppIds: new Set(games.map(game => String(game.steamAppId || '')).filter(Boolean))
+  }), [games]);
+
+  const isOwnedStoreItem = useCallback((item) => (
+    ownedGameLookups.libraryIds.has(item.id) ||
+    (item.igdbId && ownedGameLookups.igdbIds.has(item.igdbId)) ||
+    (item.rawgId && ownedGameLookups.rawgIds.has(item.rawgId)) ||
+    (item.itadId && ownedGameLookups.itadIds.has(item.itadId)) ||
+    (item.cheapsharkGameId && ownedGameLookups.cheapsharkIds.has(item.cheapsharkGameId)) ||
+    (item.steamAppId && ownedGameLookups.steamAppIds.has(String(item.steamAppId)))
+  ), [ownedGameLookups]);
+
+  const syncedCatalog = useMemo(() => storeCatalog.map(item => applySeededHltbToGame({
     ...item,
     ...storeArtwork[item.id],
     steamReviewScore: storeReviewScores[item.id] || item.steamReviewScore,
     protonDbSummary: settings.protonDbEnabled
       ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
       : null,
-    owned: games.some(g => g.id === item.id && g.owned)
-  }));
-  const ownedIgdbIds = new Set(games.map(game => game.igdbId).filter(Boolean));
-  const ownedRawgIds = new Set(games.map(game => game.rawgId).filter(Boolean));
-  const ownedItadIds = new Set(games.map(game => game.itadId).filter(Boolean));
-  const ownedCheapSharkIds = new Set(games.map(game => game.cheapsharkGameId).filter(Boolean));
-  const ownedSteamAppIds = new Set(games.map(game => String(game.steamAppId || '')).filter(Boolean));
-  const isOwnedStoreItem = (item) => (
-    games.some(game => game.id === item.id) ||
-    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
-    (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
-    (item.itadId && ownedItadIds.has(item.itadId)) ||
-    (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
-    (item.steamAppId && ownedSteamAppIds.has(String(item.steamAppId)))
-  );
-  const syncedPopularGames = popularStoreGames.map(item => ({
+    owned: ownedGameLookups.ownedLibraryIds.has(item.id)
+  })), [
+    ownedGameLookups,
+    settings.protonDbEnabled,
+    storeArtwork,
+    storeProtonDbSummaries,
+    storeReviewScores
+  ]);
+
+  const syncedPopularGames = useMemo(() => popularStoreGames.map(item => ({
     ...item,
     protonDbSummary: settings.protonDbEnabled
       ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
       : null,
     owned: isOwnedStoreItem(item)
-  }));
-  const syncedItadDeals = itadDealGames.map(item => ({
+  })), [isOwnedStoreItem, popularStoreGames, settings.protonDbEnabled, storeProtonDbSummaries]);
+
+  const syncedItadDeals = useMemo(() => itadDealGames.map(item => ({
     ...item,
     protonDbSummary: settings.protonDbEnabled
       ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
       : null,
     owned: isOwnedStoreItem(item)
-  }));
-  const mergedStoreCatalog = [
+  })), [isOwnedStoreItem, itadDealGames, settings.protonDbEnabled, storeProtonDbSummaries]);
+
+  const mergedStoreCatalog = useMemo(() => [
     ...syncedPopularGames,
     ...syncedItadDeals,
     ...syncedCatalog
-  ];
-  const normalizedSearchTitles = new Set();
-  const searchResults = [
-    ...getFilteredGames().map(item => ({ ...item, resultType: 'library', owned: true })),
-    ...syncedCatalog
-      .filter(item => (
-        item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.developer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.genre?.toLowerCase().includes(searchQuery.toLowerCase())
-      ))
-      .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
-    ...igdbSearchResults
-      .filter(item => item.source === 'igdb' && item.igdbId)
-      .map(item => ({
-        ...item,
-        protonDbSummary: settings.protonDbEnabled
-          ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
-          : null,
-        resultType: 'igdb',
-        owned: isOwnedStoreItem(item)
-      }))
-  ].filter(item => {
-    const key = item.igdbId
-      ? `igdb:${item.igdbId}`
-      : item.rawgId
-        ? `rawg:${item.rawgId}`
-        : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-    if (!key || normalizedSearchTitles.has(key)) return false;
-    normalizedSearchTitles.add(key);
-    return true;
-  }).sort((a, b) => {
-    const popDiff = (b.igdbPopScore || 0) - (a.igdbPopScore || 0);
-    if (popDiff !== 0) return popDiff;
-    const aExact = a.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
-    const bExact = b.title?.toLowerCase() === searchQuery.toLowerCase() ? 1 : 0;
-    return bExact - aExact;
-  }).slice(0, 20);
-  const activeStoreItem = selectedStoreItem
-    ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
-    : null;
-  const activeStoreItemCacheKey = getStoreItemCacheKey(activeStoreItem);
+  ], [syncedCatalog, syncedItadDeals, syncedPopularGames]);
+
+  const searchResults = useMemo(() => {
+    const normalizedSearchTitles = new Set();
+
+    return [
+      ...filteredGames.map(item => ({ ...item, resultType: 'library', owned: true })),
+      ...syncedCatalog
+        .filter(item => (
+          item.title?.toLowerCase().includes(normalizedSearchQuery) ||
+          item.developer?.toLowerCase().includes(normalizedSearchQuery) ||
+          item.genre?.toLowerCase().includes(normalizedSearchQuery)
+        ))
+        .map(item => ({ ...item, resultType: 'store', owned: isOwnedStoreItem(item) })),
+      ...igdbSearchResults
+        .filter(item => item.source === 'igdb' && item.igdbId)
+        .map(item => ({
+          ...item,
+          protonDbSummary: settings.protonDbEnabled
+            ? storeProtonDbSummaries[item.id] || item.protonDbSummary || null
+            : null,
+          resultType: 'igdb',
+          owned: isOwnedStoreItem(item)
+        }))
+    ].filter(item => {
+      const key = item.igdbId
+        ? `igdb:${item.igdbId}`
+        : item.rawgId
+          ? `rawg:${item.rawgId}`
+          : `title:${item.title?.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      if (!key || normalizedSearchTitles.has(key)) return false;
+      normalizedSearchTitles.add(key);
+      return true;
+    }).sort((a, b) => {
+      const popDiff = (b.igdbPopScore || 0) - (a.igdbPopScore || 0);
+      if (popDiff !== 0) return popDiff;
+      const aExact = a.title?.toLowerCase() === normalizedSearchQuery ? 1 : 0;
+      const bExact = b.title?.toLowerCase() === normalizedSearchQuery ? 1 : 0;
+      return bExact - aExact;
+    }).slice(0, 20);
+  }, [
+    filteredGames,
+    igdbSearchResults,
+    isOwnedStoreItem,
+    normalizedSearchQuery,
+    settings.protonDbEnabled,
+    storeProtonDbSummaries,
+    syncedCatalog
+  ]);
+
+  const activeStoreItem = useMemo(() => (
+    selectedStoreItem
+      ? mergedStoreCatalog.find(item => item.id === selectedStoreItem.id) || selectedStoreItem
+      : null
+  ), [mergedStoreCatalog, selectedStoreItem]);
+  const activeStoreItemCacheKey = useMemo(() => getStoreItemCacheKey(activeStoreItem), [activeStoreItem]);
   const activeStoreItemCachedDetails = activeStoreItemCacheKey
     ? storeDetailCache[activeStoreItemCacheKey]
     : null;
@@ -2106,8 +2139,6 @@ export default function App() {
   const importPromptTotal = importPromptIndex + importQueue.length;
 
   const hasBlockingOverlay = isSettingsOpen || isMetadataOpen || isProfileOpen || bannerEditMode || !!currentImportFile;
-  const primaryViews = ['store', 'library', 'favourites'];
-
   useEffect(() => {
     const gameId = selectedGame?.id || null;
 
@@ -2278,8 +2309,8 @@ export default function App() {
   const handleControllerViewCycle = (step) => {
     if (hasBlockingOverlay || isCcOpen || activeView === 'store-item') return false;
 
-    const currentIndex = Math.max(0, primaryViews.indexOf(activeView));
-    const nextView = primaryViews[(currentIndex + step + primaryViews.length) % primaryViews.length];
+    const currentIndex = Math.max(0, PRIMARY_VIEWS.indexOf(activeView));
+    const nextView = PRIMARY_VIEWS[(currentIndex + step + PRIMARY_VIEWS.length) % PRIMARY_VIEWS.length];
     handleViewChange(nextView);
     return true;
   };
@@ -2381,7 +2412,7 @@ export default function App() {
             />
 
             <HorizontalLibrary 
-              games={getFilteredGames()}
+              games={filteredGames}
               selectedGame={selectedGame}
               onSelectGame={setSelectedGame}
               onLaunchGame={handleLaunchGame}
@@ -2394,7 +2425,7 @@ export default function App() {
 
         {activeView === 'favourites' && (
           <FavouritesTrophyRoom
-            games={getFilteredFavoriteGames()}
+            games={filteredFavoriteGames}
             selectedGame={selectedGame}
             onSelectGame={setSelectedGame}
             onLaunchGame={handleLaunchGame}

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { Check, Search } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
@@ -17,16 +17,18 @@ export default function SearchResultsPage({
   protonDbEnabled = false
 }) {
   const pointerFocusResultIdRef = useRef(null);
-  const ownedIds = new Set(ownedGames.map(game => game.id));
-  const ownedIgdbIds = new Set(ownedGames.map(game => game.igdbId).filter(Boolean));
-  const ownedRawgIds = new Set(ownedGames.map(game => game.rawgId).filter(Boolean));
+  const ownedLookups = useMemo(() => ({
+    ids: new Set(ownedGames.map(game => game.id)),
+    igdbIds: new Set(ownedGames.map(game => game.igdbId).filter(Boolean)),
+    rawgIds: new Set(ownedGames.map(game => game.rawgId).filter(Boolean))
+  }), [ownedGames]);
   const isSearching = igdbSearchStatus === 'loading' && query.trim().length >= 3;
 
-  const isOwned = (item) => (
-    ownedIds.has(item.id) ||
-    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
-    (item.rawgId && ownedRawgIds.has(item.rawgId))
-  );
+  const isOwned = useCallback((item) => (
+    ownedLookups.ids.has(item.id) ||
+    (item.igdbId && ownedLookups.igdbIds.has(item.igdbId)) ||
+    (item.rawgId && ownedLookups.rawgIds.has(item.rawgId))
+  ), [ownedLookups]);
 
   const handleResultClick = (item) => {
     audioEngine.playClickPulse();

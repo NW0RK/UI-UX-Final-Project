@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { BadgePercent, Check, Flame, Search, ShoppingCart } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { getSteamReviewScore } from '../utils/steamReviews';
@@ -21,24 +21,28 @@ export default function StoreGrid({
   protonDbEnabled = false
 }) {
   const pointerFocusItemIdRef = useRef(null);
-  const normalizedQuery = searchQuery.toLowerCase();
+  const normalizedQuery = useMemo(() => searchQuery.toLowerCase(), [searchQuery]);
   const hasSearch = normalizedQuery.trim().length > 0;
-  const filtered = catalog.filter(g =>
+  const filtered = useMemo(() => catalog.filter(g =>
     g.title?.toLowerCase().includes(normalizedQuery) ||
     g.developer?.toLowerCase().includes(normalizedQuery) ||
     g.genre?.toLowerCase().includes(normalizedQuery)
-  );
+  ), [catalog, normalizedQuery]);
 
-  const ownedIds = new Set(ownedGames.map(g => g.id));
-  const ownedIgdbIds = new Set(ownedGames.map(g => g.igdbId).filter(Boolean));
-  const ownedRawgIds = new Set(ownedGames.map(g => g.rawgId).filter(Boolean));
-  const ownedItadIds = new Set(ownedGames.map(g => g.itadId).filter(Boolean));
-  const ownedCheapSharkIds = new Set(ownedGames.map(g => g.cheapsharkGameId).filter(Boolean));
-  const ownedSteamAppIds = new Set(ownedGames.map(g => String(g.steamAppId || '')).filter(Boolean));
+  const ownedLookups = useMemo(() => ({
+    ids: new Set(ownedGames.map(g => g.id)),
+    igdbIds: new Set(ownedGames.map(g => g.igdbId).filter(Boolean)),
+    rawgIds: new Set(ownedGames.map(g => g.rawgId).filter(Boolean)),
+    itadIds: new Set(ownedGames.map(g => g.itadId).filter(Boolean)),
+    cheapsharkIds: new Set(ownedGames.map(g => g.cheapsharkGameId).filter(Boolean)),
+    steamAppIds: new Set(ownedGames.map(g => String(g.steamAppId || '')).filter(Boolean))
+  }), [ownedGames]);
   const isSearchingIgdb = igdbSearchStatus === 'loading' && searchQuery.trim().length >= 3;
-  const visiblePopularGames = dealGames.length > 0
-    ? popularGames.slice(0, dealGames.length)
-    : popularGames;
+  const visiblePopularGames = useMemo(() => (
+    dealGames.length > 0
+      ? popularGames.slice(0, dealGames.length)
+      : popularGames
+  ), [dealGames.length, popularGames]);
 
   const handleItemClick = (item) => {
     audioEngine.playClickPulse();
@@ -67,14 +71,14 @@ export default function StoreGrid({
     handleItemPreview(item);
   };
 
-  const isOwned = (item) => (
-    ownedIds.has(item.id) ||
-    (item.igdbId && ownedIgdbIds.has(item.igdbId)) ||
-    (item.rawgId && ownedRawgIds.has(item.rawgId)) ||
-    (item.itadId && ownedItadIds.has(item.itadId)) ||
-    (item.cheapsharkGameId && ownedCheapSharkIds.has(item.cheapsharkGameId)) ||
-    (item.steamAppId && ownedSteamAppIds.has(String(item.steamAppId)))
-  );
+  const isOwned = useCallback((item) => (
+    ownedLookups.ids.has(item.id) ||
+    (item.igdbId && ownedLookups.igdbIds.has(item.igdbId)) ||
+    (item.rawgId && ownedLookups.rawgIds.has(item.rawgId)) ||
+    (item.itadId && ownedLookups.itadIds.has(item.itadId)) ||
+    (item.cheapsharkGameId && ownedLookups.cheapsharkIds.has(item.cheapsharkGameId)) ||
+    (item.steamAppId && ownedLookups.steamAppIds.has(String(item.steamAppId)))
+  ), [ownedLookups]);
 
 
 

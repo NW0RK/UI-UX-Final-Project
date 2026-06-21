@@ -10,24 +10,22 @@ Whether you want a cleaner way to launch installed games, a richer way to browse
 
 ## Preview
 
-Add your screenshots to these slots when they are ready.
-
-> [Screenshot: Nexus Launcher library hero]
+![Screenshot: Nexus Launcher library hero](docs/screenshots/library_hero.png)
 
 **Library hero**  
 Show the main launcher view with a selected game, rich banner artwork, metadata, launch controls, and the horizontal library shelf.
 
-> [Screenshot: Store discovery and deals view]
+![Screenshot: Store discovery and deals view](docs/screenshots/store_discovery.png)
 
 **Store discovery and deals**  
 Show the split store view with IGDB trending games beside live deal cards from IsThereAnyDeal and CheapShark.
 
-> [Screenshot: Game detail page with media and price history]
+![Screenshot: Game detail page with media and price history](docs/screenshots/game_details.png)
 
 **Game details**  
 Show a store or discovery detail page with screenshots, reviews, price history, ownership actions, and compatibility information.
 
-> [Screenshot: Settings and theme customization]
+![Screenshot: Settings and theme customization](docs/screenshots/settings_customization.png)
 
 **Customization**  
 Show the settings panel with themes, audio controls, artwork options, API credentials, and system preferences.

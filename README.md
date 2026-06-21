@@ -10,15 +10,15 @@ Whether you want a cleaner way to launch installed games, a richer way to browse
 
 ## Preview
 
-**Library hero**  
+**Library**  
 
 ![Screenshot: Nexus Launcher library hero](docs/screenshots/library_hero.png)
 
-**Store discovery and deals**  
+**Discovery and Deals**  
 
 ![Screenshot: Store discovery and deals view](docs/screenshots/store_discovery.png)
 
-**Game details**  
+**Game Details**  
 
 ![Screenshot: Game detail page with media and price history](docs/screenshots/game_details.png)
 

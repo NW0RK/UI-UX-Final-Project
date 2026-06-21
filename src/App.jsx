@@ -285,6 +285,20 @@ function hasUsefulDescription(game) {
     !/^Your scanned copy/i.test(description);
 }
 
+function applyFavoriteVaultGridToGame(game, vaultGridResult) {
+  if (!game || !vaultGridResult?.grid) return game;
+  return {
+    ...game,
+    favoriteVaultGridUrl: vaultGridResult.grid,
+    favoriteVaultGridFetched: true,
+    favoriteVaultGridSource: 'steamgriddb',
+    favoriteVaultGridStyle: vaultGridResult.style || 'no_logo',
+    favoriteVaultGridWidth: vaultGridResult.width || null,
+    favoriteVaultGridHeight: vaultGridResult.height || null,
+    favoriteVaultGridFetchedAt: new Date().toISOString()
+  };
+}
+
 export default function App() {
   // --- Mode and Core States ---
   const [games, setGames] = useState([]);
@@ -352,6 +366,7 @@ export default function App() {
   const hltbLookupAttemptedRef = useRef(new Set());
   const protonDbLibraryAttemptedRef = useRef(new Set());
   const protonDbStoreAttemptedRef = useRef(new Set());
+  const favoriteVaultGridAttemptedRef = useRef(new Set());
   const storeDetailCacheRef = useRef({});
   const storeDetailInFlightRef = useRef(new Map());
   const gamesRef = useRef([]);
@@ -1099,6 +1114,56 @@ export default function App() {
     hydrateHowLongToBeat();
   }, [games]);
 
+  useEffect(() => {
+    if (!window.electronAPI?.fetchFavoriteVaultGrid || games.length === 0) return;
+
+    const candidates = games.filter(game => (
+      game?.id &&
+      game.isFavorite &&
+      !game.favoriteVaultGridUrl &&
+      !favoriteVaultGridAttemptedRef.current.has(game.id)
+    ));
+
+    if (candidates.length === 0) return;
+
+    let cancelled = false;
+    candidates.forEach(game => favoriteVaultGridAttemptedRef.current.add(game.id));
+
+    async function hydrateFavoriteVaultGrids() {
+      for (const game of candidates) {
+        try {
+          addDiagnostic('SteamGridDB', 'info', `Fetching Favorite Vault no-logo grid for ${game.title}`);
+          const vaultGrid = await window.electronAPI.fetchFavoriteVaultGrid(game);
+          if (cancelled) return;
+
+          if (!vaultGrid?.grid) {
+            addDiagnostic('SteamGridDB', 'warn', `Favorite Vault grid skipped ${game.title}: ${vaultGrid?.error || 'No no-logo grid found'}`);
+            continue;
+          }
+
+          const mergedList = gamesRef.current.map(existing =>
+            existing.id === game.id ? applyFavoriteVaultGridToGame(existing, vaultGrid) : existing
+          );
+          setGames(mergedList);
+          gamesRef.current = mergedList;
+          setSelectedGame(prev => mergedList.find(existing => existing.id === prev?.id) || prev);
+          await window.electronAPI.saveDatabase(mergedList);
+          addDiagnostic('SteamGridDB', 'info', `Favorite Vault no-logo grid applied to ${game.title}`);
+        } catch (error) {
+          if (!cancelled) {
+            addDiagnostic('SteamGridDB', 'warn', `Favorite Vault grid failed for ${game.title}: ${error.message}`);
+          }
+        }
+      }
+    }
+
+    hydrateFavoriteVaultGrids();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [games]);
+
   // --- 2. Synchronize Custom Settings & CSS Styles ---
   useEffect(() => {
     // Sync active settings theme to body element
@@ -1323,13 +1388,41 @@ export default function App() {
       return g;
     });
     setGames(updatedList);
+    gamesRef.current = updatedList;
     const updatedActive = updatedList.find(g => g.id === gameId);
     if (updatedActive) setSelectedGame(updatedActive);
+    if (updatedActive?.isFavorite && !updatedActive.favoriteVaultGridUrl) {
+      favoriteVaultGridAttemptedRef.current.add(gameId);
+    }
 
     if (window.electronAPI) {
       await window.electronAPI.saveDatabase(updatedList);
     } else {
       localStorage.setItem('nexus_games_cache', JSON.stringify(updatedList));
+    }
+
+    if (!updatedActive?.isFavorite || updatedActive.favoriteVaultGridUrl || !window.electronAPI?.fetchFavoriteVaultGrid) {
+      return;
+    }
+
+    try {
+      addDiagnostic('SteamGridDB', 'info', `Fetching Favorite Vault no-logo grid for ${updatedActive.title}`);
+      const vaultGrid = await window.electronAPI.fetchFavoriteVaultGrid(updatedActive);
+      if (!vaultGrid?.grid) {
+        addDiagnostic('SteamGridDB', 'warn', `Favorite Vault grid skipped ${updatedActive.title}: ${vaultGrid?.error || 'No no-logo grid found'}`);
+        return;
+      }
+
+      const mergedList = gamesRef.current.map(game =>
+        game.id === gameId ? applyFavoriteVaultGridToGame(game, vaultGrid) : game
+      );
+      setGames(mergedList);
+      gamesRef.current = mergedList;
+      setSelectedGame(prev => mergedList.find(game => game.id === prev?.id) || prev);
+      await window.electronAPI.saveDatabase(mergedList);
+      addDiagnostic('SteamGridDB', 'info', `Favorite Vault no-logo grid applied to ${updatedActive.title}`);
+    } catch (error) {
+      addDiagnostic('SteamGridDB', 'warn', `Favorite Vault grid failed for ${updatedActive.title}: ${error.message}`);
     }
   };
 
@@ -1782,13 +1875,24 @@ export default function App() {
       if (result.success) {
         // Reset artwork status in games database
         const updated = games.map(game => {
-          if (game.artworkSource === 'steamgriddb' || (game.coverUrl && game.coverUrl.startsWith('nexus-artwork:///'))) {
+          if (
+            game.artworkSource === 'steamgriddb' ||
+            (game.coverUrl && game.coverUrl.startsWith('nexus-artwork:///')) ||
+            (game.favoriteVaultGridUrl && game.favoriteVaultGridUrl.startsWith('nexus-artwork:///'))
+          ) {
             return {
               ...game,
               coverUrl: null,
               bannerUrl: null,
               logoUrl: null,
               iconUrl: null,
+              favoriteVaultGridUrl: null,
+              favoriteVaultGridFetched: false,
+              favoriteVaultGridSource: null,
+              favoriteVaultGridStyle: null,
+              favoriteVaultGridWidth: null,
+              favoriteVaultGridHeight: null,
+              favoriteVaultGridFetchedAt: null,
               artworkFetched: false,
               artworkSource: null
             };
@@ -1803,6 +1907,7 @@ export default function App() {
         // Reset hydration refs so they can re-hydrate in background
         libraryArtworkHydratedRef.current = false;
         storeArtworkHydratedRef.current = false;
+        favoriteVaultGridAttemptedRef.current = new Set();
 
         // Force a re-fetch of store artwork as well by resetting it
         setStoreArtwork({});

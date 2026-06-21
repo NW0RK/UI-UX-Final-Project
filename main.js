@@ -866,6 +866,55 @@ function getCachedArtworkFilePath(gameId, type) {
   return null;
 }
 
+function getCachedFavoriteVaultGridFilePath(gameId) {
+  const cacheDir = getGameCacheDir(gameId);
+  const extensions = ['png', 'jpg', 'jpeg', 'webp'];
+  for (const ext of extensions) {
+    const filePath = path.join(cacheDir, `favorite-vault-grid.${ext}`);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+
+function getFavoriteVaultGridMetadataPath(gameId) {
+  return path.join(getGameCacheDir(gameId), 'favorite-vault-grid.json');
+}
+
+function toVersionedArtworkUrl(filePath) {
+  const artworkUrl = toArtworkUrl(filePath);
+  try {
+    const modifiedAt = fs.statSync(filePath).mtimeMs;
+    return `${artworkUrl}?v=${Math.round(modifiedAt)}`;
+  } catch (e) {
+    return artworkUrl;
+  }
+}
+
+function getCachedFavoriteVaultGrid(gameId) {
+  const filePath = getCachedFavoriteVaultGridFilePath(gameId);
+  if (!filePath) return null;
+
+  try {
+    const metadataPath = getFavoriteVaultGridMetadataPath(gameId);
+    if (!fs.existsSync(metadataPath)) return null;
+
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+    const isNoLogoGrid =
+      metadata?.style === 'no_logo' &&
+      Number(metadata.width) === 600 &&
+      Number(metadata.height) === 900;
+
+    if (!isNoLogoGrid) return null;
+
+    return {
+      filePath,
+      metadata
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 // DEPRECATED: trimCachedLogoArtworkForGame and trimCachedLogoArtworkForDatabase are removed.
 // These functions have been archived in './deprecated_features/imageTrimming.js'.
 
@@ -1177,9 +1226,6 @@ function pickArtwork(items, key) {
   return [...activeItems].sort((a, b) => {
     const score = (item) => {
       let value = 0;
-      const communityScore = Number(item.score ?? item.likes ?? item.votes ?? 0);
-      if (Number.isFinite(communityScore)) value += communityScore;
-      if (key === 'grid' && item.style === 'no_logo') value += 100;
       if (item.style === 'alternate') value += 4;
       if (item.style === 'official') value += 3;
       if (item.verified) value += 2;
@@ -1193,6 +1239,112 @@ function pickArtwork(items, key) {
   })[0];
 }
 
+function pickFavoriteVaultGrid(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const candidates = items.filter(item => (
+    item?.url &&
+    item.style === 'no_logo' &&
+    Number(item.width) === 600 &&
+    Number(item.height) === 900 &&
+    !item.nsfw
+  ));
+  if (candidates.length === 0) return null;
+
+  return [...candidates].sort((a, b) => {
+    const score = (item) => {
+      let value = 0;
+      const communityScore = Number(item.score ?? item.likes ?? item.votes ?? 0);
+
+      if (Number.isFinite(communityScore)) value += communityScore;
+      if (item.verified) value += 4;
+
+      return value;
+    };
+
+    return score(b) - score(a);
+  })[0] || null;
+}
+
+async function fetchFavoriteVaultGrid(game) {
+  if (!game?.id || !game?.title) return { grid: null, error: 'Missing game id or title' };
+
+  const cachedVaultGrid = getCachedFavoriteVaultGrid(game.id);
+  if (cachedVaultGrid) {
+    emitDiagnostic('SteamGridDB', 'info', `Using cached Favorite Vault no-logo grid for ${game.title}`, cachedVaultGrid.metadata);
+    return {
+      grid: toVersionedArtworkUrl(cachedVaultGrid.filePath),
+      cached: true,
+      ...cachedVaultGrid.metadata
+    };
+  }
+
+  const sgdbGame = await resolveSteamGridDBGame(game);
+  if (!sgdbGame?.id) return { grid: null, error: 'No SteamGridDB match found' };
+
+  const endpoint = `/grids/game/${sgdbGame.id}?dimensions=600x900&styles=no_logo&types=static`;
+  const apiData = await steamgriddbFetch(endpoint);
+  const artwork = pickFavoriteVaultGrid(apiData.data);
+
+  if (!artwork?.url) {
+    emitDiagnostic(
+      'SteamGridDB',
+      'warn',
+      `No Steam vertical 2:3 no-logo grid found for ${game.title}`,
+      { steamGridDbId: sgdbGame.id, steamGridDbName: sgdbGame.name || game.title }
+    );
+    return { grid: null, error: 'No Steam vertical 2:3 no-logo grid found' };
+  }
+
+  const ext = getExtensionFromArtwork(artwork);
+  const destPath = path.join(getGameCacheDir(game.id), `favorite-vault-grid.${ext}`);
+
+  try {
+    await downloadImage(artwork.url, destPath);
+    const metadata = {
+      steamGridDbId: sgdbGame.id,
+      steamGridDbName: sgdbGame.name || game.title,
+      sourceUrl: artwork.url,
+      style: artwork.style || null,
+      width: artwork.width || null,
+      height: artwork.height || null,
+      verified: !!artwork.verified,
+      cachedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(getFavoriteVaultGridMetadataPath(game.id), JSON.stringify(metadata, null, 2), 'utf-8');
+    emitDiagnostic('SteamGridDB', 'info', `Downloaded Favorite Vault grid for ${game.title}`, {
+      steamGridDbId: sgdbGame.id,
+      artworkId: artwork.id || null,
+      sourceUrl: artwork.url,
+      width: artwork.width,
+      height: artwork.height,
+      style: artwork.style || null,
+      verified: !!artwork.verified
+    });
+  } catch (err) {
+    emitDiagnostic('SteamGridDB', 'warn', `Could not cache Favorite Vault grid for ${game.title}: ${err.message}`, {
+      steamGridDbId: sgdbGame.id,
+      url: artwork.url
+    });
+    return {
+      grid: artwork.url,
+      steamGridDbId: sgdbGame.id,
+      steamGridDbName: sgdbGame.name || game.title,
+      style: artwork.style || null,
+      width: artwork.width || null,
+      height: artwork.height || null
+    };
+  }
+
+  return {
+    grid: toVersionedArtworkUrl(destPath),
+    steamGridDbId: sgdbGame.id,
+    steamGridDbName: sgdbGame.name || game.title,
+    style: artwork.style || null,
+    width: artwork.width || null,
+    height: artwork.height || null
+  };
+}
+
 async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   const cacheDir = getGameCacheDir(gameId);
   const result = { diagnostics: [] };
@@ -1204,7 +1356,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   addDiagnostic('info', `Fetching artwork for ${gameTitle}`, { sgdbId, gameId });
 
   const types = [
-    { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static&styles=no_logo` },
+    { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static` },
     { key: 'hero', endpoint: `/heroes/game/${sgdbId}?types=static` },
     { key: 'logo', endpoint: `/logos/game/${sgdbId}?types=static` },
     { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
@@ -1213,7 +1365,7 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   for (const { key, endpoint } of types) {
     try {
       const cached = getCachedArtworkPaths(gameId);
-      if (cached?.[key] && key !== 'grid') {
+      if (cached?.[key]) {
         let cachedFilePath = getCachedArtworkFilePath(gameId, key);
         if ((key === 'logo' || key === 'icon') && cachedFilePath) {
           try {
@@ -1616,6 +1768,15 @@ ipcMain.handle('steamgriddb-fetch-artwork', async (event, sgdbId, gameId, gameTi
   }
 });
 
+ipcMain.handle('steamgriddb-fetch-favorite-vault-grid', async (event, game) => {
+  try {
+    return await fetchFavoriteVaultGrid(game);
+  } catch (err) {
+    emitDiagnostic('SteamGridDB', 'warn', `Favorite Vault grid lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
+    return { grid: null, error: err.message };
+  }
+});
+
 ipcMain.handle('hltb-search', async (event, term) => {
   try {
     return await searchHowLongToBeatGames(term);
@@ -1807,11 +1968,10 @@ async function fetchArtworkWithFallback(game) {
     }
   }
 
-  // Stage 3 (SteamGridDB Fallback): refresh the grid from SteamGridDB and fill missing assets.
+  // Stage 3 (SteamGridDB Fallback): For any missing artwork keys, query SteamGridDB!
   const missingKeys = keys.filter(k => !result[k]);
-  const steamGridDbKeys = Array.from(new Set(['grid', ...missingKeys]));
-  if (steamGridDbKeys.length > 0) {
-    addDiagnostic('info', `Stage 3: Fetching SteamGridDB grid and missing assets: ${steamGridDbKeys.join(', ')}`);
+  if (missingKeys.length > 0) {
+    addDiagnostic('info', `Stage 3: Falling back to SteamGridDB for missing assets: ${missingKeys.join(', ')}`);
     try {
       const sgdbGame = await resolveSteamGridDBGame({
         ...game,
@@ -1822,7 +1982,7 @@ async function fetchArtworkWithFallback(game) {
         addDiagnostic('info', `Stage 3: Resolved SteamGridDB game ID: ${sgdbGame.id} (${sgdbGame.name})`);
 
         const sgdbArtwork = await fetchArtworkForGame(sgdbGame.id, game.id, game.title);
-        for (const key of steamGridDbKeys) {
+        for (const key of missingKeys) {
           if (sgdbArtwork[key]) {
             result[key] = sgdbArtwork[key];
             addDiagnostic('info', `Stage 3: Retrieved ${key} from SteamGridDB`);

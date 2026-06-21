@@ -21,6 +21,8 @@ const SORT_OPTIONS = [
   { id: 'progress', label: 'Progress' }
 ];
 
+const VAULT_GRID_PREFETCH_LIMIT = 12;
+
 function formatPlaytime(seconds = 0) {
   const totalSeconds = Number(seconds) || 0;
   const hours = Math.floor(totalSeconds / 3600);
@@ -72,7 +74,9 @@ export default function FavouritesTrophyRoom({
   runningGameId
 }) {
   const [sortMode, setSortMode] = useState('recent');
+  const [favoriteVaultGridById, setFavoriteVaultGridById] = useState({});
   const pointerFocusGameIdRef = useRef(null);
+  const requestedVaultGridIdsRef = useRef(new Set());
 
   const visibleGames = useMemo(() => sortGames(games, sortMode), [games, sortMode]);
   const spotlightGame = visibleGames.find(game => game.id === selectedGame?.id) || visibleGames[0] || null;
@@ -94,6 +98,71 @@ export default function FavouritesTrophyRoom({
       onSelectGame(spotlightGame);
     }
   }, [onSelectGame, selectedGame?.id, spotlightGame]);
+
+  useEffect(() => {
+    const api = window.electronAPI?.fetchFavoriteVaultGrid;
+    if (!api) return;
+
+    const candidateMap = new Map();
+    visibleGames.slice(0, VAULT_GRID_PREFETCH_LIMIT).forEach(game => {
+      if (game?.id) candidateMap.set(game.id, game);
+    });
+    if (spotlightGame?.id) {
+      candidateMap.set(spotlightGame.id, spotlightGame);
+    }
+
+    const candidates = [...candidateMap.values()]
+      .filter(game => (
+        game?.id &&
+        !game.favoriteVaultGridUrl &&
+        !requestedVaultGridIdsRef.current.has(game.id)
+      ));
+
+    if (candidates.length === 0) return;
+
+    candidates.forEach(game => requestedVaultGridIdsRef.current.add(game.id));
+
+    let cancelled = false;
+
+    setFavoriteVaultGridById(prev => {
+      const next = { ...prev };
+      candidates.forEach(game => {
+        if (!next[game.id]) {
+          next[game.id] = { status: 'loading', grid: null };
+        }
+      });
+      return next;
+    });
+
+    async function hydrateVaultGrids() {
+      for (const game of candidates) {
+        try {
+          const result = await api(game);
+          if (cancelled) return;
+          setFavoriteVaultGridById(prev => ({
+            ...prev,
+            [game.id]: {
+              status: result?.grid ? 'ready' : 'missing',
+              grid: result?.grid || null,
+              error: result?.error || null
+            }
+          }));
+        } catch (error) {
+          if (cancelled) return;
+          setFavoriteVaultGridById(prev => ({
+            ...prev,
+            [game.id]: { status: 'error', grid: null, error: error?.message || 'Vault grid lookup failed' }
+          }));
+        }
+      }
+    }
+
+    hydrateVaultGrids();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [spotlightGame, visibleGames]);
 
   const handleSelect = (game) => {
     audioEngine.playClickPulse();
@@ -173,8 +242,9 @@ export default function FavouritesTrophyRoom({
   }
 
   const isRunning = runningGameId === spotlightGame?.id;
-  const heroGridImage = spotlightGame?.coverUrl || null;
-  const backdropImage = spotlightGame?.bannerUrl || heroGridImage;
+  const favoriteVaultGrid = favoriteVaultGridById[spotlightGame?.id]?.grid || spotlightGame?.favoriteVaultGridUrl || null;
+  const heroGridImage = favoriteVaultGrid;
+  const backdropImage = heroGridImage;
   const heroTags = spotlightGame?.tags?.filter(Boolean).slice(0, 4) || [];
   const progressValue = Math.max(0, Math.min(100, Number(spotlightGame?.progress) || 0));
   const description = spotlightGame?.description || 'No description has been added yet. Open Metadata to tune this entry for your vault.';
@@ -331,7 +401,7 @@ export default function FavouritesTrophyRoom({
             {visibleGames.map(game => {
               const selected = spotlightGame?.id === game.id;
               const cardRunning = runningGameId === game.id;
-              const cardImage = game.coverUrl || game.bannerUrl;
+              const cardImage = game.coverUrl || game.bannerUrl || null;
               const cardProgress = Math.max(0, Math.min(100, Number(game.progress) || 0));
 
               return (

@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // SteamGridDB Artwork
   searchSteamGridDB: (term) => ipcRenderer.invoke('steamgriddb-search', term),
   fetchArtwork: (sgdbId, gameId, gameTitle) => ipcRenderer.invoke('steamgriddb-fetch-artwork', sgdbId, gameId, gameTitle),
+  fetchFavoriteVaultGrid: (game) => ipcRenderer.invoke('steamgriddb-fetch-favorite-vault-grid', game),
   autoFetchArtwork: (game) => ipcRenderer.invoke('steamgriddb-auto-fetch-artwork', game),
   getCachedArtwork: (gameId) => ipcRenderer.invoke('get-cached-artwork', gameId),
   clearArtworkCache: () => ipcRenderer.invoke('clear-artwork-cache'),

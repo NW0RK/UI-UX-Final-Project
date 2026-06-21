@@ -73,7 +73,7 @@ npm run build
 | `InteractiveCanvas.jsx` | Ambient canvas background driven by theme, speed, density. | Receives settings from `App.jsx`. |
 | `GameMainBanner.jsx` | Primary selected-game hero, trailer preview overlay, launch/favorite/edit/remove actions, manual title positioning, and automatic safe-title placement. | Uses HLTB, Brandfetch, and banner placement helpers; includes `LibraryOverflowMenu`. |
 | `HorizontalLibrary.jsx` | Horizontal library cards for the main library view. | Uses `data-controller-*` selection attributes. |
-| `FavouritesTrophyRoom.jsx` | Favorites Gallery Vault with selected-game showcase, sortable favourite cards, stats, and quick play/favourite/metadata actions. | Uses `data-controller-*` selection attributes and local injected styles. |
+| `FavouritesTrophyRoom.jsx` | Favorites Gallery Vault with selected-game showcase, sortable favourite cards, stats, and quick play/favourite/metadata actions. | Uses `data-controller-*` selection attributes, local injected styles, and the Favorites-only SGDB Steam vertical 2:3 no-logo grid bridge. |
 | `StoreGrid.jsx` | Store landing view with IGDB PopScore trending games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
 | `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and IGDB discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
 | `StoreItemPage.jsx` | Store detail view, Steam/IGDB media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and IGDB detail/media IPC, and executable picker. |
@@ -112,7 +112,7 @@ Current IPC groups:
 | File selection and scans | `selectDirectory`, `selectExecutable`, `selectImage`, `scanExecutables` | `select-directory`, `select-executable`, `select-image`, `scan-executables` |
 | Launch/process state | `launchGame`, `onGameStatusChanged` | `launch-game`, `game-status-changed` |
 | System | `powerOff`, `getSystemMemoryUsage` | `power-off`, `get-system-memory-usage` |
-| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `fetchProtonDbSummary`, `searchIgdbGames`, `fetchIgdbPopularGames(limit)`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails`, `fetchIgdbGameTrailer` | SGDB search/fetch/auto/cache handlers, Steam App ID/details/reviews handlers, ProtonDB summary handler, IGDB search/popular/screenshots/details/trailer handlers, `clear-artwork-cache` |
+| Artwork and game metadata | `searchSteamGridDB`, `fetchArtwork`, `fetchFavoriteVaultGrid`, `autoFetchArtwork`, `getCachedArtwork`, `clearArtworkCache`, `resolveSteamAppId`, `fetchSteamDetails`, `fetchSteamReviews`, `fetchProtonDbSummary`, `searchIgdbGames`, `fetchIgdbPopularGames(limit)`, `fetchIgdbScreenshots`, `fetchIgdbGameDetails`, `fetchIgdbGameTrailer` | SGDB search/fetch/auto/cache handlers, Favorites-only SGDB Steam vertical 2:3 no-logo grid handler, Steam App ID/details/reviews handlers, ProtonDB summary handler, IGDB search/popular/screenshots/details/trailer handlers, `clear-artwork-cache` |
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | CheapShark | `fetchCheapSharkJson` | `cheapshark-fetch-json` |
@@ -135,7 +135,7 @@ Common fields include:
 
 - Identity and metadata: `id`, `title`, `developer`, `publisher`, `genre`, `rating`, `ageRating`, `releaseDate`, `description`, `tags`.
 - Library state: `owned`, `isFavorite`, `playtime`, `lastPlayed`, `progress`, `timeToComplete`, `nextAchievement`, `exePath`.
-- Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`, `media`, `selectedMedia`, `mediaLoaded`, `mediaSource`, `mediaFetchedAt`, `trailerVideoId`, `trailerEmbedUrl`, `trailerLookupStatus`. `media` stores store/detail gameplay screenshots and movies for newly added library games. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
+- Media/artwork: `coverUrl`, `bannerUrl`, `logoUrl`, `iconUrl`, `favoriteVaultGridUrl`, `favoriteVaultGridFetched`, `favoriteVaultGridSource`, `favoriteVaultGridStyle`, `favoriteVaultGridWidth`, `favoriteVaultGridHeight`, `favoriteVaultGridFetchedAt`, `bannerLayout`, `artworkFetched`, `artworkSource`, `steamAppId`, `steamGridDbId`, `steamGridDbName`, `media`, `selectedMedia`, `mediaLoaded`, `mediaSource`, `mediaFetchedAt`, `trailerVideoId`, `trailerEmbedUrl`, `trailerLookupStatus`. `media` stores store/detail gameplay screenshots and movies for newly added library games. `bannerLayout` stores title box geometry and can also include auto-placement metadata such as `textTone`, `overlayStrength`, `placementMode`, and `placementVersion`.
 - Integrations: `hltb` for HowLongToBeat data; `protonDbSummary` for opt-in ProtonDB Linux compatibility summaries keyed by Steam App ID; `igdbId`, `igdbSlug`, `igdbUrl`, `igdbRating`, and `source: 'igdb'` for IGDB-backed discovery/library records; legacy `rawgId` records are still recognized for ownership matching; transient store items can include `steamReviewScore` from Steam review summaries.
 
 Persistence locations:
@@ -158,6 +158,8 @@ Artwork:
 - `App.jsx` and `MetadataEditor.jsx` ask for artwork through `window.electronAPI`.
 - `main.js` resolves and downloads artwork using cached files, Steam CDN, Steam Store lookup, SteamGridDB, and lower-resolution Steam fallbacks.
 - `src/utils/steamgriddb.js` maps returned `grid`, `hero`, `logo`, and `icon` values onto game fields.
+- Favoriting a game triggers a background SteamGridDB fetch for a dedicated Steam vertical 2:3 no-logo grid saved in `favoriteVaultGridUrl`, without changing normal Library `coverUrl`.
+- `FavouritesTrophyRoom.jsx` renders `favoriteVaultGridUrl` for vault hero/card artwork and can request missing no-logo grids as a view-level fallback.
 - Cached artwork is served through the custom `nexus-artwork` protocol.
 
 HowLongToBeat:

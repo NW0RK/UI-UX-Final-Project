@@ -393,7 +393,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
                 <div className="animated-banner-status">
                   <span>Animated banner cached</span>
                   {game.animatedBannerWidth && game.animatedBannerHeight && (
-                    <strong>{game.animatedBannerWidth}x{game.animatedBannerHeight}</strong>
+                    <strong>{game.animatedBannerWidth}x{game.animatedBannerHeight}{game.animatedBannerMime ? ` · ${game.animatedBannerMime}` : ''}</strong>
                   )}
                 </div>
               )}

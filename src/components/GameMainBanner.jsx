@@ -62,6 +62,15 @@ function hasFetchedBannerBackground(game) {
   return Boolean(game.artworkFetched || game.mediaLoaded);
 }
 
+function isVideoBannerUrl(url) {
+  try {
+    const ext = new URL(url, window.location.href).pathname.split('.').pop()?.toLowerCase();
+    return ['webm', 'mp4', 'mov'].includes(ext);
+  } catch (e) {
+    return /\.(webm|mp4|mov)(?:$|[?#])/i.test(String(url || ''));
+  }
+}
+
 export default function GameMainBanner({ 
   game, 
   onLaunch, 
@@ -99,6 +108,7 @@ export default function GameMainBanner({
   const [isTrailerMuted, setIsTrailerMuted] = useState(Boolean(trailerMutedByDefault));
   const [isTrailerCurtainLifted, setIsTrailerCurtainLifted] = useState(false);
   const [trailerProgress, setTrailerProgress] = useState(0);
+  const [bannerPlaybackFailed, setBannerPlaybackFailed] = useState(false);
 
   const bannerRef = useRef(null);
   const backdropImgRef = useRef(null);
@@ -123,6 +133,10 @@ export default function GameMainBanner({
     layoutRef.current = updated;
     setAutoPlacementStatus('idle');
   }, [game?.id, game?.bannerLayout]);
+
+  useEffect(() => {
+    setBannerPlaybackFailed(false);
+  }, [game?.id, game?.bannerUrl]);
 
   useEffect(() => {
     layoutRef.current = activeLayout;
@@ -157,13 +171,22 @@ export default function GameMainBanner({
     }];
   }, []);
 
-  const canAutoPlaceFetchedBanner = hasFetchedBannerBackground(game);
+  const displayBannerUrl = bannerPlaybackFailed && game?.staticBannerUrl
+    ? game.staticBannerUrl
+    : game?.bannerUrl;
+  const canAutoPlaceFetchedBanner = hasFetchedBannerBackground({
+    ...game,
+    bannerUrl: displayBannerUrl
+  });
+  const isVideoBanner = isVideoBannerUrl(displayBannerUrl);
 
   const applyAutoPlacement = useCallback(async ({ persist = false, animate = false } = {}) => {
+    if (isVideoBanner) return null;
+
     const image = backdropImgRef.current;
     const bannerRect = bannerRef.current?.getBoundingClientRect();
 
-    if (!game?.bannerUrl || !image || !bannerRect?.width || !bannerRect?.height) {
+    if (!displayBannerUrl || !image || !bannerRect?.width || !bannerRect?.height) {
       return null;
     }
 
@@ -191,7 +214,7 @@ export default function GameMainBanner({
           throw error;
         }
 
-        const readableImage = await loadCanvasReadableImage(game.bannerUrl);
+        const readableImage = await loadCanvasReadableImage(displayBannerUrl);
         nextLayout = buildPlacement(readableImage);
       }
 
@@ -209,10 +232,10 @@ export default function GameMainBanner({
       setAutoPlacementStatus('blocked');
       return null;
     }
-  }, [game?.bannerUrl, game?.id, getReservedRects, onUpdateGameBannerLayout]);
+  }, [displayBannerUrl, game?.id, getReservedRects, isVideoBanner, onUpdateGameBannerLayout]);
 
   useEffect(() => {
-    if (!game?.id || !game?.bannerUrl || !canAutoPlaceFetchedBanner || game?.bannerLayout) return;
+    if (!game?.id || !displayBannerUrl || !canAutoPlaceFetchedBanner || game?.bannerLayout) return;
     if (autoPlacementGameRef.current === game.id) return;
 
     const frame = requestAnimationFrame(() => {
@@ -229,7 +252,7 @@ export default function GameMainBanner({
     canAutoPlaceFetchedBanner,
     game?.artworkFetched,
     game?.bannerLayout,
-    game?.bannerUrl,
+    displayBannerUrl,
     game?.id,
     game?.mediaLoaded
   ]);
@@ -538,10 +561,32 @@ export default function GameMainBanner({
   };
 
   const handleBackdropLoad = () => {
+    if (isVideoBanner) return;
+
     if (!game?.bannerLayout) {
       applyAutoPlacement({ persist: true, animate: false }).then((layout) => {
         if (layout) {
           autoPlacementGameRef.current = game.id;
+        }
+      });
+    }
+  };
+
+  const handleVideoBannerError = () => {
+    if (game?.staticBannerUrl) {
+      setBannerPlaybackFailed(true);
+    }
+  };
+
+  const handleVideoBannerReady = () => {
+    const video = backdropImgRef.current;
+    if (!video?.play) return;
+
+    const playPromise = video.play();
+    if (playPromise?.catch) {
+      playPromise.catch(() => {
+        if (game?.staticBannerUrl) {
+          setBannerPlaybackFailed(true);
         }
       });
     }
@@ -732,15 +777,33 @@ export default function GameMainBanner({
     <div className={`game-main-banner-container ${shouldShowTrailer ? 'trailer-active' : ''}`} ref={bannerRef}>
       {/* Background Dissolve Backdrop Canvas */}
       <div className="backdrop-image-mask">
-          {game.bannerUrl ? (
-            <img 
-              ref={backdropImgRef}
-              src={game.bannerUrl} 
-              alt={game.title} 
-              className={`banner-backdrop-img${parallaxClass}`} 
-              key={game.id}
-              onLoad={handleBackdropLoad}
-            />
+          {displayBannerUrl ? (
+            isVideoBanner ? (
+              <video
+                ref={backdropImgRef}
+                src={displayBannerUrl}
+                className={`banner-backdrop-img${parallaxClass}`}
+                key={`${game.id}-video-${displayBannerUrl}`}
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                poster={game.staticBannerUrl || undefined}
+                aria-label={game.title}
+                onCanPlay={handleVideoBannerReady}
+                onError={handleVideoBannerError}
+              />
+            ) : (
+              <img 
+                ref={backdropImgRef}
+                src={displayBannerUrl} 
+                alt={game.title} 
+                className={`banner-backdrop-img${parallaxClass}`} 
+                key={`${game.id}-image-${displayBannerUrl}`}
+                onLoad={handleBackdropLoad}
+              />
+            )
           ) : (
             <div className={`banner-backdrop-img banner-art-placeholder${parallaxClass}`} key={game.id}>
               <span>SteamGridDB artwork pending</span>
@@ -847,7 +910,7 @@ export default function GameMainBanner({
               className={`glow-btn action-pill-btn banner-edit-btn auto-place-btn ${autoPlacementStatus === 'ready' ? 'auto-ready' : ''}`}
               onClick={handleAutoPlacementClick}
               onMouseEnter={audioEngine.playHoverTick}
-              disabled={autoPlacementStatus === 'analyzing' || !game.bannerUrl}
+              disabled={autoPlacementStatus === 'analyzing' || !displayBannerUrl}
               title={autoPlacementStatus === 'blocked'
                 ? 'Auto placement needs readable cached artwork or a same-origin image'
                 : 'Find the clearest readable title position'}

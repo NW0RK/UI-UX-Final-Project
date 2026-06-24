@@ -57,6 +57,7 @@ function shouldFetchAnimatedLibraryHero(game, mode) {
   if (!game?.id || !game?.title || !window.electronAPI?.fetchLibraryAnimatedHero) return false;
   if (mode === 'off') return false;
   if (mode === 'individual' && game.animatedBannerEnabled !== true) return false;
+  if (game.animatedBannerUrl && game.animatedBannerQualityVersion !== 2) return true;
   return !game.animatedBannerFetched && !game.animatedBannerUrl;
 }
 const STORE_TRENDING_FEED_LIMIT = 20;
@@ -1516,12 +1517,12 @@ export default function App() {
 
     async function hydrateAnimatedLibraryHeroes() {
       let updatedList = gamesRef.current;
-      let changed = false;
       const candidates = updatedList.filter(game => shouldFetchAnimatedLibraryHero(game, mode));
 
       for (let i = 0; i < candidates.length; i += 2) {
         if (cancelled) return;
         const chunk = candidates.slice(i, i + 2);
+        let chunkChanged = false;
 
         await Promise.all(chunk.map(async (game) => {
           try {
@@ -1536,7 +1537,7 @@ export default function App() {
               if (existing.id !== game.id) return existing;
 
               if (result?.hero) {
-                changed = true;
+                chunkChanged = true;
                 return {
                   ...existing,
                   animatedBannerUrl: result.hero,
@@ -1545,6 +1546,8 @@ export default function App() {
                   animatedBannerSource: 'steamgriddb',
                   animatedBannerWidth: result.width || null,
                   animatedBannerHeight: result.height || null,
+                  animatedBannerMime: result.mime || null,
+                  animatedBannerQualityVersion: result.qualityVersion || 2,
                   animatedBannerFetchedAt: new Date().toISOString(),
                   steamGridDbId: result.steamGridDbId || existing.steamGridDbId || null,
                   steamGridDbName: result.steamGridDbName || existing.steamGridDbName || null
@@ -1554,13 +1557,15 @@ export default function App() {
               const terminalMiss = /no safe animated|no steamgriddb match|no animated/i.test(result?.error || '');
               if (!terminalMiss) return existing;
 
-              changed = true;
+              chunkChanged = true;
               return {
                 ...existing,
                 animatedBannerFetched: true,
                 animatedBannerSource: null,
                 animatedBannerWidth: null,
                 animatedBannerHeight: null,
+                animatedBannerMime: null,
+                animatedBannerQualityVersion: 2,
                 animatedBannerFetchedAt: new Date().toISOString(),
                 steamGridDbId: result?.steamGridDbId || existing.steamGridDbId || null,
                 steamGridDbName: result?.steamGridDbName || existing.steamGridDbName || null
@@ -1580,12 +1585,12 @@ export default function App() {
             }
           }
         }));
+
+        if (cancelled || !chunkChanged) continue;
+
+        await persistGames(updatedList);
+        setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || updatedList[0] || null);
       }
-
-      if (cancelled || !changed) return;
-
-      await persistGames(updatedList);
-      setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || updatedList[0] || null);
     }
 
     hydrateAnimatedLibraryHeroes();
@@ -2025,6 +2030,8 @@ export default function App() {
               animatedBannerSource: null,
               animatedBannerWidth: null,
               animatedBannerHeight: null,
+              animatedBannerMime: null,
+              animatedBannerQualityVersion: null,
               animatedBannerFetchedAt: null,
               favoriteVaultGridUrl: null,
               favoriteVaultGridFetched: false,
@@ -2075,6 +2082,8 @@ export default function App() {
           animatedBannerSource: null,
           animatedBannerWidth: null,
           animatedBannerHeight: null,
+          animatedBannerMime: null,
+          animatedBannerQualityVersion: null,
           animatedBannerFetchedAt: null,
           artworkFetched: false,
           artworkSource: null
@@ -2623,6 +2632,8 @@ export default function App() {
 
     return {
       ...selectedGame,
+      staticBannerUrl: selectedGame.bannerUrl,
+      animatedBannerActive: true,
       bannerUrl: selectedGame.animatedBannerUrl
     };
   }, [selectedGame, settings.libraryAnimatedHeroesMode]);

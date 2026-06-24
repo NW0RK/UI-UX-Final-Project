@@ -870,6 +870,9 @@ function getExtensionFromArtwork(artwork) {
     'image/jpg': 'jpg',
     'image/webp': 'webp',
     'image/gif': 'gif',
+    'video/webm': 'webm',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
     'image/vnd.microsoft.icon': 'ico',
     'image/x-icon': 'ico'
   };
@@ -877,7 +880,7 @@ function getExtensionFromArtwork(artwork) {
 
   try {
     const ext = path.extname(new URL(artwork.url).pathname).replace('.', '').toLowerCase();
-    if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'ico'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'webm', 'mp4', 'mov', 'ico'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
   } catch (e) { /* ignore */ }
 
   return 'png';
@@ -1386,11 +1389,31 @@ function getSteamGridDBCommunityScore(item) {
   return Number.isFinite(value) ? value : 0;
 }
 
-function pickStoreHeroArtwork(items) {
+function getArtworkFormatRank(item) {
+  const mime = String(item?.mime || '').toLowerCase();
+  let ext = '';
+  try {
+    ext = path.extname(new URL(item?.url || '').pathname).replace('.', '').toLowerCase();
+  } catch (e) { /* ignore */ }
+
+  if (mime.includes('webm') || ext === 'webm') return 4;
+  if (mime.includes('mp4') || ext === 'mp4' || ext === 'mov') return 3;
+  if (mime.includes('webp') || ext === 'webp') return 2;
+  if (mime.includes('gif') || ext === 'gif') return 0;
+  return 1;
+}
+
+function isVideoArtwork(item) {
+  return getArtworkFormatRank(item) >= 3;
+}
+
+function pickStoreHeroArtwork(items, options = {}) {
   if (!Array.isArray(items) || items.length === 0) return null;
+  const { allowVideo = false, preferSmoothFormats = false } = options;
 
   const candidates = items.filter(item => {
     if (!item?.url || isUnsafeSteamGridDBArtwork(item)) return false;
+    if (!allowVideo && isVideoArtwork(item)) return false;
     return STORE_HERO_DIMENSIONS.includes(`${item.width || ''}x${item.height || ''}`);
   });
 
@@ -1406,6 +1429,7 @@ function pickStoreHeroArtwork(items) {
       if (item.verified) value += 10;
       if (item.style === 'official') value += 4;
       if (item.style === 'alternate') value += 2;
+      if (preferSmoothFormats) value += getArtworkFormatRank(item) * 8;
       value += getSteamGridDBCommunityScore(item);
       return value;
     };
@@ -1614,7 +1638,10 @@ async function fetchLibraryAnimatedHero(game) {
   })}`;
 
   const apiData = await steamgriddbFetch(endpoint);
-  const artwork = pickStoreHeroArtwork(apiData.data);
+  const artwork = pickStoreHeroArtwork(apiData.data, {
+    allowVideo: true,
+    preferSmoothFormats: true
+  });
   if (!artwork?.url) {
     emitDiagnostic('SteamGridDB', 'warn', `No safe animated library hero found for ${game.title}`, {
       steamGridDbId: sgdbGame.id,
@@ -1637,6 +1664,8 @@ async function fetchLibraryAnimatedHero(game) {
     sourceUrl: artwork.url,
     width: artwork.width || null,
     height: artwork.height || null,
+    mime: artwork.mime || null,
+    qualityVersion: 2,
     style: artwork.style || null,
     verified: !!artwork.verified
   };

@@ -70,7 +70,10 @@ const IGDB_POPSCORE_WEIGHTS = {
   10: 0.05,
   11: 0.2
 };
+const IGDB_POPULAR_CACHE_SCHEMA_VERSION = 1;
+const IGDB_POPULAR_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const getConfigPath = () => path.join(app.getPath('userData'), 'nexus-config.json');
+const getIgdbPopularCachePath = () => path.join(app.getPath('userData'), 'igdb-popular-cache.json');
 const getArtworkCacheDir = () => {
   const dir = path.join(app.getPath('userData'), 'artwork');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -585,6 +588,59 @@ function buildIgdbPopScoreRecords(primitivesByType = [], limit = 12) {
     .slice(0, recordLimit);
 }
 
+function normalizeIgdbPopularLimit(limit) {
+  return Math.min(Math.max(Number(limit) || 12, 1), 40);
+}
+
+function getIgdbPopularCacheKey(limit) {
+  return `popular:${IGDB_POPULAR_CACHE_SCHEMA_VERSION}:${normalizeIgdbPopularLimit(limit)}`;
+}
+
+function readIgdbPopularCacheEntry(limit) {
+  try {
+    const cachePath = getIgdbPopularCachePath();
+    if (!fs.existsSync(cachePath)) return null;
+
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+    const entry = cache?.entries?.[getIgdbPopularCacheKey(limit)];
+    if (!entry || !Array.isArray(entry.games) || !Number.isFinite(Number(entry.cachedAt))) return null;
+
+    return {
+      games: entry.games,
+      cachedAt: Number(entry.cachedAt),
+      isFresh: Date.now() - Number(entry.cachedAt) < IGDB_POPULAR_CACHE_TTL_MS
+    };
+  } catch (err) {
+    emitDiagnostic('Discovery', 'warn', `Could not read IGDB popular cache: ${err.message}`);
+    return null;
+  }
+}
+
+function writeIgdbPopularCacheEntry(limit, games) {
+  try {
+    const cachePath = getIgdbPopularCachePath();
+    let cache = { schemaVersion: IGDB_POPULAR_CACHE_SCHEMA_VERSION, entries: {} };
+
+    if (fs.existsSync(cachePath)) {
+      const existing = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+      if (existing && typeof existing === 'object') {
+        cache = {
+          schemaVersion: IGDB_POPULAR_CACHE_SCHEMA_VERSION,
+          entries: existing.entries && typeof existing.entries === 'object' ? existing.entries : {}
+        };
+      }
+    }
+
+    cache.entries[getIgdbPopularCacheKey(limit)] = {
+      cachedAt: Date.now(),
+      games
+    };
+    fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf-8');
+  } catch (err) {
+    emitDiagnostic('Discovery', 'warn', `Could not write IGDB popular cache: ${err.message}`);
+  }
+}
+
 async function searchIgdbGames(term, { pageSize = 36 } = {}) {
   const searchTerm = String(term || '').trim();
   if (searchTerm.length < 3) return [];
@@ -615,7 +671,7 @@ async function searchIgdbGames(term, { pageSize = 36 } = {}) {
     .filter(Boolean);
 }
 
-async function fetchPopularIgdbGames({ limit = 12 } = {}) {
+async function fetchPopularIgdbGamesFresh({ limit = 12 } = {}) {
   const primitivesByType = await Promise.all(IGDB_POPSCORE_TYPES.map(type => igdbFetchJson('popularity_primitives', [
     'fields game_id,popularity_type,value,calculated_at;',
     `where popularity_type = ${type};`,
@@ -649,6 +705,29 @@ async function fetchPopularIgdbGames({ limit = 12 } = {}) {
       ...game,
       discoverySource: 'IGDB PopScore'
     }));
+}
+
+async function fetchPopularIgdbGames({ limit = 12 } = {}) {
+  const normalizedLimit = normalizeIgdbPopularLimit(limit);
+  const cached = readIgdbPopularCacheEntry(normalizedLimit);
+
+  if (cached?.isFresh) {
+    emitDiagnostic('Discovery', 'info', `Using cached IGDB popular feed with ${cached.games.length} game${cached.games.length === 1 ? '' : 's'}`);
+    return cached.games;
+  }
+
+  try {
+    const games = await fetchPopularIgdbGamesFresh({ limit: normalizedLimit });
+    writeIgdbPopularCacheEntry(normalizedLimit, games);
+    return games;
+  } catch (err) {
+    if (cached?.games?.length) {
+      emitDiagnostic('Discovery', 'warn', `Using stale IGDB popular cache after refresh failed: ${err.message}`);
+      return cached.games;
+    }
+
+    throw err;
+  }
 }
 
 function normalizeIgdbScreenshots(results = []) {

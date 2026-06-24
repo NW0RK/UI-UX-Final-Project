@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Settings, Minus, Square, X, CircleX, Maximize2 } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
 import { useSystemStatus } from '../hooks/useSystemStatus';
+import VirtualKeyboard from './VirtualKeyboard';
 
 export default function NavigationHeader({ 
   onSearchChange, 
@@ -15,7 +16,11 @@ export default function NavigationHeader({
   onOpenProfile
 }) {
   const [time, setTime] = useState('');
+  const [isSearchKeyboardOpen, setIsSearchKeyboardOpen] = useState(false);
   const searchInputRef = useRef(null);
+  const storeTabRef = useRef(null);
+  const libraryTabRef = useRef(null);
+  const favouritesTabRef = useRef(null);
   const { cpuUsage, ramUsage, ramUsedGb } = useSystemStatus(systemStatusTracking);
 
   const activeRamLabel = Number.isFinite(ramUsedGb)
@@ -65,6 +70,37 @@ export default function NavigationHeader({
     }
   };
 
+  const focusActiveNavTarget = () => {
+    const target =
+      activeView === 'store' || activeView === 'store-item'
+        ? storeTabRef.current
+        : activeView === 'favourites'
+          ? favouritesTabRef.current
+          : libraryTabRef.current;
+
+    window.setTimeout(() => target?.focus({ preventScroll: true }), 20);
+  };
+
+  const closeSearchKeyboard = ({ restoreFocus = true } = {}) => {
+    setIsSearchKeyboardOpen(false);
+    searchInputRef.current?.blur();
+    if (restoreFocus) focusActiveNavTarget();
+  };
+
+  const handleSearchFocus = () => {
+    audioEngine.playHoverTick();
+    const inputMode = document.body?.dataset.inputMode;
+    if (inputMode === 'keyboard' || inputMode === 'gamepad') {
+      setIsSearchKeyboardOpen(true);
+    }
+  };
+
+  const handleViewTabClick = (view) => {
+    closeSearchKeyboard({ restoreFocus: false });
+    audioEngine.playClickPulse();
+    onViewChange(view);
+  };
+
   return (
     <header className="navigation-header">
       {/* Frameless Drag Handle */}
@@ -76,26 +112,29 @@ export default function NavigationHeader({
           className="nexus-logo"
           role="button"
           tabIndex={0}
-          onClick={() => { audioEngine.playClickPulse(); onViewChange('library'); }}
+          onClick={() => handleViewTabClick('library')}
         >
           N E X U S
         </div>
         <nav className="mode-tabs">
           <button
+            ref={storeTabRef}
             className={`mode-tab ${activeView === 'store' || activeView === 'store-item' ? 'active' : ''}`}
-            onClick={() => { audioEngine.playClickPulse(); onViewChange('store'); }}
+            onClick={() => handleViewTabClick('store')}
           >
             Store
           </button>
           <button
+            ref={libraryTabRef}
             className={`mode-tab ${activeView === 'library' ? 'active' : ''}`}
-            onClick={() => { audioEngine.playClickPulse(); onViewChange('library'); }}
+            onClick={() => handleViewTabClick('library')}
           >
             Library
           </button>
           <button
+            ref={favouritesTabRef}
             className={`mode-tab ${activeView === 'favourites' ? 'active' : ''}`}
-            onClick={() => { audioEngine.playClickPulse(); onViewChange('favourites'); }}
+            onClick={() => handleViewTabClick('favourites')}
           >
             Favourites
           </button>
@@ -105,7 +144,7 @@ export default function NavigationHeader({
       {/* Center Search Bar */}
       <div className="nav-center">
         <div
-          className={`search-wrapper ${searchQuery ? 'has-query' : ''}`}
+          className={`search-wrapper ${searchQuery ? 'has-query' : ''} ${isSearchKeyboardOpen ? 'keyboard-open' : ''}`}
           role="search"
           onClick={() => searchInputRef.current?.focus()}
         >
@@ -117,7 +156,10 @@ export default function NavigationHeader({
             className="search-input"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            onFocus={audioEngine.playHoverTick}
+            onFocus={handleSearchFocus}
+            aria-haspopup="dialog"
+            aria-expanded={isSearchKeyboardOpen}
+            data-controller-confirm-label="Search games"
           />
           {searchQuery && (
             <button
@@ -137,6 +179,14 @@ export default function NavigationHeader({
           )}
         </div>
       </div>
+
+      {isSearchKeyboardOpen && (
+        <VirtualKeyboard
+          value={searchQuery}
+          onChange={onSearchChange}
+          onClose={closeSearchKeyboard}
+        />
+      )}
 
       {/* Right Profiles, Telemetry, and Settings */}
       <div className="nav-right">
@@ -331,6 +381,7 @@ export default function NavigationHeader({
         }
 
         .nav-center:focus-within,
+        .nav-center:has(.search-wrapper.keyboard-open),
         .nav-center:has(.search-wrapper.has-query) {
           width: 430px;
         }

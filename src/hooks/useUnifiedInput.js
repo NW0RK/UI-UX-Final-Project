@@ -18,6 +18,7 @@ const ROOT_SELECTORS = [
   '.profile-overlay-fullscreen',
   '.meta-editor-overlay',
   '.settings-overlay',
+  '.virtual-keyboard-overlay',
   '.control-center-drawer-container.drawer-open',
   '.app-container'
 ];

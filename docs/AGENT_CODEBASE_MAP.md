@@ -78,6 +78,7 @@ npm run build
 | `StoreGrid.jsx` | Store landing view with IGDB PopScore trending games, ITAD/CheapShark best deals, and owned-state presentation. | Receives synced feeds from `App.jsx`. |
 | `SearchResultsPage.jsx` | Dedicated top-bar search results page for library, store, and IGDB discovery matches. | Receives normalized result data from `App.jsx` and routes item selections back through app handlers. |
 | `StoreItemPage.jsx` | Store detail view, Steam/IGDB media/details, ITAD price insights, ownership/link/launch actions, media lightbox. | Uses ITAD helpers, Steam and IGDB detail/media IPC, and executable picker. |
+| `VirtualKeyboard.jsx` | Search-only on-screen keyboard for controller/keyboard-arrow text entry. | Mounted by `NavigationHeader.jsx`; relies on `useUnifiedInput` root scoping and `data-controller-*` focus attributes. |
 | `ControlCenter.jsx` | Bottom drawer for imports, scans, diagnostics, batch artwork, system actions. | Calls directory picker, executable scan, shutdown, import callbacks. |
 | `SettingsPanel.jsx` | Theme/accessibility/system/artwork/trailer/API settings. | Reads and saves SteamGridDB and IGDB credentials through Electron APIs. |
 | `MetadataEditor.jsx` | Edit selected-game metadata and artwork, manual SGDB search/fetch, HLTB refresh. | Calls image picker, SGDB IPC, auto artwork IPC, HLTB IPC. |
@@ -92,13 +93,13 @@ npm run build
 - `src/main.jsx` mounts `App` and imports `src/index.css`.
 - `App.jsx` owns high-level state: `games`, `selectedGame`, `searchQuery`, `activeView`, overlays, settings, diagnostics, profile data, running session state, artwork cache version.
 - Active views are currently `library`, `favourites`, `store`, `search`, and `store-item`.
-- `NavigationHeader` changes top-level views and search text.
+- `NavigationHeader` changes top-level views and search text, and shows the search-only virtual keyboard when controller or keyboard-arrow focus enters the search bar.
 - `GameMainBanner` plus `HorizontalLibrary` render the library view.
 - `FavouritesTrophyRoom` renders favorite games as the sortable Gallery Vault.
 - `StoreGrid` renders the split IGDB PopScore trending-games and ITAD/CheapShark best-deals store landing view.
 - `SearchResultsPage` renders top-bar search results from the local library, seeded store catalog, and IGDB discovery matches.
 - `StoreItemPage` renders one store or search item detail.
-- `ControlCenter`, `ImportNamePrompt`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, and `ControllerHintOverlay` sit above the active view.
+- `ControlCenter`, `ImportNamePrompt`, `SettingsPanel`, `MetadataEditor`, `ProfileOverlay`, `VirtualKeyboard`, and `ControllerHintOverlay` sit above the active view.
 
 ## Electron Boundary
 
@@ -147,6 +148,7 @@ Persistence locations:
 | Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options, launcher volume, looping menu music preference, Library trailer autoplay/default-audio preferences, and the default-off `protonDbEnabled` Linux compatibility toggle. | `localStorage` key `nexus_settings`. |
 | SteamGridDB API key | Electron user data `nexus-config.json`, or `STEAMGRIDDB_API_KEY` env var. | Not used by most desktop-only fetch paths. |
 | IGDB credentials | Electron user data `nexus-config.json`, or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` can use `.env.local` credentials through the Vite IGDB proxy. |
+| IGDB trending feed cache | Electron user data `igdb-popular-cache.json`, refreshed after 24 hours for each requested Store feed limit. | `localStorage` key `nexus_igdb_popular_cache`, with the same one-day refresh rule. |
 | Profile | `localStorage` keys `nexus_username`, `nexus_user_avatar`. | Same. |
 | Controller hints | `localStorage` key `controllerHintsHidden`. | Same. |
 | ITAD client data | `localStorage` keys used in `src/utils/itad.js` and `StoreItemPage.jsx`. | Same. |
@@ -173,7 +175,7 @@ Store and pricing:
 
 - Store search/detail fallback data can come from `storeCatalog`, which is currently empty; the default store landing view is hydrated from IGDB PopScore trending games and ITAD/CheapShark best deals.
 - `App.jsx` merges owned status from the saved library.
-- Store landing uses `fetchIgdbPopularGames(limit)` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive, and `src/utils/itad.js` plus `src/utils/cheapshark.js` for the right best-deals feed. Trending requests enough real IGDB cards to match the best-deals feed rows when deals are loaded.
+- Store landing uses `fetchIgdbPopularGames(limit)` or `src/utils/igdb.js` browser preview proxy fallbacks for the left PopScore trending-games feed, combining normalized top games from each current PopScore primitive and caching the feed for 24 hours per requested limit. The right best-deals feed comes from `src/utils/itad.js` plus `src/utils/cheapshark.js`. Trending requests enough real IGDB cards to match the best-deals feed rows when deals are loaded.
 - Top-bar searches route to the dedicated `search` view, combining local library/store matches with IGDB discovery results from `searchIgdbGames`; selecting a store/IGDB result opens `StoreItemPage` without saving until the user marks it owned. Marking a store/search item as owned persists the library record immediately without copying transient card/result artwork into library `coverUrl`, `bannerUrl`, `logoUrl`, or `iconUrl`, then enriches it in the background with Steam/IGDB media, trailer metadata, SteamGridDB artwork, HLTB, and enabled ProtonDB data when the relevant APIs are available.
 - `App.jsx` hydrates Steam review summaries for store items with Steam App IDs through `fetchSteamReviews` and resolves IGDB popular-feed titles to Steam App IDs before showing Steam review ratings.
 - `StoreItemPage.jsx` resolves missing Steam App IDs by title, uses Steam details/reviews for the hero banner, media, and rating display, falls back to IGDB screenshots only when no Steam match is available, and loads ITAD insights through `src/utils/itad.js`.
@@ -197,6 +199,7 @@ Import and launch:
 Controller and keyboard:
 
 - `src/hooks/useUnifiedInput.js` maps keyboard and gamepad actions to focus movement and app callbacks.
+- The search virtual keyboard becomes the active controller root while open; `Escape` or controller B closes it before app-level back handling.
 - Add `data-controller-item="true"`, `data-controller-selected`, `data-controller-default`, `data-controller-back`, or directional attributes where needed.
 - Interactive controls should remain keyboard-focusable; the hook filters invisible and nested focus targets.
 - `ControllerHintOverlay.jsx` displays current action hints and can be hidden with the hints toggle.

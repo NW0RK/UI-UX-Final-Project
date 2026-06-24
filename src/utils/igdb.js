@@ -1,5 +1,8 @@
 const IGDB_BROWSER_PROXY_BASE = '/api/igdb';
 const POPSCORE_TYPES = [1, 2, 3, 4, 5, 9, 10, 11];
+const POPULAR_CACHE_SCHEMA_VERSION = 1;
+const POPULAR_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const POPULAR_CACHE_STORAGE_KEY = 'nexus_igdb_popular_cache';
 const POPSCORE_WEIGHTS = {
   1: 0.15, // IGDB visits
   2: 0.1,  // Want to Play
@@ -206,6 +209,55 @@ function buildPopScoreRecords(primitivesByType = [], limit = 12) {
     .slice(0, recordLimit);
 }
 
+function normalizePopularLimit(limit) {
+  return Math.min(Math.max(Number(limit) || 12, 1), 40);
+}
+
+function getPopularCacheKey(limit) {
+  return `popular:${POPULAR_CACHE_SCHEMA_VERSION}:${normalizePopularLimit(limit)}`;
+}
+
+function readPopularCacheEntry(limit) {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(POPULAR_CACHE_STORAGE_KEY);
+    if (!raw) return null;
+
+    const cache = JSON.parse(raw);
+    const entry = cache?.entries?.[getPopularCacheKey(limit)];
+    if (!entry || !Array.isArray(entry.games) || !Number.isFinite(Number(entry.cachedAt))) return null;
+
+    return {
+      games: entry.games,
+      cachedAt: Number(entry.cachedAt),
+      isFresh: Date.now() - Number(entry.cachedAt) < POPULAR_CACHE_TTL_MS
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePopularCacheEntry(limit, games) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+
+    const raw = localStorage.getItem(POPULAR_CACHE_STORAGE_KEY);
+    const existing = raw ? JSON.parse(raw) : null;
+    const cache = {
+      schemaVersion: POPULAR_CACHE_SCHEMA_VERSION,
+      entries: existing?.entries && typeof existing.entries === 'object' ? existing.entries : {}
+    };
+
+    cache.entries[getPopularCacheKey(limit)] = {
+      cachedAt: Date.now(),
+      games
+    };
+    localStorage.setItem(POPULAR_CACHE_STORAGE_KEY, JSON.stringify(cache));
+  } catch {
+    // Browser storage can be unavailable or full; IGDB loading should still work.
+  }
+}
+
 function gameFields() {
   return [
     'name',
@@ -290,7 +342,7 @@ export async function searchIgdbGamesBrowser(term, { pageSize = 36 } = {}) {
     .filter(Boolean);
 }
 
-export async function fetchIgdbPopularGamesBrowser({ limit = 12 } = {}) {
+async function fetchIgdbPopularGamesBrowserFresh({ limit = 12 } = {}) {
   const primitivesByType = await Promise.all(POPSCORE_TYPES.map(type => igdbProxyFetch('popularity_primitives', [
     'fields game_id,popularity_type,value,calculated_at;',
     `where popularity_type = ${type};`,
@@ -324,6 +376,22 @@ export async function fetchIgdbPopularGamesBrowser({ limit = 12 } = {}) {
       ...game,
       discoverySource: 'IGDB PopScore'
     }));
+}
+
+export async function fetchIgdbPopularGamesBrowser({ limit = 12 } = {}) {
+  const normalizedLimit = normalizePopularLimit(limit);
+  const cached = readPopularCacheEntry(normalizedLimit);
+
+  if (cached?.isFresh) return cached.games;
+
+  try {
+    const games = await fetchIgdbPopularGamesBrowserFresh({ limit: normalizedLimit });
+    writePopularCacheEntry(normalizedLimit, games);
+    return games;
+  } catch (error) {
+    if (cached?.games?.length) return cached.games;
+    throw error;
+  }
 }
 
 export async function fetchIgdbGameDetailsBrowser(igdbId) {

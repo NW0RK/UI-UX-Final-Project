@@ -24,7 +24,7 @@ import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStore
 import { fetchProtonDbSummaryBrowser, isValidSteamAppId } from './utils/protondb';
 import { audioEngine } from './utils/audioEngine';
 const DEFAULT_SETTINGS = {
-  theme: 'theme-aether',
+  theme: 'theme-gold',
   isMuted: false,
   menuMusicEnabled: true,
   launcherVolume: 1.0,
@@ -322,10 +322,10 @@ export default function App() {
   
   // --- Editable Gold Profile Screen States ---
   const [username, setUsername] = useState(() => {
-    return localStorage.getItem('nexus_username') || 'And360red';
+    return localStorage.getItem('nexus_username') || 'User';
   });
   const [userAvatar, setUserAvatar] = useState(() => {
-    return localStorage.getItem('nexus_user_avatar') || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop';
+    return localStorage.getItem('nexus_user_avatar') || 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?q=80&w=150&auto=format&fit=crop';
   });
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 

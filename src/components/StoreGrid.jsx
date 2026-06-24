@@ -200,6 +200,17 @@ export default function StoreGrid({
 
   const renderStatus = (status, error, emptyText, source) => {
     if (status === 'loading') {
+      if (source === 'IGDB') {
+        return (
+          <div className="store-feed-status loading">
+            <span>Loading IGDB...</span>
+            <div className="store-feed-progress" role="progressbar" aria-label="Loading IGDB feed">
+              <span />
+            </div>
+          </div>
+        );
+      }
+
       return <div className="store-feed-status">Loading {source}...</div>;
     }
 
@@ -793,6 +804,37 @@ export default function StoreGrid({
         .store-feed-status.error {
           color: rgba(255, 255, 255, 0.48);
           border-color: rgba(239, 68, 68, 0.25);
+        }
+
+        .store-feed-status.loading {
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .store-feed-progress {
+          position: relative;
+          width: min(220px, 100%);
+          height: 5px;
+          overflow: hidden;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.075);
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+
+        .store-feed-progress span {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: -45%;
+          width: 45%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, transparent, rgba(var(--accent-color-rgb), 0.96), transparent);
+          animation: store-feed-progress-sweep 1.15s ease-in-out infinite;
+        }
+
+        @keyframes store-feed-progress-sweep {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(325%); }
         }
 
         .store-search-note {

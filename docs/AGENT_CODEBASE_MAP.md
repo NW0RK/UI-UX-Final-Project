@@ -61,6 +61,7 @@ npm run build
 | `src/utils/brandfetch.js` | Studio-to-domain mapping and Brandfetch logo URL generation. | Studio logo behavior or domain mapping changes. |
 | `src/utils/bannerPlacement.js` | Browser-side Library banner title placement analysis: saliency-style masking, maximum empty rectangle selection, and contrast tone selection. | Banner title auto-placement, safe-region scoring, or layout contrast behavior changes. |
 | `src/utils/audioEngine.js` | UI sound effects, looping menu music, and procedural ambience. | Audio assets, mute behavior, menu music, ambience styles. |
+| `docs/PROJECT_DESCRIPTION.md` | One-to-two page project summary covering purpose, workflow, architecture, and contributor responsibilities for final-project reporting. | Project scope, workflow, or team contribution summary changes. |
 | `docs/LLM_DESIGN_CONTEXT.md` | Saved product/design context for LLM-assisted UI, UX, product, and frontend work. | Product positioning, design language, interaction expectations, or LLM design guidance changes. |
 | `deprecated_features/` | Archived image trimming code and notes. | Only when restoring or documenting deprecated trimming behavior. |
 | Root asset folders | Controller button/icon packs and audio assets. | Asset lookup, controller hints, or media licensing changes. |

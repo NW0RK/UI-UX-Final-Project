@@ -1602,6 +1602,64 @@ async function fetchStoreHero(game) {
   };
 }
 
+async function fetchLibraryAnimatedHero(game) {
+  if (!game?.id || !game?.title) return { hero: null, error: 'Missing game id or title' };
+
+  const sgdbGame = await resolveSteamGridDBGame(game);
+  if (!sgdbGame?.id) return { hero: null, error: 'No SteamGridDB match found' };
+
+  const endpoint = `/heroes/game/${sgdbGame.id}?${buildSteamGridDBArtworkQuery({
+    dimensions: STORE_HERO_DIMENSIONS.join(','),
+    types: 'animated'
+  })}`;
+
+  const apiData = await steamgriddbFetch(endpoint);
+  const artwork = pickStoreHeroArtwork(apiData.data);
+  if (!artwork?.url) {
+    emitDiagnostic('SteamGridDB', 'warn', `No safe animated library hero found for ${game.title}`, {
+      steamGridDbId: sgdbGame.id,
+      endpoint
+    });
+    return {
+      hero: null,
+      error: 'No safe animated library hero found',
+      steamGridDbId: sgdbGame.id,
+      steamGridDbName: sgdbGame.name || game.title
+    };
+  }
+
+  const ext = getExtensionFromArtwork(artwork);
+  const destPath = path.join(getGameCacheDir(game.id), `library-animated-hero.${ext}`);
+  const metadata = {
+    heroType: 'animated',
+    steamGridDbId: sgdbGame.id,
+    steamGridDbName: sgdbGame.name || game.title,
+    sourceUrl: artwork.url,
+    width: artwork.width || null,
+    height: artwork.height || null,
+    style: artwork.style || null,
+    verified: !!artwork.verified
+  };
+
+  try {
+    await downloadImage(artwork.url, destPath);
+    emitDiagnostic('SteamGridDB', 'info', `Downloaded animated library hero for ${game.title}`, metadata);
+    return {
+      hero: toVersionedArtworkUrl(destPath),
+      ...metadata
+    };
+  } catch (err) {
+    emitDiagnostic('SteamGridDB', 'warn', `Could not cache animated library hero for ${game.title}: ${err.message}`, {
+      ...metadata,
+      url: artwork.url
+    });
+    return {
+      hero: artwork.url,
+      ...metadata
+    };
+  }
+}
+
 async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   const cacheDir = getGameCacheDir(gameId);
   const result = { diagnostics: [] };
@@ -2039,6 +2097,15 @@ ipcMain.handle('steamgriddb-fetch-store-hero', async (event, game) => {
     return await fetchStoreHero(game);
   } catch (err) {
     emitDiagnostic('SteamGridDB', 'warn', `Store hero lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
+    return { hero: null, error: err.message };
+  }
+});
+
+ipcMain.handle('steamgriddb-fetch-library-animated-hero', async (event, game) => {
+  try {
+    return await fetchLibraryAnimatedHero(game);
+  } catch (err) {
+    emitDiagnostic('SteamGridDB', 'warn', `Animated library hero lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
     return { hero: null, error: err.message };
   }
 });

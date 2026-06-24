@@ -5,7 +5,7 @@ import LibraryOverflowMenu from './LibraryOverflowMenu';
 import { fetchItadHistory, getItadOAuthStatus, getItadOAuthUrl, getItadStoreInsights, hasItadApiKey, lookupItadGameBySteamAppId, syncItadUserLibrary } from '../utils/itad';
 import { getSteamReviewScore } from '../utils/steamReviews';
 import { fetchIgdbGameDetailsBrowser, fetchIgdbScreenshotsBrowser } from '../utils/igdb';
-import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from '../utils/steam';
+import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, resolveSteamAppIdBrowser } from '../utils/steam';
 import { fetchProtonDbSummaryBrowser, getProtonDbSummary, isValidSteamAppId } from '../utils/protondb';
 
 const HIGHCHARTS_VERSION = '12.6.0';
@@ -635,7 +635,7 @@ export default function StoreItemPage({
         onCacheDetails(item, {
           media: nextMedia,
           selectedMedia: nextSelectedMedia,
-          bannerUrl: getSteamStoreBannerUrl(steamDetails, effectiveSteamAppId) || activeItem.bannerUrl || activeItem.coverUrl || null,
+          bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
           mediaLoaded: true,
           mediaSource: 'steam'
         }, effectiveSteamAppId);
@@ -643,27 +643,7 @@ export default function StoreItemPage({
         return;
       }
 
-      if (effectiveSteamAppId) {
-        const steamImage = getSteamStoreBannerUrl(steamDetails, effectiveSteamAppId);
-        const screenshots = steamImage
-          ? [{ id: 'steam-hero', path_full: steamImage, path_thumbnail: steamImage }]
-          : [];
-        const nextMedia = { screenshots, movies: [] };
-        const nextSelectedMedia = screenshots.length ? { type: 'image', url: screenshots[0].path_full } : null;
-        setMedia(nextMedia);
-        setSelectedMedia(nextSelectedMedia);
-        onCacheDetails(item, {
-          media: nextMedia,
-          selectedMedia: nextSelectedMedia,
-          bannerUrl: steamImage || activeItem.bannerUrl || activeItem.coverUrl || null,
-          mediaLoaded: true,
-          mediaSource: 'steam'
-        }, effectiveSteamAppId);
-        setLoadingMedia(false);
-        return;
-      }
-
-      if (!effectiveSteamAppId && activeItem.source === 'igdb') {
+      if (activeItem.source === 'igdb') {
         const igdbImage = activeItem.bannerUrl || activeItem.coverUrl;
         const igdbScreenshots = await fetchIgdbScreenshotFallback();
         if (!active) return;
@@ -691,46 +671,44 @@ export default function StoreItemPage({
 
       if (!active) return;
 
-      if (!effectiveSteamAppId) {
-        const igdbScreenshots = await fetchIgdbScreenshotFallback();
-        if (!active) return;
+      const igdbScreenshots = await fetchIgdbScreenshotFallback();
+      if (!active) return;
 
-        if (igdbScreenshots.length > 0) {
-          const nextMedia = { screenshots: igdbScreenshots, movies: [] };
-          const nextSelectedMedia = { type: 'image', url: igdbScreenshots[0].path_full || igdbScreenshots[0].url };
-          setMedia(nextMedia);
-          setSelectedMedia(nextSelectedMedia);
-          onCacheDetails(item, {
-            media: nextMedia,
-            selectedMedia: nextSelectedMedia,
-            igdbScreenshots,
-            bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
-            mediaLoaded: true,
-            mediaSource: 'igdb'
-          }, effectiveSteamAppId);
-          setLoadingMedia(false);
-          return;
-        }
-
-        const fallback = getCuratedMockMedia(activeItem.id, activeItem.title);
-        setMedia(fallback);
-        let nextSelectedMedia = null;
-        if (fallback.movies?.length > 0) {
-          nextSelectedMedia = { type: 'video', url: fallback.movies[0].mp4?.max || fallback.movies[0].url, thumbnail: fallback.movies[0].thumbnail };
-        } else if (fallback.screenshots?.length > 0) {
-          nextSelectedMedia = { type: 'image', url: fallback.screenshots[0].path_full || fallback.screenshots[0].url };
-        } else {
-          nextSelectedMedia = null;
-        }
+      if (igdbScreenshots.length > 0) {
+        const nextMedia = { screenshots: igdbScreenshots, movies: [] };
+        const nextSelectedMedia = { type: 'image', url: igdbScreenshots[0].path_full || igdbScreenshots[0].url };
+        setMedia(nextMedia);
         setSelectedMedia(nextSelectedMedia);
         onCacheDetails(item, {
-          media: fallback,
+          media: nextMedia,
           selectedMedia: nextSelectedMedia,
+          igdbScreenshots,
           bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
           mediaLoaded: true,
-          mediaSource: 'mock'
+          mediaSource: 'igdb'
         }, effectiveSteamAppId);
+        setLoadingMedia(false);
+        return;
       }
+
+      const fallback = getCuratedMockMedia(activeItem.id, activeItem.title);
+      setMedia(fallback);
+      let nextSelectedMedia = null;
+      if (fallback.movies?.length > 0) {
+        nextSelectedMedia = { type: 'video', url: fallback.movies[0].mp4?.max || fallback.movies[0].url, thumbnail: fallback.movies[0].thumbnail };
+      } else if (fallback.screenshots?.length > 0) {
+        nextSelectedMedia = { type: 'image', url: fallback.screenshots[0].path_full || fallback.screenshots[0].url };
+      } else {
+        nextSelectedMedia = null;
+      }
+      setSelectedMedia(nextSelectedMedia);
+      onCacheDetails(item, {
+        media: fallback,
+        selectedMedia: nextSelectedMedia,
+        bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
+        mediaLoaded: true,
+        mediaSource: 'mock'
+      }, effectiveSteamAppId);
       setLoadingMedia(false);
     }
 
@@ -1122,9 +1100,6 @@ export default function StoreItemPage({
         ? 'Unavailable'
         : null;
   const displayBannerUrl = cachedDetails?.storeHeroUrl ||
-    steamDetails?.background_raw ||
-    steamDetails?.background ||
-    steamDetails?.header_image ||
     cachedDetails?.bannerUrl ||
     activeItem.bannerUrl ||
     activeItem.coverUrl ||

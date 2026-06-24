@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   particleSpeed: 1.0,
   trackSystemStatus: true,
   bannerAnimation: true,
+  libraryAnimatedHeroesMode: 'off',
   libraryTrailerAutoplay: true,
   libraryTrailerMutedByDefault: false,
   fontScale: 1.0,
@@ -44,6 +45,20 @@ const DEFAULT_SETTINGS = {
 };
 
 const MAX_STORE_DETAIL_CACHE_ENTRIES = 80;
+
+function canUseAnimatedLibraryHero(game, mode) {
+  if (!game?.animatedBannerUrl) return false;
+  if (mode === 'on') return true;
+  if (mode === 'individual') return game.animatedBannerEnabled === true;
+  return false;
+}
+
+function shouldFetchAnimatedLibraryHero(game, mode) {
+  if (!game?.id || !game?.title || !window.electronAPI?.fetchLibraryAnimatedHero) return false;
+  if (mode === 'off') return false;
+  if (mode === 'individual' && game.animatedBannerEnabled !== true) return false;
+  return !game.animatedBannerFetched && !game.animatedBannerUrl;
+}
 const STORE_TRENDING_FEED_LIMIT = 20;
 const PRIMARY_VIEWS = ['store', 'library', 'favourites'];
 
@@ -116,28 +131,10 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
       screenshots: steamDetails.screenshots || [],
       movies: steamDetails.movies || []
     };
-    const steamBanner = getSteamStoreBannerUrl(steamDetails, steamAppId) ||
-      media.screenshots[0]?.path_full ||
-      media.screenshots[0]?.url ||
-      null;
     return {
       media,
       selectedMedia: getSelectedStoreMedia(media),
-      bannerUrl: steamBanner,
-      mediaSource: 'steam'
-    };
-  }
-
-  if (steamAppId) {
-    const steamImage = getSteamStoreBannerUrl(steamDetails, steamAppId);
-    const media = {
-      screenshots: steamImage ? [{ id: 'steam-hero', path_full: steamImage, path_thumbnail: steamImage }] : [],
-      movies: []
-    };
-    return {
-      media,
-      selectedMedia: getSelectedStoreMedia(media),
-      bannerUrl: steamImage || null,
+      bannerUrl: item?.bannerUrl || item?.coverUrl || null,
       mediaSource: 'steam'
     };
   }
@@ -1511,6 +1508,93 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    const mode = settings.libraryAnimatedHeroesMode || 'off';
+    if (!settingsReady || mode === 'off' || !window.electronAPI?.fetchLibraryAnimatedHero || games.length === 0) return;
+
+    let cancelled = false;
+
+    async function hydrateAnimatedLibraryHeroes() {
+      let updatedList = gamesRef.current;
+      let changed = false;
+      const candidates = updatedList.filter(game => shouldFetchAnimatedLibraryHero(game, mode));
+
+      for (let i = 0; i < candidates.length; i += 2) {
+        if (cancelled) return;
+        const chunk = candidates.slice(i, i + 2);
+
+        await Promise.all(chunk.map(async (game) => {
+          try {
+            const result = await window.electronAPI.fetchLibraryAnimatedHero({
+              ...game,
+              forceTitleLookup: true
+            });
+
+            if (cancelled) return;
+
+            updatedList = updatedList.map(existing => {
+              if (existing.id !== game.id) return existing;
+
+              if (result?.hero) {
+                changed = true;
+                return {
+                  ...existing,
+                  animatedBannerUrl: result.hero,
+                  animatedBannerEnabled: existing.animatedBannerEnabled === true,
+                  animatedBannerFetched: true,
+                  animatedBannerSource: 'steamgriddb',
+                  animatedBannerWidth: result.width || null,
+                  animatedBannerHeight: result.height || null,
+                  animatedBannerFetchedAt: new Date().toISOString(),
+                  steamGridDbId: result.steamGridDbId || existing.steamGridDbId || null,
+                  steamGridDbName: result.steamGridDbName || existing.steamGridDbName || null
+                };
+              }
+
+              const terminalMiss = /no safe animated|no steamgriddb match|no animated/i.test(result?.error || '');
+              if (!terminalMiss) return existing;
+
+              changed = true;
+              return {
+                ...existing,
+                animatedBannerFetched: true,
+                animatedBannerSource: null,
+                animatedBannerWidth: null,
+                animatedBannerHeight: null,
+                animatedBannerFetchedAt: new Date().toISOString(),
+                steamGridDbId: result?.steamGridDbId || existing.steamGridDbId || null,
+                steamGridDbName: result?.steamGridDbName || existing.steamGridDbName || null
+              };
+            });
+
+            addDiagnostic(
+              'SteamGridDB',
+              result?.hero ? 'info' : 'warn',
+              result?.hero
+                ? `Animated library hero applied to ${game.title}`
+                : `Animated library hero skipped ${game.title}: ${result?.error || 'No animated hero found'}`
+            );
+          } catch (error) {
+            if (!cancelled) {
+              addDiagnostic('SteamGridDB', 'warn', `Animated library hero failed ${game.title}: ${error.message}`);
+            }
+          }
+        }));
+      }
+
+      if (cancelled || !changed) return;
+
+      await persistGames(updatedList);
+      setSelectedGame(prev => updatedList.find(game => game.id === prev?.id) || updatedList[0] || null);
+    }
+
+    hydrateAnimatedLibraryHeroes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [games, settings.libraryAnimatedHeroesMode, settingsReady]);
+
   const mergeEnrichedLibraryGame = (currentGame, enrichedGame) => {
     if (!currentGame || !enrichedGame) return currentGame || enrichedGame;
 
@@ -1936,6 +2020,12 @@ export default function App() {
               bannerUrl: null,
               logoUrl: null,
               iconUrl: null,
+              animatedBannerUrl: null,
+              animatedBannerFetched: false,
+              animatedBannerSource: null,
+              animatedBannerWidth: null,
+              animatedBannerHeight: null,
+              animatedBannerFetchedAt: null,
               favoriteVaultGridUrl: null,
               favoriteVaultGridFetched: false,
               favoriteVaultGridSource: null,
@@ -1980,6 +2070,12 @@ export default function App() {
           bannerUrl: null,
           logoUrl: null,
           iconUrl: null,
+          animatedBannerUrl: null,
+          animatedBannerFetched: false,
+          animatedBannerSource: null,
+          animatedBannerWidth: null,
+          animatedBannerHeight: null,
+          animatedBannerFetchedAt: null,
           artworkFetched: false,
           artworkSource: null
         };
@@ -2520,6 +2616,17 @@ export default function App() {
     ]
   });
 
+  const selectedGameForLibraryBanner = useMemo(() => {
+    if (!selectedGame) return selectedGame;
+    const mode = settings.libraryAnimatedHeroesMode || 'off';
+    if (!canUseAnimatedLibraryHero(selectedGame, mode)) return selectedGame;
+
+    return {
+      ...selectedGame,
+      bannerUrl: selectedGame.animatedBannerUrl
+    };
+  }, [selectedGame, settings.libraryAnimatedHeroesMode]);
+
   return (
     <div className="app-container">
       {/* 1. Ambient Particle Background */}
@@ -2547,7 +2654,7 @@ export default function App() {
         {activeView === 'library' && (
           <>
             <GameMainBanner 
-              game={selectedGame}
+              game={selectedGameForLibraryBanner}
               onLaunch={handleLaunchGame}
               onToggleFavorite={handleToggleFavorite}
               onEditMetadata={handleOpenMetadata}

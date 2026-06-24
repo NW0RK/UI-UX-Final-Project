@@ -14,6 +14,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
   const [description, setDescription] = useState(game.description);
   const [coverUrl, setCoverUrl] = useState(game.coverUrl || '');
   const [bannerUrl, setBannerUrl] = useState(game.bannerUrl || '');
+  const [animatedBannerEnabled, setAnimatedBannerEnabled] = useState(game.animatedBannerEnabled === true);
   const [logoUrl, setLogoUrl] = useState(game.logoUrl || '');
   const [iconUrl, setIconUrl] = useState(game.iconUrl || '');
   const [steamAppId, setSteamAppId] = useState(game.steamAppId || '');
@@ -65,6 +66,7 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
       description,
       coverUrl: coverUrl || null,
       bannerUrl: bannerUrl || null,
+      animatedBannerEnabled,
       logoUrl: logoUrl || null,
       iconUrl: iconUrl || null,
       steamAppId: steamAppId || null,
@@ -364,6 +366,37 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
                   onChange={(e) => setBannerUrl(e.target.value)} 
                 />
               </div>
+
+              <div
+                className={`metadata-toggle-card ${animatedBannerEnabled ? 'enabled' : ''}`}
+                role="switch"
+                tabIndex={0}
+                aria-checked={animatedBannerEnabled}
+                onClick={() => {
+                  audioEngine.playClickPulse();
+                  setAnimatedBannerEnabled(value => !value);
+                }}
+                onFocus={audioEngine.playHoverTick}
+              >
+                <div>
+                  <span className="metadata-toggle-title">Animated Library Banner</span>
+                  <span className="metadata-toggle-desc">
+                    {animatedBannerEnabled ? 'Allowed when Settings uses Individual mode.' : 'Static banner only in Individual mode.'}
+                  </span>
+                </div>
+                <div className={`metadata-toggle-switch ${animatedBannerEnabled ? 'active' : ''}`}>
+                  <div className="metadata-toggle-knob" />
+                </div>
+              </div>
+
+              {game.animatedBannerUrl && (
+                <div className="animated-banner-status">
+                  <span>Animated banner cached</span>
+                  {game.animatedBannerWidth && game.animatedBannerHeight && (
+                    <strong>{game.animatedBannerWidth}x{game.animatedBannerHeight}</strong>
+                  )}
+                </div>
+              )}
 
               <div className="form-group">
                 <label className="form-label flex-center-start">
@@ -680,6 +713,82 @@ export default function MetadataEditor({ game, onSave, onClose, onChangeBannerPo
         .editor-input {
           font-size: var(--fs-13);
           padding: 10px 14px;
+        }
+
+        .metadata-toggle-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 12px 14px;
+          border-radius: 10px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: rgba(255, 255, 255, 0.025);
+          cursor: pointer;
+          transition: border-color var(--transition-fast), background var(--transition-fast);
+        }
+
+        .metadata-toggle-card:hover,
+        .metadata-toggle-card.enabled {
+          border-color: rgba(var(--accent-color-rgb), 0.36);
+          background: rgba(var(--accent-color-rgb), 0.07);
+        }
+
+        .metadata-toggle-title,
+        .metadata-toggle-desc {
+          display: block;
+        }
+
+        .metadata-toggle-title {
+          font-size: var(--fs-12);
+          font-weight: 700;
+          color: #fff;
+        }
+
+        .metadata-toggle-desc {
+          margin-top: 3px;
+          font-size: var(--fs-10);
+          color: rgba(255, 255, 255, 0.48);
+        }
+
+        .metadata-toggle-switch {
+          width: 42px;
+          height: 22px;
+          padding: 3px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.12);
+          flex-shrink: 0;
+        }
+
+        .metadata-toggle-knob {
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: #fff;
+          transition: transform var(--transition-fast), background var(--transition-fast);
+        }
+
+        .metadata-toggle-switch.active {
+          background: rgba(var(--accent-color-rgb), 0.82);
+        }
+
+        .metadata-toggle-switch.active .metadata-toggle-knob {
+          transform: translateX(20px);
+        }
+
+        .animated-banner-status {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 12px;
+          border-radius: 8px;
+          background: rgba(255, 255, 255, 0.025);
+          color: rgba(255, 255, 255, 0.48);
+          font-size: var(--fs-10);
+        }
+
+        .animated-banner-status strong {
+          color: rgba(255, 255, 255, 0.72);
         }
 
         .hltb-refresh-btn {

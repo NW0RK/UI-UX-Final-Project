@@ -73,6 +73,11 @@ export default function SettingsPanel({
     onUpdateSettings({ ...settings, bannerAnimation: !settings.bannerAnimation });
   };
 
+  const handleAnimatedHeroesModeChange = (mode) => {
+    audioEngine.playClickPulse();
+    onUpdateSettings({ ...settings, libraryAnimatedHeroesMode: mode });
+  };
+
   const handleLibraryTrailerToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, libraryTrailerAutoplay: !settings.libraryTrailerAutoplay });
@@ -417,6 +422,39 @@ export default function SettingsPanel({
                 <div className={`checkbox-toggle-switch ${settings.bannerAnimation ? 'sw-active' : 'sw-muted'}`}>
                   <div className="switch-knob" />
                 </div>
+              </div>
+            </div>
+
+            <div className="animated-heroes-card settings-subgroup">
+              <div className="audio-card-left">
+                <Image size={20} className={(settings.libraryAnimatedHeroesMode || 'off') === 'off' ? 'mute-status-icon muted' : 'mute-status-icon active-volume'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Animated Library Banners</span>
+                  <span className="audio-card-desc">
+                    {(settings.libraryAnimatedHeroesMode || 'off') === 'off'
+                      ? 'Static library hero banners only.'
+                      : (settings.libraryAnimatedHeroesMode || 'off') === 'individual'
+                        ? 'Only games enabled in metadata use animated heroes.'
+                        : 'Use animated heroes for every game when available.'}
+                  </span>
+                </div>
+              </div>
+              <div className="animated-heroes-segment" role="group" aria-label="Animated library banner mode">
+                {[
+                  ['off', 'Off'],
+                  ['individual', 'Individual'],
+                  ['on', 'On']
+                ].map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={(settings.libraryAnimatedHeroesMode || 'off') === mode ? 'active' : ''}
+                    onClick={() => handleAnimatedHeroesModeChange(mode)}
+                    onMouseEnter={audioEngine.playHoverTick}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -888,6 +926,51 @@ export default function SettingsPanel({
         .audio-toggle-card:hover {
           background: rgba(255, 255, 255, 0.05);
           border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .animated-heroes-card {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid rgba(255, 255, 255, 0.04);
+          border-radius: 12px;
+          padding: 16px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 18px;
+        }
+
+        .animated-heroes-segment {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(78px, 1fr));
+          gap: 4px;
+          padding: 4px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.055);
+          flex-shrink: 0;
+        }
+
+        .animated-heroes-segment button {
+          border: 0;
+          border-radius: 7px;
+          background: transparent;
+          color: rgba(255, 255, 255, 0.55);
+          font-family: var(--font-sans);
+          font-size: var(--fs-11);
+          font-weight: 700;
+          padding: 8px 10px;
+          cursor: pointer;
+          transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+
+        .animated-heroes-segment button:hover {
+          color: #fff;
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .animated-heroes-segment button.active {
+          color: #fff;
+          background: rgba(var(--accent-color-rgb), 0.24);
+          box-shadow: inset 0 0 0 1px rgba(var(--accent-color-rgb), 0.34);
         }
 
         .audio-card-left {

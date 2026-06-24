@@ -869,6 +869,7 @@ function getExtensionFromArtwork(artwork) {
     'image/jpeg': 'jpg',
     'image/jpg': 'jpg',
     'image/webp': 'webp',
+    'image/gif': 'gif',
     'image/vnd.microsoft.icon': 'ico',
     'image/x-icon': 'ico'
   };
@@ -876,7 +877,7 @@ function getExtensionFromArtwork(artwork) {
 
   try {
     const ext = path.extname(new URL(artwork.url).pathname).replace('.', '').toLowerCase();
-    if (['png', 'jpg', 'jpeg', 'webp', 'ico'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'ico'].includes(ext)) return ext === 'jpeg' ? 'jpg' : ext;
   } catch (e) { /* ignore */ }
 
   return 'png';
@@ -931,7 +932,7 @@ function getCachedArtworkPaths(gameId) {
 
 function getCachedArtworkFilePath(gameId, type) {
   const cacheDir = getGameCacheDir(gameId);
-  const extensions = ['png', 'jpg', 'jpeg', 'webp', 'ico'];
+  const extensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'ico'];
   if (type === 'logo' || type === 'icon') {
     for (const ext of extensions) {
       const filePath = path.join(cacheDir, `${type}.trimmed.${ext}`);
@@ -1289,9 +1290,72 @@ async function getSteamGridDBGameBySteamAppId(steamAppId) {
   return data.data || null;
 }
 
+const UNSAFE_STEAMGRIDDB_TAGS = new Set(['adult', 'nsfw', 'epilepsy', 'humor', 'humour']);
+const STORE_HERO_DIMENSIONS = ['1920x620', '3840x1240'];
+
+function hasUnsafeSteamGridDBTag(value) {
+  const normalized = String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+  if (UNSAFE_STEAMGRIDDB_TAGS.has(normalized) || normalized === 'adult content') return true;
+  return normalized.split(/\s+/).some(token => UNSAFE_STEAMGRIDDB_TAGS.has(token));
+}
+
+function isSteamGridDBUnsafeFlag(value) {
+  return value === true || value === 1 || String(value).toLowerCase() === 'true';
+}
+
+function collectSteamGridDBTagText(value, collector = []) {
+  if (value == null) return collector;
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    collector.push(String(value));
+    return collector;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach(item => collectSteamGridDBTagText(item, collector));
+    return collector;
+  }
+
+  if (typeof value === 'object') {
+    ['name', 'tag', 'slug', 'key', 'label', 'title', 'type'].forEach(key => {
+      if (value[key] != null) collectSteamGridDBTagText(value[key], collector);
+    });
+  }
+
+  return collector;
+}
+
+function isUnsafeSteamGridDBArtwork(item) {
+  if (!item) return true;
+
+  if (
+    isSteamGridDBUnsafeFlag(item.nsfw) ||
+    isSteamGridDBUnsafeFlag(item.adult) ||
+    isSteamGridDBUnsafeFlag(item.epilepsy) ||
+    isSteamGridDBUnsafeFlag(item.humor) ||
+    isSteamGridDBUnsafeFlag(item.humour)
+  ) {
+    return true;
+  }
+
+  const tagText = [
+    ...collectSteamGridDBTagText(item.tags),
+    ...collectSteamGridDBTagText(item.contentTags),
+    ...collectSteamGridDBTagText(item.content_tags),
+    ...collectSteamGridDBTagText(item.tag)
+  ];
+
+  return tagText.some(hasUnsafeSteamGridDBTag);
+}
+
 function pickArtwork(items, key) {
   if (!Array.isArray(items) || items.length === 0) return null;
-  const activeItems = items.filter(item => item && item.url);
+  const activeItems = items.filter(item => item && item.url && !isUnsafeSteamGridDBArtwork(item));
   if (activeItems.length === 0) return null;
 
   const dimensionsByType = {
@@ -1308,7 +1372,6 @@ function pickArtwork(items, key) {
       if (item.style === 'alternate') value += 4;
       if (item.style === 'official') value += 3;
       if (item.verified) value += 2;
-      if (item.nsfw) value -= 10;
       const dimensions = `${item.width || ''}x${item.height || ''}`;
       const dimensionIndex = preferredDimensions.indexOf(dimensions);
       if (dimensionIndex !== -1) value += 10 - dimensionIndex;
@@ -1318,6 +1381,39 @@ function pickArtwork(items, key) {
   })[0];
 }
 
+function getSteamGridDBCommunityScore(item) {
+  const value = Number(item?.score ?? item?.likes ?? item?.votes ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function pickStoreHeroArtwork(items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+
+  const candidates = items.filter(item => {
+    if (!item?.url || isUnsafeSteamGridDBArtwork(item)) return false;
+    return STORE_HERO_DIMENSIONS.includes(`${item.width || ''}x${item.height || ''}`);
+  });
+
+  if (candidates.length === 0) return null;
+
+  return [...candidates].sort((a, b) => {
+    const aDimensionRank = STORE_HERO_DIMENSIONS.indexOf(`${a.width || ''}x${a.height || ''}`);
+    const bDimensionRank = STORE_HERO_DIMENSIONS.indexOf(`${b.width || ''}x${b.height || ''}`);
+    if (aDimensionRank !== bDimensionRank) return aDimensionRank - bDimensionRank;
+
+    const score = (item) => {
+      let value = 0;
+      if (item.verified) value += 10;
+      if (item.style === 'official') value += 4;
+      if (item.style === 'alternate') value += 2;
+      value += getSteamGridDBCommunityScore(item);
+      return value;
+    };
+
+    return score(b) - score(a);
+  })[0] || null;
+}
+
 function pickFavoriteVaultGrid(items) {
   if (!Array.isArray(items) || items.length === 0) return null;
   const candidates = items.filter(item => (
@@ -1325,7 +1421,7 @@ function pickFavoriteVaultGrid(items) {
     item.style === 'no_logo' &&
     Number(item.width) === 600 &&
     Number(item.height) === 900 &&
-    !item.nsfw
+    !isUnsafeSteamGridDBArtwork(item)
   ));
   if (candidates.length === 0) return null;
 
@@ -1424,6 +1520,88 @@ async function fetchFavoriteVaultGrid(game) {
   };
 }
 
+function buildSteamGridDBArtworkQuery(params = {}) {
+  const searchParams = new URLSearchParams({
+    nsfw: 'false',
+    humor: 'false',
+    epilepsy: 'false',
+    ...params
+  });
+  return searchParams.toString();
+}
+
+async function fetchStoreHero(game) {
+  if (!game?.id || !game?.title) return { hero: null, error: 'Missing game id or title' };
+
+  const sgdbGame = await resolveSteamGridDBGame(game);
+  if (!sgdbGame?.id) return { hero: null, error: 'No SteamGridDB match found' };
+
+  for (const heroType of ['animated', 'static']) {
+    const endpoint = `/heroes/game/${sgdbGame.id}?${buildSteamGridDBArtworkQuery({
+      dimensions: STORE_HERO_DIMENSIONS.join(','),
+      types: heroType
+    })}`;
+
+    let apiData = null;
+    try {
+      apiData = await steamgriddbFetch(endpoint);
+    } catch (err) {
+      emitDiagnostic('SteamGridDB', 'warn', `Store ${heroType} hero lookup failed for ${game.title}: ${err.message}`, {
+        steamGridDbId: sgdbGame.id,
+        endpoint
+      });
+      continue;
+    }
+
+    const artwork = pickStoreHeroArtwork(apiData.data);
+    if (!artwork?.url) {
+      emitDiagnostic('SteamGridDB', 'warn', `No safe ${heroType} store hero found for ${game.title}`, {
+        steamGridDbId: sgdbGame.id,
+        endpoint
+      });
+      continue;
+    }
+
+    const ext = getExtensionFromArtwork(artwork);
+    const destPath = path.join(getGameCacheDir(game.id), `store-hero-${heroType}.${ext}`);
+    const metadata = {
+      heroType,
+      steamGridDbId: sgdbGame.id,
+      steamGridDbName: sgdbGame.name || game.title,
+      sourceUrl: artwork.url,
+      width: artwork.width || null,
+      height: artwork.height || null,
+      style: artwork.style || null,
+      verified: !!artwork.verified
+    };
+
+    try {
+      await downloadImage(artwork.url, destPath);
+      emitDiagnostic('SteamGridDB', 'info', `Downloaded ${heroType} store hero for ${game.title}`, metadata);
+      return {
+        hero: toVersionedArtworkUrl(destPath),
+        ...metadata
+      };
+    } catch (err) {
+      emitDiagnostic('SteamGridDB', 'warn', `Could not cache ${heroType} store hero for ${game.title}: ${err.message}`, {
+        ...metadata,
+        url: artwork.url
+      });
+      return {
+        hero: artwork.url,
+        ...metadata
+      };
+    }
+  }
+
+  return {
+    hero: null,
+    error: 'No safe SteamGridDB store hero found',
+    steamGridDbId: sgdbGame.id,
+    steamGridDbName: sgdbGame.name || game.title
+  };
+}
+
 async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   const cacheDir = getGameCacheDir(gameId);
   const result = { diagnostics: [] };
@@ -1435,9 +1613,9 @@ async function fetchArtworkForGame(sgdbId, gameId, gameTitle) {
   addDiagnostic('info', `Fetching artwork for ${gameTitle}`, { sgdbId, gameId });
 
   const types = [
-    { key: 'grid', endpoint: `/grids/game/${sgdbId}?dimensions=600x900,342x482,660x930&types=static` },
-    { key: 'hero', endpoint: `/heroes/game/${sgdbId}?types=static` },
-    { key: 'logo', endpoint: `/logos/game/${sgdbId}?types=static` },
+    { key: 'grid', endpoint: `/grids/game/${sgdbId}?${buildSteamGridDBArtworkQuery({ dimensions: '600x900,342x482,660x930', types: 'static' })}` },
+    { key: 'hero', endpoint: `/heroes/game/${sgdbId}?${buildSteamGridDBArtworkQuery({ types: 'static' })}` },
+    { key: 'logo', endpoint: `/logos/game/${sgdbId}?${buildSteamGridDBArtworkQuery({ types: 'static' })}` },
     { key: 'icon', endpoint: `/icons/game/${sgdbId}` }
   ];
 
@@ -1853,6 +2031,15 @@ ipcMain.handle('steamgriddb-fetch-favorite-vault-grid', async (event, game) => {
   } catch (err) {
     emitDiagnostic('SteamGridDB', 'warn', `Favorite Vault grid lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
     return { grid: null, error: err.message };
+  }
+});
+
+ipcMain.handle('steamgriddb-fetch-store-hero', async (event, game) => {
+  try {
+    return await fetchStoreHero(game);
+  } catch (err) {
+    emitDiagnostic('SteamGridDB', 'warn', `Store hero lookup failed for ${game?.title || 'unknown game'}: ${err.message}`);
+    return { hero: null, error: err.message };
   }
 });
 

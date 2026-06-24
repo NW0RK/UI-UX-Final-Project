@@ -1260,7 +1260,7 @@ export default function GameMainBanner({
           align-items: flex-start;
           justify-content: flex-end;
           pointer-events: auto;
-          overflow: hidden;
+          overflow: visible;
           transition: opacity 520ms var(--ease-interface), transform 520ms var(--ease-interface);
         }
 
@@ -1826,6 +1826,8 @@ export default function GameMainBanner({
           min-height: 46px;
           width: 100%;
           flex-shrink: 0;
+          padding: 4px;
+          margin: -4px;
         }
 
         .play-game-btn {

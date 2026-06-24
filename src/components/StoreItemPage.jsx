@@ -1121,7 +1121,8 @@ export default function StoreItemPage({
       : protonDbStatus === 'unavailable'
         ? 'Unavailable'
         : null;
-  const displayBannerUrl = steamDetails?.background_raw ||
+  const displayBannerUrl = cachedDetails?.storeHeroUrl ||
+    steamDetails?.background_raw ||
     steamDetails?.background ||
     steamDetails?.header_image ||
     cachedDetails?.bannerUrl ||

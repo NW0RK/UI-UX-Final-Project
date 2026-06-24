@@ -444,6 +444,52 @@ export default function App() {
     const initialKey = getStoreItemCacheKey(item);
     if (!initialKey) return null;
 
+    const fetchAndCacheStoreHero = (targetItem, steamAppId = null) => {
+      if (!window.electronAPI?.fetchStoreHero || !targetItem?.id || !targetItem?.title) return;
+
+      const key = getStoreItemCacheKey(targetItem);
+      const cachedHeroStatus = key ? storeDetailCacheRef.current[key]?.storeHeroStatus : null;
+      if (['loading', 'ready', 'missing', 'unavailable'].includes(cachedHeroStatus)) return;
+
+      mergeStoreDetailCache(targetItem, { storeHeroStatus: 'loading' }, steamAppId);
+
+      window.electronAPI.fetchStoreHero({
+        ...targetItem,
+        steamAppId: steamAppId || targetItem?.steamAppId || null
+      })
+        .then((storeHero) => {
+          if (storeHero?.hero) {
+            mergeStoreDetailCache(targetItem, {
+              storeHeroUrl: storeHero.hero,
+              storeHeroSource: 'steamgriddb',
+              storeHeroType: storeHero.heroType || null,
+              storeHeroWidth: storeHero.width || null,
+              storeHeroHeight: storeHero.height || null,
+              storeHeroSourceUrl: storeHero.sourceUrl || null,
+              storeHeroStatus: 'ready',
+              storeHeroError: null,
+              steamGridDbId: storeHero.steamGridDbId || targetItem.steamGridDbId || null,
+              steamGridDbName: storeHero.steamGridDbName || targetItem.steamGridDbName || null
+            }, steamAppId);
+            return;
+          }
+
+          const unavailable = /api key/i.test(storeHero?.error || '');
+          mergeStoreDetailCache(targetItem, {
+            storeHeroStatus: unavailable ? 'unavailable' : 'missing',
+            storeHeroError: storeHero?.error || 'No SteamGridDB store hero found',
+            steamGridDbId: storeHero?.steamGridDbId || targetItem.steamGridDbId || null,
+            steamGridDbName: storeHero?.steamGridDbName || targetItem.steamGridDbName || null
+          }, steamAppId);
+        })
+        .catch((error) => {
+          mergeStoreDetailCache(targetItem, {
+            storeHeroStatus: /api key/i.test(error.message) ? 'unavailable' : 'error',
+            storeHeroError: error.message
+          }, steamAppId);
+        });
+    };
+
     const cached = storeDetailCacheRef.current[initialKey];
     const cacheHasNeededProtonDb = !settings.protonDbEnabled ||
       cached?.protonDbSummary ||
@@ -455,6 +501,7 @@ export default function App() {
       (cached?.steamMetadataLoaded || cached?.igdbDetailsLoaded || cached?.steamLookupStatus === 'missing') &&
       cacheHasNeededProtonDb
     ) {
+      fetchAndCacheStoreHero(cached.itemSnapshot || item, cached.resolvedSteamAppId || cached.steamAppId || item?.steamAppId || null);
       return Promise.resolve(cached);
     }
 
@@ -588,6 +635,8 @@ export default function App() {
             }
           });
         }
+
+        fetchAndCacheStoreHero(item, resolvedSteamAppId || item?.steamAppId || null);
 
         return finalRecord;
       } catch (error) {

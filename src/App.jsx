@@ -23,6 +23,7 @@ import { fetchIgdbGameDetailsBrowser, fetchIgdbGameTrailerBrowser, fetchIgdbPopu
 import { fetchSteamDetailsBrowser, fetchSteamReviewSummaryBrowser, getSteamStoreBannerUrl, resolveSteamAppIdBrowser } from './utils/steam';
 import { fetchProtonDbSummaryBrowser, isValidSteamAppId } from './utils/protondb';
 import { audioEngine } from './utils/audioEngine';
+import male1Avatar from './assets/profile/male1.png';
 const DEFAULT_SETTINGS = {
   theme: 'theme-gold',
   isMuted: false,
@@ -325,7 +326,7 @@ export default function App() {
     return localStorage.getItem('nexus_username') || 'User';
   });
   const [userAvatar, setUserAvatar] = useState(() => {
-    return localStorage.getItem('nexus_user_avatar') || 'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?q=80&w=150&auto=format&fit=crop';
+    return localStorage.getItem('nexus_user_avatar') || male1Avatar;
   });
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 

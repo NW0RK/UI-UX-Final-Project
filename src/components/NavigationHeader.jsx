@@ -11,7 +11,7 @@ export default function NavigationHeader({
   activeView,
   onViewChange,
   systemStatusTracking = true,
-  username = "And360red",
+  username = "User",
   userAvatar = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop",
   onOpenProfile
 }) {

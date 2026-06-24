@@ -209,6 +209,11 @@ export default function VirtualKeyboard({ value, onChange, onClose }) {
           transform: translateY(-1px);
         }
 
+        .virtual-key:focus-visible,
+        body.controller-navigation-active .virtual-key:focus {
+          box-shadow: var(--focus-ring-shadow);
+        }
+
         .virtual-key-primary {
           border-color: rgba(var(--accent-color-rgb), 0.48);
           background: rgba(var(--accent-color-rgb), 0.22);

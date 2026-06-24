@@ -1754,7 +1754,7 @@ export default function StoreItemPage({
           letter-spacing: 1px;
           cursor: pointer;
           transition: all var(--transition-fast);
-          margin-bottom: 12px;
+          margin: 4px 0 12px 6px;
           align-self: flex-start;
         }
 

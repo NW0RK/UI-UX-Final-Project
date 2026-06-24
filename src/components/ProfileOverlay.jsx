@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { X, Edit3, Image, Check } from 'lucide-react';
 import { audioEngine } from '../utils/audioEngine';
+import male1Avatar from '../assets/profile/male1.png';
+import male2Avatar from '../assets/profile/male2.png';
+import female1Avatar from '../assets/profile/female1.png';
+import female2Avatar from '../assets/profile/female2.png';
 
 export default function ProfileOverlay({
   isOpen,
@@ -19,10 +23,10 @@ export default function ProfileOverlay({
 
   // Curated premium preset avatars for easy selection
   const presetAvatars = [
-    'https://images.unsplash.com/photo-1566492031773-4f4e44671857?q=80&w=150&auto=format&fit=crop', // Soldier
-    'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?q=80&w=150&auto=format&fit=crop', // Gamer
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=150&auto=format&fit=crop', // Abstract Paint
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=150&auto=format&fit=crop', // Beard portrait
+    male1Avatar,
+    male2Avatar,
+    female1Avatar,
+    female2Avatar,
     'https://images.unsplash.com/photo-1563089145-599997674d42?q=80&w=150&auto=format&fit=crop', // Neon Cyber
     'https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?q=80&w=150&auto=format&fit=crop'  // Ethereal art
   ];

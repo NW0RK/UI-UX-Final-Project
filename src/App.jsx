@@ -2108,6 +2108,9 @@ export default function App() {
   // --- Navigation / View Management ---
   const handleViewChange = (view) => {
     audioEngine.playClickPulse();
+    if (PRIMARY_VIEWS.includes(view)) {
+      setSearchQuery('');
+    }
     setActiveView(view);
     if (view === 'store') {
       setSelectedStoreItem(null);

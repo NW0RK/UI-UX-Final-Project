@@ -71,6 +71,14 @@ export default function NavigationHeader({
   };
 
   const focusActiveNavTarget = () => {
+    if (activeView === 'search') {
+      const searchResultTarget = document.querySelector(
+        '.search-results-viewport [data-controller-default="true"], .search-results-viewport [data-controller-item="true"]'
+      );
+      window.setTimeout(() => searchResultTarget?.focus({ preventScroll: true }), 20);
+      return;
+    }
+
     const target =
       activeView === 'store' || activeView === 'store-item'
         ? storeTabRef.current

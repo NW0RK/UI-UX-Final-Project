@@ -101,6 +101,7 @@ export default function SearchResultsPage({
                 className={`search-result-card ${owned ? 'owned' : ''}`}
                 role="button"
                 tabIndex={0}
+                data-controller-item="true"
                 data-controller-confirm-label={`View ${item.title}`}
                 data-controller-default={index === 0 ? 'true' : undefined}
                 onPointerDown={() => handleResultPointerDown(item)}
@@ -125,6 +126,8 @@ export default function SearchResultsPage({
                       type="button"
                       className="search-launch-btn-overlay"
                       onClick={(event) => handleLaunchClick(event, item)}
+                      data-controller-nested="true"
+                      data-controller-confirm-label={`Play ${item.title}`}
                     >
                       Play Now
                     </button>
@@ -164,7 +167,8 @@ export default function SearchResultsPage({
           flex: 1;
           height: 100%;
           overflow-y: auto;
-          padding: 30px 0 40px;
+          overflow-x: hidden;
+          padding: 30px 8px 40px;
         }
 
         .search-results-header {
@@ -211,7 +215,7 @@ export default function SearchResultsPage({
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
           gap: 24px;
-          padding-top: 10px;
+          padding: 10px 8px 16px;
         }
 
         .search-result-card {
@@ -227,7 +231,8 @@ export default function SearchResultsPage({
         }
 
         .search-result-card:hover,
-        .search-result-card:focus-visible {
+        .search-result-card:focus-visible,
+        body.controller-navigation-active .search-result-card:focus {
           z-index: 5;
           transform: translateY(-6px);
           border-color: rgba(var(--accent-color-rgb), 0.4);
@@ -263,7 +268,8 @@ export default function SearchResultsPage({
           transition: transform 0.5s ease;
         }
 
-        .search-result-card:hover .search-result-art img {
+        .search-result-card:hover .search-result-art img,
+        body.controller-navigation-active .search-result-card:focus .search-result-art img {
           transform: scale(1.05);
         }
 
@@ -306,7 +312,9 @@ export default function SearchResultsPage({
           box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
 
-        .search-result-card:hover .search-launch-btn-overlay {
+        .search-result-card:hover .search-launch-btn-overlay,
+        .search-result-card:focus-within .search-launch-btn-overlay,
+        body.controller-navigation-active .search-result-card:focus .search-launch-btn-overlay {
           transform: translateX(-50%) translateY(0);
           opacity: 1;
         }

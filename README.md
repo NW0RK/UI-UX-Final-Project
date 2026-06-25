@@ -1,5 +1,9 @@
 # Nexus Launcher
 
+## Professor Convenience: Project Description And Contributions
+
+For the 1-2 page project summary, workflow explanation, and detailed team contribution breakdown, see [`docs/PROJECT_DESCRIPTION.md`](docs/PROJECT_DESCRIPTION.md).
+
 **A premium Windows game launcher built for players who want their library to feel as good as the games inside it.**
 
 Nexus Launcher turns a local game collection into a polished, controller-friendly command center. It brings your games, artwork, launch actions, discovery feeds, deals, trailers, playtime context, and customization settings into one cinematic desktop experience.

@@ -4,6 +4,8 @@
 
 For the 1-2 page project summary, workflow explanation, and detailed team contribution breakdown, see [`docs/PROJECT_DESCRIPTION.md`](docs/PROJECT_DESCRIPTION.md).
 
+> **Electron app disclaimer:** Nexus Launcher is designed to be run as a desktop Electron app. The Vite localhost URL is only an internal renderer server for Electron during development, so opening that localhost link directly in a browser is not the intended or supported way to use the project.
+
 **A premium Windows game launcher built for players who want their library to feel as good as the games inside it.**
 
 Nexus Launcher turns a local game collection into a polished, controller-friendly command center. It brings your games, artwork, launch actions, discovery feeds, deals, trailers, playtime context, and customization settings into one cinematic desktop experience.
@@ -111,6 +113,7 @@ npm run dev
 ```
 
 This starts the Vite renderer on port `5173`, waits for it to be ready, and then launches Electron.
+Use the Electron window that opens. The localhost URL is only for Electron's renderer and is not meant to be opened directly in a browser.
 
 ## Optional API Setup
 
@@ -157,7 +160,7 @@ Preview the built Vite renderer only:
 npm run preview
 ```
 
-Note: `npm run preview` previews the renderer and does not exercise the full Electron IPC/native desktop layer.
+Note: `npm run preview` previews the renderer and does not exercise the full Electron IPC/native desktop layer. Nexus Launcher should be used through Electron, not by opening the localhost renderer URL directly in a browser.
 
 ## Project Structure
 

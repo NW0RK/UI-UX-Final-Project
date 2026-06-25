@@ -34,7 +34,7 @@ npm run build
 | Preview renderer only | `npm run preview` | Does not exercise Electron IPC. |
 | Script definitions | `package.json` | No test script currently exists. |
 | Vite config | `vite.config.js` | Uses React plugin, `base: './'`, strict dev port `5173`, and manual vendor chunks to keep production JS chunks below the warning threshold. |
-| Electron dev launcher | `scripts/start-electron-dev.cjs` | Spawns the installed Electron binary with editor-inherited `ELECTRON_RUN_AS_NODE` removed. |
+| Electron dev launcher | `scripts/start-electron-dev.cjs` | Prints the Electron-only usage disclaimer, then spawns the installed Electron binary with editor-inherited `ELECTRON_RUN_AS_NODE` removed. |
 
 ## Source Map
 
@@ -42,7 +42,7 @@ npm run build
 | --- | --- | --- |
 | `main.js` | Electron main process: window creation, custom artwork protocol, native dialogs, filesystem persistence, executable scanning, process launch, external service calls, diagnostics, settings, cache clearing. | Native behavior, IPC, storage paths, scanners, artwork, HLTB, ITAD, IGDB, or launch behavior changes. |
 | `preload.js` | Context-isolated bridge exposing `window.electronAPI` to React. | Any IPC method is added, removed, renamed, or has signature changes. |
-| `scripts/start-electron-dev.cjs` | Development-only Electron launcher used by `npm run dev` to avoid inheriting `ELECTRON_RUN_AS_NODE` from editor shells. | Dev startup behavior changes. |
+| `scripts/start-electron-dev.cjs` | Development-only Electron launcher used by `npm run dev`; prints the Electron-only usage disclaimer and avoids inheriting `ELECTRON_RUN_AS_NODE` from editor shells. | Dev startup behavior changes. |
 | `scripts/igdbProxyPlugin.js` | Vite dev/preview middleware that proxies browser IGDB requests and handles Twitch client-credentials auth from env vars. | IGDB browser preview behavior, proxy paths, or credential env names change. |
 | `src/main.jsx` | React root mount and global CSS import. | App bootstrap changes. |
 | `src/App.jsx` | Renderer state hub, view routing, settings sync, database hydration, artwork and HLTB hydration, import/edit/remove/launch handlers, controller callbacks. | Most app flows, game data mutations, settings, views, and modal wiring. |

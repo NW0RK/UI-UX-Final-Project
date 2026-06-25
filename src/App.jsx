@@ -465,6 +465,9 @@ export default function App() {
         storeHeroMediaMode: desiredHeroMode
       })
         .then((storeHero) => {
+          const latestHeroMode = key ? storeDetailCacheRef.current[key]?.storeHeroMediaMode : null;
+          if (latestHeroMode && latestHeroMode !== desiredHeroMode) return;
+
           if (storeHero?.hero) {
             mergeStoreDetailCache(targetItem, {
               storeHeroUrl: storeHero.hero,
@@ -474,6 +477,7 @@ export default function App() {
               storeHeroWidth: storeHero.width || null,
               storeHeroHeight: storeHero.height || null,
               storeHeroSourceUrl: storeHero.sourceUrl || null,
+              storeHeroCacheState: storeHero.cacheState || 'remote',
               storeHeroStatus: 'ready',
               storeHeroError: null,
               steamGridDbId: storeHero.steamGridDbId || targetItem.steamGridDbId || null,
@@ -492,6 +496,9 @@ export default function App() {
           }, steamAppId);
         })
         .catch((error) => {
+          const latestHeroMode = key ? storeDetailCacheRef.current[key]?.storeHeroMediaMode : null;
+          if (latestHeroMode && latestHeroMode !== desiredHeroMode) return;
+
           mergeStoreDetailCache(targetItem, {
             storeHeroStatus: /api key/i.test(error.message) ? 'unavailable' : 'error',
             storeHeroMediaMode: desiredHeroMode,
@@ -774,6 +781,46 @@ export default function App() {
 
     return window.electronAPI.onDiagnosticEvent((event) => {
       setDiagnostics(prev => [event, ...prev].slice(0, 80));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onStoreHeroCached) return;
+
+    return window.electronAPI.onStoreHeroCached((payload) => {
+      if (!payload?.gameId || !payload?.hero || !payload?.mediaMode) return;
+
+      let updated = false;
+      const nextCache = { ...storeDetailCacheRef.current };
+      Object.entries(nextCache).forEach(([key, record]) => {
+        if (
+          record?.itemSnapshot?.id !== payload.gameId ||
+          record?.storeHeroMediaMode !== payload.mediaMode
+        ) {
+          return;
+        }
+
+        updated = true;
+        nextCache[key] = {
+          ...record,
+          storeHeroUrl: payload.hero,
+          storeHeroType: payload.heroType || record.storeHeroType || null,
+          storeHeroMediaMode: payload.mediaMode,
+          storeHeroWidth: payload.width || record.storeHeroWidth || null,
+          storeHeroHeight: payload.height || record.storeHeroHeight || null,
+          storeHeroSourceUrl: payload.sourceUrl || record.storeHeroSourceUrl || null,
+          storeHeroCacheState: 'cached',
+          storeHeroStatus: 'ready',
+          storeHeroError: null,
+          steamGridDbId: payload.steamGridDbId || record.steamGridDbId || null,
+          steamGridDbName: payload.steamGridDbName || record.steamGridDbName || null
+        };
+      });
+
+      if (updated) {
+        storeDetailCacheRef.current = nextCache;
+        setStoreDetailCache(nextCache);
+      }
     });
   }, []);
 

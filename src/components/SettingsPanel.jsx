@@ -478,7 +478,7 @@ export default function SettingsPanel({
               <div className="audio-card-left">
                 <Image size={20} className={(settings.storeItemBannerMediaMode || 'static') === 'animated' ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
                 <div className="audio-card-info">
-                  <span className="audio-card-title">Store Item Banners</span>
+                  <span className="audio-card-title">Animated Store Item Banners</span>
                   <span className="audio-card-desc">
                     {(settings.storeItemBannerMediaMode || 'static') === 'static'
                       ? 'Store item heroes use static SteamGridDB artwork.'

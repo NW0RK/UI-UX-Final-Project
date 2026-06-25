@@ -64,5 +64,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const subscription = (event, payload) => callback(payload);
     ipcRenderer.on('diagnostic-event', subscription);
     return () => ipcRenderer.removeListener('diagnostic-event', subscription);
+  },
+
+  onStoreHeroCached: (callback) => {
+    const subscription = (event, payload) => callback(payload);
+    ipcRenderer.on('store-hero-cached', subscription);
+    return () => ipcRenderer.removeListener('store-hero-cached', subscription);
   }
 });

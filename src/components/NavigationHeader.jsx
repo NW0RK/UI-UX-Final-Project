@@ -17,6 +17,13 @@ export default function NavigationHeader({
 }) {
   const [time, setTime] = useState('');
   const [isSearchKeyboardOpen, setIsSearchKeyboardOpen] = useState(false);
+  const [isCompactHeader, setIsCompactHeader] = useState(false);
+  const headerRef = useRef(null);
+  const navLeftRef = useRef(null);
+  const logoRef = useRef(null);
+  const modeTabsRef = useRef(null);
+  const navCenterRef = useRef(null);
+  const navRightRef = useRef(null);
   const searchInputRef = useRef(null);
   const storeTabRef = useRef(null);
   const libraryTabRef = useRef(null);
@@ -43,6 +50,47 @@ export default function NavigationHeader({
     const timer = setInterval(updateTime, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    const logo = logoRef.current;
+    const modeTabs = modeTabsRef.current;
+    const navCenter = navCenterRef.current;
+    const navRight = navRightRef.current;
+
+    if (!header || !logo || !modeTabs || !navCenter || !navRight) return;
+
+    let animationFrame = 0;
+
+    const updateCompactHeader = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        const headerStyles = window.getComputedStyle(header);
+        const innerWidth =
+          header.clientWidth -
+          parseFloat(headerStyles.paddingLeft || 0) -
+          parseFloat(headerStyles.paddingRight || 0);
+        const expandedNavLeftWidth = logo.scrollWidth + modeTabs.offsetWidth + 64;
+        const expandedHeaderWidth =
+          expandedNavLeftWidth + navCenter.offsetWidth + navRight.offsetWidth;
+
+        setIsCompactHeader(expandedHeaderWidth > innerWidth);
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(updateCompactHeader);
+    [header, logo, modeTabs, navCenter, navRight].forEach((element) => {
+      resizeObserver.observe(element);
+    });
+    window.addEventListener('resize', updateCompactHeader);
+    updateCompactHeader();
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateCompactHeader);
+    };
+  }, [searchQuery, isSearchKeyboardOpen, username, systemStatusTracking]);
 
   const handleControlClick = (action) => {
     audioEngine.playClickPulse();
@@ -110,13 +158,17 @@ export default function NavigationHeader({
   };
 
   return (
-    <header className="navigation-header">
+    <header
+      ref={headerRef}
+      className={`navigation-header ${isCompactHeader ? 'compact-header' : ''}`}
+    >
       {/* Frameless Drag Handle */}
       <div className="titlebar-draggable" />
 
       {/* Primary Logo & Flat Tabs */}
-      <div className="nav-left">
+      <div className="nav-left" ref={navLeftRef}>
         <div
+          ref={logoRef}
           className="nexus-logo"
           role="button"
           tabIndex={0}
@@ -124,7 +176,7 @@ export default function NavigationHeader({
         >
           N E X U S
         </div>
-        <nav className="mode-tabs">
+        <nav className="mode-tabs" ref={modeTabsRef}>
           <button
             ref={storeTabRef}
             className={`mode-tab ${activeView === 'store' || activeView === 'store-item' ? 'active' : ''}`}
@@ -150,7 +202,7 @@ export default function NavigationHeader({
       </div>
 
       {/* Center Search Bar */}
-      <div className="nav-center">
+      <div className="nav-center" ref={navCenterRef}>
         <div
           className={`search-wrapper ${searchQuery ? 'has-query' : ''} ${isSearchKeyboardOpen ? 'keyboard-open' : ''}`}
           role="search"
@@ -197,7 +249,7 @@ export default function NavigationHeader({
       )}
 
       {/* Right Profiles, Telemetry, and Settings */}
-      <div className="nav-right">
+      <div className="nav-right" ref={navRightRef}>
         <button
           type="button"
           className="nav-icon-btn"
@@ -334,6 +386,8 @@ export default function NavigationHeader({
           font-size: var(--fs-30);
           line-height: 1.2;
           letter-spacing: 12px;
+          white-space: nowrap;
+          flex: 0 0 auto;
           color: #FFFFFF;
           cursor: pointer;
           transition: all 0.3s var(--ease-interface);
@@ -580,6 +634,25 @@ export default function NavigationHeader({
           color: #fff;
           padding-left: 10px;
           text-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+        }
+
+        .navigation-header.compact-header {
+          padding: 0 24px;
+        }
+
+        .navigation-header.compact-header .nav-left {
+          gap: 32px;
+        }
+
+        .navigation-header.compact-header .nexus-logo {
+          position: absolute;
+          visibility: hidden;
+          pointer-events: none;
+        }
+
+        .navigation-header.compact-header .nav-center {
+          padding-left: 18px;
+          padding-right: 18px;
         }
 
         @media (max-width: 1180px) {

@@ -218,6 +218,19 @@ function getItadChartTheme() {
   };
 }
 
+function isVideoBannerUrl(url) {
+  try {
+    const ext = new URL(url, window.location.href).pathname.split('.').pop()?.toLowerCase();
+    return ['webm', 'mp4', 'mov'].includes(ext);
+  } catch (e) {
+    return /\.(webm|mp4|mov)(?:$|[?#])/i.test(String(url || ''));
+  }
+}
+
+function getStoreHeroFailureKey(itemId, mediaMode, url) {
+  return url ? `${itemId || 'store-item'}:${mediaMode}:${url}` : '';
+}
+
 export default function StoreItemPage({
   item,
   cachedDetails = null,
@@ -269,6 +282,7 @@ export default function StoreItemPage({
   const [chartPoints, setChartPoints] = useState([]);
   const [highchartsStatus, setHighchartsStatus] = useState('Loading price history...');
   const [chartThemeRevision, setChartThemeRevision] = useState(0);
+  const [failedStoreHeroKey, setFailedStoreHeroKey] = useState('');
   const highchartsContainerRef = useRef(null);
   const highchartsInstanceRef = useRef(null);
   const activeItem = igdbDetails ? { ...item, ...igdbDetails, owned: item?.owned || igdbDetails.owned } : item;
@@ -1101,9 +1115,25 @@ export default function StoreItemPage({
       : protonDbStatus === 'unavailable'
         ? 'Unavailable'
         : null;
-  const displayBannerUrl = cachedDetails?.storeHeroMediaMode === storeItemBannerMediaMode
-    ? cachedDetails?.storeHeroUrl || null
-    : null;
+  const normalizedStoreItemBannerMediaMode = storeItemBannerMediaMode === 'animated' ? 'animated' : 'static';
+  const storeHeroUrl = cachedDetails?.storeHeroUrl || null;
+  const storeHeroType = cachedDetails?.storeHeroType || (isVideoBannerUrl(storeHeroUrl) ? 'animated' : 'static');
+  const storeHeroMatchesMode = cachedDetails?.storeHeroMediaMode === normalizedStoreItemBannerMediaMode;
+  const storeHeroAllowedByMode = normalizedStoreItemBannerMediaMode === 'animated'
+    ? ['animated', 'static'].includes(storeHeroType)
+    : storeHeroType !== 'animated' && !isVideoBannerUrl(storeHeroUrl);
+  const storeHeroFailureKey = getStoreHeroFailureKey(activeItem?.id, normalizedStoreItemBannerMediaMode, storeHeroUrl);
+  const displayBannerUrl = storeHeroUrl &&
+    storeHeroMatchesMode &&
+    storeHeroAllowedByMode &&
+    failedStoreHeroKey !== storeHeroFailureKey
+      ? storeHeroUrl
+      : null;
+  const isDisplayBannerVideo = isVideoBannerUrl(displayBannerUrl);
+
+  const handleStoreHeroError = () => {
+    if (storeHeroFailureKey) setFailedStoreHeroKey(storeHeroFailureKey);
+  };
 
   const handleMarkOwnedClick = () => {
     audioEngine.playClickPulse();
@@ -1276,8 +1306,25 @@ export default function StoreItemPage({
 
       {/* Banner Section */}
       <div className="store-item-banner">
-        {displayBannerUrl ? (
-          <img src={displayBannerUrl} alt={activeItem.title} className="store-item-banner-img" />
+        {displayBannerUrl && isDisplayBannerVideo ? (
+          <video
+            src={displayBannerUrl}
+            className="store-item-banner-img"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            aria-label={activeItem.title}
+            onError={handleStoreHeroError}
+          />
+        ) : displayBannerUrl ? (
+          <img
+            src={displayBannerUrl}
+            alt={activeItem.title}
+            className="store-item-banner-img"
+            onError={handleStoreHeroError}
+          />
         ) : (
           <div className="store-item-banner-img store-item-banner-placeholder">
           </div>

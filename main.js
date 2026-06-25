@@ -26,6 +26,7 @@ const ARTWORK_PROTOCOL = 'nexus-artwork';
 
 let mainWindow = null;
 const activeGames = new Map();
+const activeStoreHeroDownloads = new Map();
 let hltbSecurity = null;
 // DEPRECATED: artworkTrimJobs Map is disabled.
 // const artworkTrimJobs = new Map();
@@ -963,6 +964,22 @@ function getFavoriteVaultGridMetadataPath(gameId) {
   return path.join(getGameCacheDir(gameId), 'favorite-vault-grid.json');
 }
 
+function getCachedStoreHeroFilePath(gameId, mediaMode) {
+  const cacheDir = getGameCacheDir(gameId);
+  const extensions = mediaMode === 'animated'
+    ? ['webm', 'mp4', 'mov', 'png', 'jpg', 'jpeg', 'webp', 'gif']
+    : ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+  for (const ext of extensions) {
+    const filePath = path.join(cacheDir, `store-hero-${mediaMode}.${ext}`);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return null;
+}
+
+function getStoreHeroMetadataPath(gameId, mediaMode) {
+  return path.join(getGameCacheDir(gameId), `store-hero-${mediaMode}.json`);
+}
+
 function toVersionedArtworkUrl(filePath) {
   const artworkUrl = toArtworkUrl(filePath);
   try {
@@ -1557,11 +1574,25 @@ function buildSteamGridDBArtworkQuery(params = {}) {
 async function fetchStoreHero(game) {
   if (!game?.id || !game?.title) return { hero: null, error: 'Missing game id or title' };
 
-  const sgdbGame = await resolveSteamGridDBGame(game);
-  if (!sgdbGame?.id) return { hero: null, error: 'No SteamGridDB match found' };
-
   const mediaMode = game.storeHeroMediaMode === 'animated' ? 'animated' : 'static';
-  const heroTypes = mediaMode === 'static' ? ['static'] : ['animated', 'static'];
+  const cachedHero = getCachedStoreHero(game.id, mediaMode);
+  if (cachedHero) {
+    emitDiagnostic('SteamGridDB', 'info', `Using cached ${mediaMode} store hero for ${game.title}`, cachedHero.metadata);
+    return {
+      hero: toVersionedArtworkUrl(cachedHero.filePath),
+      mediaMode,
+      cacheState: 'cached',
+      cached: true,
+      ...cachedHero.metadata
+    };
+  }
+
+  const sgdbGame = await resolveSteamGridDBGame(game);
+  if (!sgdbGame?.id) return { hero: null, error: 'No SteamGridDB match found', mediaMode };
+
+  const heroTypes = mediaMode === 'animated' ? ['animated', 'static'] : ['static'];
+  let lastLookupError = null;
+  let lookupSucceeded = false;
 
   for (const heroType of heroTypes) {
     const endpoint = `/heroes/game/${sgdbGame.id}?${buildSteamGridDBArtworkQuery({
@@ -1572,7 +1603,9 @@ async function fetchStoreHero(game) {
     let apiData = null;
     try {
       apiData = await steamgriddbFetch(endpoint);
+      lookupSucceeded = true;
     } catch (err) {
+      lastLookupError = err.message;
       emitDiagnostic('SteamGridDB', 'warn', `Store ${heroType} hero lookup failed for ${game.title}: ${err.message}`, {
         steamGridDbId: sgdbGame.id,
         endpoint
@@ -1580,7 +1613,10 @@ async function fetchStoreHero(game) {
       continue;
     }
 
-    const artwork = pickStoreHeroArtwork(apiData.data);
+    const artwork = pickStoreHeroArtwork(apiData.data, heroType === 'animated'
+      ? { allowVideo: true, preferSmoothFormats: true }
+      : undefined
+    );
     if (!artwork?.url) {
       emitDiagnostic('SteamGridDB', 'warn', `No safe ${heroType} store hero found for ${game.title}`, {
         steamGridDbId: sgdbGame.id,
@@ -1590,7 +1626,7 @@ async function fetchStoreHero(game) {
     }
 
     const ext = getExtensionFromArtwork(artwork);
-    const destPath = path.join(getGameCacheDir(game.id), `store-hero-${heroType}.${ext}`);
+    const destPath = path.join(getGameCacheDir(game.id), `store-hero-${mediaMode}.${ext}`);
     const metadata = {
       heroType,
       steamGridDbId: sgdbGame.id,
@@ -1598,34 +1634,25 @@ async function fetchStoreHero(game) {
       sourceUrl: artwork.url,
       width: artwork.width || null,
       height: artwork.height || null,
+      mime: artwork.mime || null,
       style: artwork.style || null,
       verified: !!artwork.verified
     };
 
-    try {
-      await downloadImage(artwork.url, destPath);
-      emitDiagnostic('SteamGridDB', 'info', `Downloaded ${heroType} store hero for ${game.title}`, metadata);
-      return {
-        hero: toVersionedArtworkUrl(destPath),
-        mediaMode,
-        ...metadata
-      };
-    } catch (err) {
-      emitDiagnostic('SteamGridDB', 'warn', `Could not cache ${heroType} store hero for ${game.title}: ${err.message}`, {
-        ...metadata,
-        url: artwork.url
-      });
-      return {
-        hero: artwork.url,
-        mediaMode,
-        ...metadata
-      };
-    }
+    scheduleStoreHeroCacheDownload({ game, mediaMode, heroType, artwork, destPath, metadata });
+    return {
+      hero: artwork.url,
+      mediaMode,
+      cacheState: 'remote',
+      ...metadata
+    };
   }
 
   return {
     hero: null,
-    error: `No safe ${mediaMode} SteamGridDB store hero found`,
+    error: lookupSucceeded
+      ? `No safe ${heroTypes.join(' or ')} SteamGridDB store hero found`
+      : lastLookupError || `No safe ${heroTypes.join(' or ')} SteamGridDB store hero found`,
     mediaMode,
     steamGridDbId: sgdbGame.id,
     steamGridDbName: sgdbGame.name || game.title
@@ -2275,6 +2302,73 @@ async function downloadSteamCDNArtwork(appId, key, cacheDir, gameTitle, diagnost
     }
   }
   return null;
+}
+
+function getCachedStoreHero(gameId, mediaMode) {
+  const filePath = getCachedStoreHeroFilePath(gameId, mediaMode);
+  if (!filePath) return null;
+
+  try {
+    const metadataPath = getStoreHeroMetadataPath(gameId, mediaMode);
+    const metadata = fs.existsSync(metadataPath)
+      ? JSON.parse(fs.readFileSync(metadataPath, 'utf-8'))
+      : {};
+
+    return {
+      filePath,
+      metadata: {
+        ...metadata,
+        mediaMode
+      }
+    };
+  } catch (err) {
+    emitDiagnostic('SteamGridDB', 'warn', `Could not read cached ${mediaMode} store hero metadata: ${err.message}`, { gameId });
+    return {
+      filePath,
+      metadata: { mediaMode }
+    };
+  }
+}
+
+function scheduleStoreHeroCacheDownload({ game, mediaMode, heroType, artwork, destPath, metadata }) {
+  const downloadKey = `${game.id}:${mediaMode}:${destPath}`;
+  if (activeStoreHeroDownloads.has(downloadKey)) return;
+
+  const job = (async () => {
+    try {
+      await downloadImage(artwork.url, destPath);
+      const cachedMetadata = {
+        ...metadata,
+        mediaMode,
+        cachedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(getStoreHeroMetadataPath(game.id, mediaMode), JSON.stringify(cachedMetadata, null, 2), 'utf-8');
+      const payload = {
+        gameId: game.id,
+        title: game.title,
+        hero: toVersionedArtworkUrl(destPath),
+        mediaMode,
+        heroType,
+        cacheState: 'cached',
+        ...cachedMetadata
+      };
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('store-hero-cached', payload);
+      }
+
+      emitDiagnostic('SteamGridDB', 'info', `Cached ${heroType} store hero for ${game.title}`, cachedMetadata);
+    } catch (err) {
+      emitDiagnostic('SteamGridDB', 'warn', `Could not cache ${heroType} store hero for ${game.title}: ${err.message}`, {
+        ...metadata,
+        url: artwork.url
+      });
+    } finally {
+      activeStoreHeroDownloads.delete(downloadKey);
+    }
+  })();
+
+  activeStoreHeroDownloads.set(downloadKey, job);
 }
 
 async function fetchArtworkWithFallback(game) {

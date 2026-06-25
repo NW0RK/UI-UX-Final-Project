@@ -135,13 +135,13 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
     return {
       media,
       selectedMedia: getSelectedStoreMedia(media),
-      bannerUrl: item?.bannerUrl || item?.coverUrl || null,
+      bannerUrl: item?.coverUrl || null,
       mediaSource: 'steam'
     };
   }
 
   const igdbFetchedImage = igdbScreenshots[0]?.path_full || igdbScreenshots[0]?.url || null;
-  const igdbImage = igdbFetchedImage || item?.bannerUrl || item?.coverUrl || null;
+  const igdbImage = igdbFetchedImage || item?.coverUrl || null;
   const screenshots = igdbScreenshots.length
     ? igdbScreenshots
     : igdbImage
@@ -152,7 +152,7 @@ function buildStorePrefetchMedia(item, steamAppId, steamDetails, igdbScreenshots
   return {
     media,
     selectedMedia: getSelectedStoreMedia(media),
-    bannerUrl: igdbFetchedImage,
+    bannerUrl: igdbImage,
     mediaSource: igdbScreenshots.length ? 'igdb' : 'fallback'
   };
 }

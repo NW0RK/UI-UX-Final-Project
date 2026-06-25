@@ -635,7 +635,7 @@ export default function StoreItemPage({
         onCacheDetails(item, {
           media: nextMedia,
           selectedMedia: nextSelectedMedia,
-          bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
+          bannerUrl: activeItem.coverUrl || null,
           mediaLoaded: true,
           mediaSource: 'steam'
         }, effectiveSteamAppId);
@@ -644,9 +644,10 @@ export default function StoreItemPage({
       }
 
       if (activeItem.source === 'igdb') {
-        const igdbImage = activeItem.bannerUrl || activeItem.coverUrl;
         const igdbScreenshots = await fetchIgdbScreenshotFallback();
         if (!active) return;
+        const igdbFetchedImage = igdbScreenshots[0]?.path_full || igdbScreenshots[0]?.url || null;
+        const igdbImage = igdbFetchedImage || activeItem.coverUrl || null;
 
         const screenshots = igdbScreenshots.length
           ? igdbScreenshots
@@ -683,7 +684,7 @@ export default function StoreItemPage({
           media: nextMedia,
           selectedMedia: nextSelectedMedia,
           igdbScreenshots,
-          bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
+          bannerUrl: nextSelectedMedia?.url || activeItem.coverUrl || null,
           mediaLoaded: true,
           mediaSource: 'igdb'
         }, effectiveSteamAppId);
@@ -705,7 +706,7 @@ export default function StoreItemPage({
       onCacheDetails(item, {
         media: fallback,
         selectedMedia: nextSelectedMedia,
-        bannerUrl: activeItem.bannerUrl || activeItem.coverUrl || null,
+        bannerUrl: activeItem.coverUrl || null,
         mediaLoaded: true,
         mediaSource: 'mock'
       }, effectiveSteamAppId);
@@ -714,7 +715,7 @@ export default function StoreItemPage({
 
     loadMedia();
     return () => { active = false; };
-  }, [activeItem?.id, activeItem?.source, activeItem?.igdbId, activeItem?.title, activeItem?.description, activeItem?.bannerUrl, activeItem?.coverUrl, effectiveSteamAppId, steamDetails, steamLookupStatus, steamMetadataLoaded, cachedDetails?.cachedAt, onCacheDetails]);
+  }, [activeItem?.id, activeItem?.source, activeItem?.igdbId, activeItem?.title, activeItem?.description, activeItem?.coverUrl, effectiveSteamAppId, steamDetails, steamLookupStatus, steamMetadataLoaded, cachedDetails?.cachedAt, onCacheDetails]);
 
   useEffect(() => {
     if (typeof MutationObserver === 'undefined') return undefined;
@@ -1099,11 +1100,7 @@ export default function StoreItemPage({
       : protonDbStatus === 'unavailable'
         ? 'Unavailable'
         : null;
-  const displayBannerUrl = cachedDetails?.storeHeroUrl ||
-    cachedDetails?.bannerUrl ||
-    activeItem.bannerUrl ||
-    activeItem.coverUrl ||
-    null;
+  const displayBannerUrl = cachedDetails?.storeHeroUrl || null;
 
   const handleMarkOwnedClick = () => {
     audioEngine.playClickPulse();
@@ -1711,7 +1708,8 @@ export default function StoreItemPage({
           display: flex;
           flex-direction: column;
           padding: 10px 0 20px 0;
-          overflow: hidden;
+          overflow-x: visible;
+          overflow-y: hidden;
           height: 100%;
         }
 
@@ -1759,8 +1757,8 @@ export default function StoreItemPage({
           display: flex;
           align-items: center;
           justify-content: center;
-          background: radial-gradient(circle at 50% 35%, rgba(var(--accent-color-rgb), 0.2), rgba(7, 7, 10, 0.96) 68%);
-          color: rgba(255, 255, 255, 0.42);
+          background: transparent;
+          color: transparent;
           font-family: var(--font-display);
           font-size: var(--fs-12);
           font-weight: 800;
@@ -1939,6 +1937,8 @@ export default function StoreItemPage({
           flex: 1;
           min-height: 0;
           overflow: hidden;
+          padding: 4px;
+          margin: -4px;
         }
 
         .store-item-left {
@@ -1946,7 +1946,7 @@ export default function StoreItemPage({
           flex-direction: column;
           min-height: 0;
           overflow-y: auto;
-          padding-right: 8px;
+          padding: 8px 12px 12px 10px;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
         }
@@ -2010,7 +2010,8 @@ export default function StoreItemPage({
         }
 
         .storyline-disclosure {
-          margin: -4px 0 22px;
+          margin: 0 0 22px;
+          padding-top: 4px;
         }
 
         .storyline-toggle-btn {
@@ -2378,6 +2379,7 @@ export default function StoreItemPage({
           margin-top: 0;
           max-width: none;
           flex: 1;
+          padding: 8px;
         }
 
         .media-grid-card {
@@ -2611,7 +2613,7 @@ export default function StoreItemPage({
           flex-direction: column;
           min-height: 0;
           overflow-y: auto;
-          padding-right: 4px;
+          padding: 8px 6px 12px 8px;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
         }

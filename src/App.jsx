@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = {
   trackSystemStatus: true,
   bannerAnimation: true,
   libraryAnimatedHeroesMode: 'off',
+  storeItemBannerMediaMode: 'static',
   libraryTrailerAutoplay: true,
   libraryTrailerMutedByDefault: false,
   fontScale: 1.0,
@@ -446,14 +447,22 @@ export default function App() {
       if (!window.electronAPI?.fetchStoreHero || !targetItem?.id || !targetItem?.title) return;
 
       const key = getStoreItemCacheKey(targetItem);
-      const cachedHeroStatus = key ? storeDetailCacheRef.current[key]?.storeHeroStatus : null;
-      if (['loading', 'ready', 'missing', 'unavailable'].includes(cachedHeroStatus)) return;
+      const desiredHeroMode = settings.storeItemBannerMediaMode || DEFAULT_SETTINGS.storeItemBannerMediaMode;
+      const cachedHeroRecord = key ? storeDetailCacheRef.current[key] : null;
+      const cachedHeroStatus = cachedHeroRecord?.storeHeroStatus || null;
+      const cachedHeroMode = cachedHeroRecord?.storeHeroMediaMode || null;
+      const cacheMatchesMode = cachedHeroMode === desiredHeroMode;
+      if (cacheMatchesMode && ['loading', 'ready', 'missing', 'unavailable'].includes(cachedHeroStatus)) return;
 
-      mergeStoreDetailCache(targetItem, { storeHeroStatus: 'loading' }, steamAppId);
+      mergeStoreDetailCache(targetItem, {
+        storeHeroStatus: 'loading',
+        storeHeroMediaMode: desiredHeroMode
+      }, steamAppId);
 
       window.electronAPI.fetchStoreHero({
         ...targetItem,
-        steamAppId: steamAppId || targetItem?.steamAppId || null
+        steamAppId: steamAppId || targetItem?.steamAppId || null,
+        storeHeroMediaMode: desiredHeroMode
       })
         .then((storeHero) => {
           if (storeHero?.hero) {
@@ -461,6 +470,7 @@ export default function App() {
               storeHeroUrl: storeHero.hero,
               storeHeroSource: 'steamgriddb',
               storeHeroType: storeHero.heroType || null,
+              storeHeroMediaMode: storeHero.mediaMode || desiredHeroMode,
               storeHeroWidth: storeHero.width || null,
               storeHeroHeight: storeHero.height || null,
               storeHeroSourceUrl: storeHero.sourceUrl || null,
@@ -475,6 +485,7 @@ export default function App() {
           const unavailable = /api key/i.test(storeHero?.error || '');
           mergeStoreDetailCache(targetItem, {
             storeHeroStatus: unavailable ? 'unavailable' : 'missing',
+            storeHeroMediaMode: desiredHeroMode,
             storeHeroError: storeHero?.error || 'No SteamGridDB store hero found',
             steamGridDbId: storeHero?.steamGridDbId || targetItem.steamGridDbId || null,
             steamGridDbName: storeHero?.steamGridDbName || targetItem.steamGridDbName || null
@@ -483,6 +494,7 @@ export default function App() {
         .catch((error) => {
           mergeStoreDetailCache(targetItem, {
             storeHeroStatus: /api key/i.test(error.message) ? 'unavailable' : 'error',
+            storeHeroMediaMode: desiredHeroMode,
             storeHeroError: error.message
           }, steamAppId);
         });
@@ -650,7 +662,12 @@ export default function App() {
 
     storeDetailInFlightRef.current.set(initialKey, request);
     return request;
-  }, [fetchProtonDbSummary, mergeStoreDetailCache, settings.protonDbEnabled]);
+  }, [
+    fetchProtonDbSummary,
+    mergeStoreDetailCache,
+    settings.protonDbEnabled,
+    settings.storeItemBannerMediaMode
+  ]);
 
   // --- System Diagnostic Metrics ---
 
@@ -2759,6 +2776,7 @@ export default function App() {
             onEditMetadata={handleOpenMetadata}
             onRemoveGame={handleRemoveGame}
             protonDbEnabled={settings.protonDbEnabled}
+            storeItemBannerMediaMode={settings.storeItemBannerMediaMode}
           />
         )}
       </main>

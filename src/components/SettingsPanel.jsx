@@ -78,6 +78,15 @@ export default function SettingsPanel({
     onUpdateSettings({ ...settings, libraryAnimatedHeroesMode: mode });
   };
 
+  const handleStoreItemBannerMediaModeToggle = () => {
+    audioEngine.playClickPulse();
+    const currentMode = settings.storeItemBannerMediaMode || 'static';
+    onUpdateSettings({
+      ...settings,
+      storeItemBannerMediaMode: currentMode === 'animated' ? 'static' : 'animated'
+    });
+  };
+
   const handleLibraryTrailerToggle = () => {
     audioEngine.playClickPulse();
     onUpdateSettings({ ...settings, libraryTrailerAutoplay: !settings.libraryTrailerAutoplay });
@@ -455,6 +464,32 @@ export default function SettingsPanel({
                     {label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div
+              className="audio-toggle-card settings-subgroup"
+              role="switch"
+              tabIndex={0}
+              aria-checked={(settings.storeItemBannerMediaMode || 'static') === 'animated'}
+              onClick={handleStoreItemBannerMediaModeToggle}
+              onFocus={audioEngine.playHoverTick}
+            >
+              <div className="audio-card-left">
+                <Image size={20} className={(settings.storeItemBannerMediaMode || 'static') === 'animated' ? 'mute-status-icon active-volume' : 'mute-status-icon muted'} />
+                <div className="audio-card-info">
+                  <span className="audio-card-title">Store Item Banners</span>
+                  <span className="audio-card-desc">
+                    {(settings.storeItemBannerMediaMode || 'static') === 'static'
+                      ? 'Store item heroes use static SteamGridDB artwork.'
+                      : 'Store item heroes prefer animated SteamGridDB artwork.'}
+                  </span>
+                </div>
+              </div>
+              <div className="audio-card-right">
+                <div className={`checkbox-toggle-switch ${(settings.storeItemBannerMediaMode || 'static') === 'animated' ? 'sw-active' : 'sw-muted'}`}>
+                  <div className="switch-knob" />
+                </div>
               </div>
             </div>
 

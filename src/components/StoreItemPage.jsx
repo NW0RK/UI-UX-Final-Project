@@ -230,7 +230,8 @@ export default function StoreItemPage({
   onLaunch,
   onEditMetadata,
   onRemoveGame,
-  protonDbEnabled = false
+  protonDbEnabled = false,
+  storeItemBannerMediaMode = 'static'
 }) {
   const [exeInput, setExeInput] = useState('');
   const [showExeInput, setShowExeInput] = useState(false);
@@ -284,7 +285,7 @@ export default function StoreItemPage({
   useEffect(() => {
     if (!item) return;
     onPrefetchItem(item);
-  }, [item?.id, onPrefetchItem]);
+  }, [item?.id, onPrefetchItem, storeItemBannerMediaMode]);
 
   useEffect(() => {
     setStorylineExpanded(false);
@@ -1100,7 +1101,9 @@ export default function StoreItemPage({
       : protonDbStatus === 'unavailable'
         ? 'Unavailable'
         : null;
-  const displayBannerUrl = cachedDetails?.storeHeroUrl || null;
+  const displayBannerUrl = cachedDetails?.storeHeroMediaMode === storeItemBannerMediaMode
+    ? cachedDetails?.storeHeroUrl || null
+    : null;
 
   const handleMarkOwnedClick = () => {
     audioEngine.playClickPulse();

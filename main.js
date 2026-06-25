@@ -1560,7 +1560,10 @@ async function fetchStoreHero(game) {
   const sgdbGame = await resolveSteamGridDBGame(game);
   if (!sgdbGame?.id) return { hero: null, error: 'No SteamGridDB match found' };
 
-  for (const heroType of ['animated', 'static']) {
+  const mediaMode = game.storeHeroMediaMode === 'animated' ? 'animated' : 'static';
+  const heroTypes = mediaMode === 'static' ? ['static'] : ['animated', 'static'];
+
+  for (const heroType of heroTypes) {
     const endpoint = `/heroes/game/${sgdbGame.id}?${buildSteamGridDBArtworkQuery({
       dimensions: STORE_HERO_DIMENSIONS.join(','),
       types: heroType
@@ -1604,6 +1607,7 @@ async function fetchStoreHero(game) {
       emitDiagnostic('SteamGridDB', 'info', `Downloaded ${heroType} store hero for ${game.title}`, metadata);
       return {
         hero: toVersionedArtworkUrl(destPath),
+        mediaMode,
         ...metadata
       };
     } catch (err) {
@@ -1613,6 +1617,7 @@ async function fetchStoreHero(game) {
       });
       return {
         hero: artwork.url,
+        mediaMode,
         ...metadata
       };
     }
@@ -1620,7 +1625,8 @@ async function fetchStoreHero(game) {
 
   return {
     hero: null,
-    error: 'No safe SteamGridDB store hero found',
+    error: `No safe ${mediaMode} SteamGridDB store hero found`,
+    mediaMode,
     steamGridDbId: sgdbGame.id,
     steamGridDbName: sgdbGame.name || game.title
   };

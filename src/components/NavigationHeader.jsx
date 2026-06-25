@@ -381,10 +381,12 @@ export default function NavigationHeader({
 
         .nav-center {
           width: 320px;
+          padding: 0 24px;
           z-index: 10000;
           -webkit-app-region: no-drag;
           display: flex;
           justify-content: center;
+          box-sizing: content-box;
           transition: width 360ms var(--ease-interface);
         }
 
@@ -578,6 +580,25 @@ export default function NavigationHeader({
           color: #fff;
           padding-left: 10px;
           text-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+        }
+
+        @media (max-width: 1180px) {
+          .navigation-header {
+            padding: 0 24px;
+          }
+
+          .nav-left {
+            gap: 32px;
+          }
+
+          .nexus-logo {
+            display: none;
+          }
+
+          .nav-center {
+            padding-left: 18px;
+            padding-right: 18px;
+          }
         }
       `}} />
     </header>

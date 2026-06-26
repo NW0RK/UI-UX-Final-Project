@@ -56,8 +56,11 @@ function emitDiagnostic(area, level, message, details = null) {
 
 // --- SteamGridDB Configuration ---
 const STEAMGRIDDB_BASE_URL = 'https://www.steamgriddb.com/api/v2';
+const BUILTIN_API_KEY = '';
 const IGDB_BASE_URL = 'https://api.igdb.com/v4';
 const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
+const DEFAULT_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q';
+const DEFAULT_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj';
 const REQUEST_TIMEOUT_MS = 15000;
 const IGDB_RATE_LIMIT_DELAY_MS = 260;
 const IGDB_POPSCORE_TYPES = [1, 2, 3, 4, 5, 9, 10, 11];
@@ -116,7 +119,11 @@ function getIgdbCredentialsFromConfig() {
     }
   } catch (e) { /* ignore */ }
 
-  return { clientId: envClientId, clientSecret: envClientSecret, source: 'env' };
+  return {
+    clientId: envClientId || DEFAULT_IGDB_CLIENT_ID,
+    clientSecret: envClientSecret || DEFAULT_IGDB_CLIENT_SECRET,
+    source: envClientId || envClientSecret ? 'env' : 'builtin'
+  };
 }
 
 function toFileUrl(filePath) {
@@ -2801,22 +2808,34 @@ ipcMain.handle('get-igdb-credentials', async () => {
     const configExists = await fs.promises.access(configPath).then(() => true).catch(() => false);
     if (configExists) {
       const config = JSON.parse(await fs.promises.readFile(configPath, 'utf-8'));
+      const clientId = envClientId || config.igdbClientId?.trim() || DEFAULT_IGDB_CLIENT_ID;
+      const hasClientSecret = !!(envClientSecret || config.igdbClientSecret?.trim() || DEFAULT_IGDB_CLIENT_SECRET);
+      const source = envClientId || envClientSecret
+        ? 'env'
+        : config.igdbClientId?.trim() || config.igdbClientSecret?.trim()
+          ? 'config'
+          : 'builtin';
       return {
         success: true,
         credentials: {
-          clientId: envClientId || config.igdbClientId?.trim() || '',
-          clientSecret: envClientSecret ? '********' : (config.igdbClientSecret?.trim() ? '********' : ''),
-          isCustom: !!(envClientId || config.igdbClientId?.trim())
+          clientId,
+          clientSecret: hasClientSecret ? '********' : '',
+          hasClientSecret,
+          source,
+          isCustom: source !== 'builtin'
         }
       };
     }
   } catch (e) { /* ignore */ }
+  const source = envClientId || envClientSecret ? 'env' : 'builtin';
   return {
     success: true,
     credentials: {
-      clientId: envClientId || '',
-      clientSecret: envClientSecret ? '********' : '',
-      isCustom: !!envClientId
+      clientId: envClientId || DEFAULT_IGDB_CLIENT_ID,
+      clientSecret: '********',
+      hasClientSecret: true,
+      source,
+      isCustom: source !== 'builtin'
     }
   };
 });

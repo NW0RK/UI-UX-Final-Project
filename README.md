@@ -117,7 +117,7 @@ Use the Electron window that opens. The localhost URL is only for Electron's ren
 
 ## Optional API Setup
 
-Nexus can run without every external credential, but the richest artwork and discovery experience works best with API keys.
+Nexus includes built-in credentials for the shared discovery and deal feeds used by the class project, so a fresh clone can load IGDB discovery and ITAD deal data without extra setup. You can still provide your own keys to avoid shared quota limits or to test against your own API apps.
 
 Copy the example environment file:
 
@@ -125,7 +125,7 @@ Copy the example environment file:
 copy .env.example .env
 ```
 
-Then fill in any credentials you want to use:
+Then fill in any credentials you want to override:
 
 ```env
 STEAMGRIDDB_API_KEY=
@@ -136,7 +136,7 @@ IGDB_CLIENT_SECRET=
 What these unlock:
 
 - `STEAMGRIDDB_API_KEY` improves cover, banner, logo, and icon fetching.
-- `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET` enable richer IGDB discovery, search, screenshots, details, and trailers.
+- `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET` override the built-in IGDB discovery credentials for search, screenshots, details, and trailers.
 
 The desktop app also exposes API credential controls in the Settings panel where supported.
 
@@ -246,7 +246,7 @@ window.electronAPI.launchGame("malicious", "C:\\Windows\\System32\\cmd.exe")
 
 ### Hardcoded Credentials Disclaimer
 
-There are 5 hardcoded third-party credentials in the renderer source code, all committed to git and shipped to every client:
+There are shared third-party credentials committed to git and shipped to every client for the class-project prototype:
 
 | File | Line | Credential |
 | :--- | :--- | :--- |
@@ -254,7 +254,11 @@ There are 5 hardcoded third-party credentials in the renderer source code, all c
 | `src/utils/itad.js` | 2 | `DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8'` |
 | `src/utils/itad.js` | 3 | `DEFAULT_ITAD_CLIENT_ID = 'c148f1514efb8478'` |
 | `src/utils/itad.js` | 4 | `DEFAULT_ITAD_CLIENT_SECRET = '68dfada7b9d81f36cc171a0cded8176621930c2e'` |
-| `src/components/SettingsPanel.jsx` | 33 | `'331ozbtylxc949s6y4o2amakole28q'` (IGDB Client ID fallback) |
+| `main.js` | 62 | `DEFAULT_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q'` |
+| `main.js` | 63 | `DEFAULT_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj'` |
+| `scripts/igdbProxyPlugin.js` | 5 | `DEFAULT_IGDB_CLIENT_ID = '331ozbtylxc949s6y4o2amakole28q'` |
+| `scripts/igdbProxyPlugin.js` | 6 | `DEFAULT_IGDB_CLIENT_SECRET = 'g6dhb4trtz2b69dckp5b4t6womkvbj'` |
+| `src/components/SettingsPanel.jsx` | 21 | `'331ozbtylxc949s6y4o2amakole28q'` (IGDB Client ID fallback display) |
 
 **Why it matters:**
 - **Anyone can read them** — the source is public in git, and the values are shipped as plaintext in browser bundles. Opening devtools or viewing the network tab reveals all of them.
@@ -262,8 +266,8 @@ There are 5 hardcoded third-party credentials in the renderer source code, all c
 - **ITAD Client Secret exposed** (`itad.js:4`) — client secrets are considered confidential credentials. OAuth client secrets should never be in client-side code, as they can be used to impersonate the app in OAuth flows.
 - **Git history leak** — these are in committed source files, so rotating them doesn't fully remove exposure from past commits.
 
-**What's not exposed:**
-The SteamGridDB API key and IGDB Client Secret are NOT hardcoded — they're expected from user config or env vars. IGDB requests are proxied through the main process, so the Client Secret never reaches the renderer.
+**What's less exposed:**
+The SteamGridDB API key is still expected from user config or env vars. IGDB requests are proxied through the main process in Electron and through the Vite proxy in preview, so the IGDB Client Secret is not sent to the renderer, but it is still present in source for shared out-of-the-box discovery.
 
 **Fix direction:**
 The hardcoded keys should be:

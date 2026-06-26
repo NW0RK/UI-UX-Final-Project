@@ -18,6 +18,23 @@ export default function SettingsPanel({
   const [igdbStatus, setIgdbStatus] = useState('loading');
   const [igdbSaved, setIgdbSaved] = useState(false);
 
+  const igdbStatusText = igdbSaved
+    ? 'Saved!'
+    : igdbStatus === 'missing-secret'
+      ? 'IGDB secret required for discovery'
+      : igdbStatus === 'builtin'
+        ? 'Built-in IGDB discovery credentials'
+        : igdbStatus === 'env'
+          ? 'Environment IGDB discovery credentials'
+          : 'Custom IGDB discovery credentials';
+
+  const applyIgdbCredentialsResult = (result) => {
+    const credentials = result?.credentials || result || {};
+    setIgdbClientId(credentials.clientId || '331ozbtylxc949s6y4o2amakole28q');
+    setIgdbClientSecret(credentials.hasClientSecret || credentials.clientSecret ? '********' : '');
+    setIgdbStatus(credentials.hasClientSecret || credentials.clientSecret ? credentials.source || 'custom' : 'missing-secret');
+  };
+
   useEffect(() => {
     if (window.electronAPI) {
       window.electronAPI.getApiKey().then(result => {
@@ -29,11 +46,9 @@ export default function SettingsPanel({
 
   useEffect(() => {
     if (window.electronAPI?.getIgdbCredentials) {
-      window.electronAPI.getIgdbCredentials().then(result => {
-        setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
-        setIgdbClientSecret(result.hasClientSecret ? '********' : '');
-        setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
-      }).catch(() => setIgdbStatus('missing-secret'));
+      window.electronAPI.getIgdbCredentials()
+        .then(applyIgdbCredentialsResult)
+        .catch(() => setIgdbStatus('missing-secret'));
     } else {
       setIgdbStatus('preview');
     }
@@ -161,9 +176,7 @@ export default function SettingsPanel({
       }
       await window.electronAPI.saveIgdbCredentials(payload);
       const result = await window.electronAPI.getIgdbCredentials();
-      setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
-      setIgdbClientSecret(result.hasClientSecret ? '********' : '');
-      setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
+      applyIgdbCredentialsResult(result);
       setIgdbSaved(true);
       setTimeout(() => setIgdbSaved(false), 2000);
     }
@@ -174,9 +187,7 @@ export default function SettingsPanel({
     if (window.electronAPI?.saveIgdbCredentials) {
       await window.electronAPI.saveIgdbCredentials({ clientId: '', clientSecret: '' });
       const result = await window.electronAPI.getIgdbCredentials();
-      setIgdbClientId(result.clientId || '331ozbtylxc949s6y4o2amakole28q');
-      setIgdbClientSecret(result.hasClientSecret ? '********' : '');
-      setIgdbStatus(result.hasClientSecret ? result.source || 'custom' : 'missing-secret');
+      applyIgdbCredentialsResult(result);
     }
   };
 
@@ -667,7 +678,7 @@ export default function SettingsPanel({
               </div>
               <div className="api-key-actions">
                 <span className="api-key-status-text">
-                  {igdbSaved ? 'Saved!' : igdbStatus === 'missing-secret' ? 'IGDB secret required for discovery' : 'IGDB discovery credentials'}
+                  {igdbStatusText}
                 </span>
                 <div className="api-key-buttons">
                   <button

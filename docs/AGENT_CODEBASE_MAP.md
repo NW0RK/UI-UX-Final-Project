@@ -118,7 +118,7 @@ Current IPC groups:
 | HowLongToBeat | `searchHowLongToBeat`, `autoFetchHowLongToBeat` | `hltb-search`, `hltb-auto-fetch` |
 | ITAD | `fetchItadJson` | `itad-fetch-json` |
 | CheapShark | `fetchCheapSharkJson` | `cheapshark-fetch-json` |
-| Settings/API key | `saveApiKey`, `getApiKey`, `saveIgdbCredentials`, `getIgdbCredentials`, `saveSettings`, `loadSettings` | matching handlers in `main.js` |
+| Settings/API key | `saveApiKey`, `getApiKey`, `saveIgdbCredentials`, `getIgdbCredentials`, `saveSettings`, `loadSettings` | matching handlers in `main.js`; IGDB can report `builtin`, `env`, or `config` credential source |
 | Diagnostics | `onDiagnosticEvent` | `diagnostic-event` |
 
 When adding IPC:
@@ -147,7 +147,7 @@ Persistence locations:
 | Game database | Electron user data `nexus-db.json`; legacy path copied if present. | `localStorage` key `nexus_games_cache`. |
 | Settings | Electron user data `nexus-config.json`, under `settings`; includes visual/audio options, launcher volume, looping menu music preference, Library trailer autoplay/default-audio preferences, default-off `libraryAnimatedHeroesMode`, default-static Store Item banner media preference, and the default-off `protonDbEnabled` Linux compatibility toggle. | `localStorage` key `nexus_settings`. |
 | SteamGridDB API key | Electron user data `nexus-config.json`, or `STEAMGRIDDB_API_KEY` env var. | Not used by most desktop-only fetch paths. |
-| IGDB credentials | Electron user data `nexus-config.json`, or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` can use `.env.local` credentials through the Vite IGDB proxy. |
+| IGDB credentials | Built-in shared credentials, overridden by Electron user data `nexus-config.json` or `IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET` env vars. | `npm run dev` and `npm run preview` use the same built-in credentials unless `.env.local` or process env values override them through the Vite IGDB proxy. |
 | IGDB trending feed cache | Electron user data `igdb-popular-cache.json`, refreshed after 24 hours for each requested Store feed limit. | `localStorage` key `nexus_igdb_popular_cache`, with the same one-day refresh rule. |
 | Profile | `localStorage` keys `nexus_username`, `nexus_user_avatar`. | Same. |
 | Controller hints | `localStorage` key `controllerHintsHidden`. | Same. |

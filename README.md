@@ -191,3 +191,82 @@ Note: `npm run preview` previews the renderer and does not exercise the full Ele
 ## Status
 
 Nexus Launcher is an active final project prototype with a polished desktop experience and several live-service integrations. It is ready to run locally from source, and future work could add packaged Windows releases through GitHub Releases.
+
+## Security Notes
+
+This codebase does not load any remote CDN scripts in the renderer. The only script loaded is the local `/src/main.jsx` module (`index.html:10`). All CDN downloads (Steam CDN images, SteamGridDB, IGDB, HowLongToBeat APIs) happen in the main process (`main.js`) via Node.js `https` — never as renderer-executed scripts.
+
+If a remote script were somehow injected, the app's security settings (`main.js:1457-1462`) mitigate the damage:
+
+| Setting | Effect |
+| :--- | :--- |
+| `nodeIntegration: false` | No `require()` / Node.js APIs in renderer |
+| `contextIsolation: true` | Renderer cannot access `electronAPI` bridge directly — preload is isolated |
+| `sandbox: true` | Chromium sandbox further restricts child process |
+| `will-navigate` blocked | Prevents navigation to attacker URLs |
+| `setWindowOpenHandler` | Only `https://` opens externally; action: 'deny' prevents new windows |
+
+A compromised renderer script could still:
+- Read/Write `localStorage`
+- Call exposed IPC methods (no filesystem access, just the limited `electronAPI` surface)
+- Manipulate the DOM / phish the user
+
+But it cannot access the filesystem, execute shell commands, or reach Node.js/Electron internals — those are isolated in the main process behind IPC boundaries. The renderer controls `exePath` completely, and the main process calls `spawn()` on it with zero validation beyond `fs.existsSync()` (`main.js:1729-1732`).
+
+### The Data Flow
+
+```text
+Renderer (App.jsx:1294)
+  ──IPC──>  preload.js:21
+              ──invoke──>  main.js:1727
+                              spawn(exePath, [], ...)
+```
+
+The `exePath` comes from the game object stored/persisted in the renderer. If an attacker compromises the renderer (XSS, injected CDN script, devtools abuse), they can call:
+```javascript
+window.electronAPI.launchGame("malicious", "C:\\Windows\\System32\\cmd.exe")
+```
+
+### What the Attacker Can Do
+
+| Capability | Details |
+| :--- | :--- |
+| Launch any `.exe` | No allowlist, no path restriction. Any file on disk `fs.existsSync()` passes. |
+| No shell injection | `spawn` without `shell: true` — can't inject args via `&` or `;`, but they can pick any binary. |
+| Spawn as user | Runs at the same OS user privilege level as the app. Not elevated. |
+| Bypass game tracking | `child.unref()` + `detached: true` means the child outlives the launcher. |
+
+### Existing Guardrails (and Gaps)
+
+- `fs.existsSync(exePath)` — only checks the file exists, not what it is.
+- `sandbox: true` + `contextIsolation: true` — makes compromise harder but doesn't prevent a compromised renderer from calling `electronAPI.launchGame()`.
+- No path allowlisting, no canonical path check (e.g. rejecting paths outside Program Files / Steam directories), no digital signature verification.
+
+**Bottom line:** If the renderer is compromised, the attacker gets arbitrary code execution at the user's privilege level by launching any executable on disk through the `launch-game` IPC handler.
+
+### Hardcoded Credentials Disclaimer
+
+There are 5 hardcoded third-party credentials in the renderer source code, all committed to git and shipped to every client:
+
+| File | Line | Credential |
+| :--- | :--- | :--- |
+| `src/utils/rawg.js` | 2 | `BUILTIN_RAWG_API_KEY = '10149f0743744f2c82250660ee23bfe2'` |
+| `src/utils/itad.js` | 2 | `DEFAULT_ITAD_API_KEY = '3a90499d6e838ec7b1ca664f6004517df06e2aa8'` |
+| `src/utils/itad.js` | 3 | `DEFAULT_ITAD_CLIENT_ID = 'c148f1514efb8478'` |
+| `src/utils/itad.js` | 4 | `DEFAULT_ITAD_CLIENT_SECRET = '68dfada7b9d81f36cc171a0cded8176621930c2e'` |
+| `src/components/SettingsPanel.jsx` | 33 | `'331ozbtylxc949s6y4o2amakole28q'` (IGDB Client ID fallback) |
+
+**Why it matters:**
+- **Anyone can read them** — the source is public in git, and the values are shipped as plaintext in browser bundles. Opening devtools or viewing the network tab reveals all of them.
+- **API key abuse** — the RAWG key (`rawg.js:33`) and ITAD key (`itad.js:113-115`) are sent in renderer-side `fetch()` calls (not proxied through the main process). Anyone can extract them and use them against the respective APIs, potentially incurring costs or hitting rate limits under the app's shared quota.
+- **ITAD Client Secret exposed** (`itad.js:4`) — client secrets are considered confidential credentials. OAuth client secrets should never be in client-side code, as they can be used to impersonate the app in OAuth flows.
+- **Git history leak** — these are in committed source files, so rotating them doesn't fully remove exposure from past commits.
+
+**What's not exposed:**
+The SteamGridDB API key and IGDB Client Secret are NOT hardcoded — they're expected from user config or env vars. IGDB requests are proxied through the main process, so the Client Secret never reaches the renderer.
+
+**Fix direction:**
+The hardcoded keys should be:
+1. Removed from source and replaced with env-var-only loading.
+2. Proxied through the main process (like SteamGridDB/IGDB already are) so the renderer never touches the raw credential — it calls IPC, and `main.js` attaches the key server-side.
+3. Rotated after removal, since they're already compromised.
